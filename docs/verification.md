@@ -2,7 +2,9 @@
 
 ## 0.8.4-preview.1 边界验收与本地交付
 
-日期：2026-10-27（Asia/Shanghai）。执行计划见 [acceptance-release-plan.md](acceptance-release-plan.md)。JSON Patch 和格式 3 保持不变；当前只交付预览版，没有宣称完整真实页面验收或远程发布完成。
+日期：2026-10-27（Asia/Shanghai）。执行计划见 [acceptance-release-plan.md](acceptance-release-plan.md)。JSON Patch 和格式 3 保持不变；当前交付预览版，完整真实页面验收仍未完成，远程交付结果见下文。
+
+交付后补记：源码提交 `69a453695a1d0ef72a49091cdbabd2d8c1aa80f1` 已推送，[Linux/Windows 远程检查](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/actions/runs/40359602612)均成功；[v0.8.4-preview.1](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.8.4-preview.1) 已作为预览版公开，六项附件的服务端 SHA256 与重新公开下载后的字节校验均与本地产物一致，记录为 `test-results/remote-release-verify.json`。源码包包含的 86 个文件逐一与该提交核对一致；源码及三种分发包从解包目录重建后，四包哈希均与原工作区一致。后续这份状态补记不改变该标签与已发布的附件。
 
 修复两处具体问题：
 

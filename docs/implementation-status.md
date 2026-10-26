@@ -1,6 +1,6 @@
 # SOLVE 0.8.4-preview.1 当前工作区交付
 
-本地预览版修复删除回复版本时的下标/变量对齐，以及过期页面重新检查历史时的旧正文覆盖风险。新增 7 项回归，合计 120 项；真实酒馆 API 的 12 个边界检查及 PNG 往返通过。保留 0.8.3 的格式 3 和全部历史校验；不采用 Merge Patch。本轮产出本地预览包与对应源码，尚未提交/推送或运行远程 CI。分发说明见 [distributions.md](distributions.md)，验收范围见 [verification.md](verification.md)，发布命令见 [release-guide.md](release-guide.md)。
+预览版修复删除回复版本时的下标/变量对齐，以及过期页面重新检查历史时的旧正文覆盖风险。新增 7 项回归，合计 120 项；真实酒馆 API 的 12 个边界检查及 PNG 往返通过。保留 0.8.3 的格式 3 和全部历史校验；不采用 Merge Patch。源码提交 `69a4536` 已推送，Linux/Windows 的[远程检查](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/actions/runs/40359602612)均通过，[预览发布](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.8.4-preview.1)包含三种分发包、实际源码和校验清单。分发说明见 [distributions.md](distributions.md)，剩余页面验收范围见 [verification.md](verification.md)，发布命令见 [release-guide.md](release-guide.md)。
 
 日期：2026-10-27。这是规划的第一批落地，尚未标记全部 V1 目标完成。0.7.1 改用 AGPL-3.0-only 并提供源码入口，保留 0.7.0 已授出的 Apache-2.0 许可，详见 [授权与版本说明](licensing.md)。
 
