@@ -1,17 +1,17 @@
 # SOLVE · SillyTavern-Oriented-LLM-Variable-Engine
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-365c49.svg)](LICENSE)
-[![Version: 0.7.0](https://img.shields.io/badge/Version-0.7.0-647063.svg)](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-365c49.svg)](LICENSE)
+[![Version: 0.7.1](https://img.shields.io/badge/Version-0.7.1-647063.svg)](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases)
 
 面向 **SillyTavern 1.19.x 单角色聊天**的结构化变量引擎。模型输出 JSON 指令，Core 执行与校验，聊天文件保存实际结果。现包含 React + Radix 调试工作台，松绿与暖灰配色，支持浅色/深色以及电脑/手机。
 
 ![SOLVE 调试工作台](docs/images/debug-desktop-light.jpg)
 
-当前版本 **0.7.0**，属于持续开发中的首版。已通过 90 项自动测试，完整真实聊天流程与长期企划的其余范围见 [验证记录](docs/verification.md) 和 [开发计划](docs/development-plan.md)。
+当前版本 **0.7.1**，属于持续开发中的首版。本次更新改用强互惠开源协议 AGPL-3.0-only，功能与 0.7.0 一致。已通过 90 项自动测试，完整真实聊天流程与长期企划的其余范围见 [验证记录](docs/verification.md) 和 [开发计划](docs/development-plan.md)。
 
 ## 安装到酒馆
 
-从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases) 下载 `SOLVE-0.7.0.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
+从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases) 下载 `SOLVE-0.7.1.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
 
 如果使用源码安装，运行 `npm ci` 和 `npm run build`，然后将 `dist/` 的全部文件复制到上述目录。
 
@@ -146,6 +146,10 @@ await SOLVE.register(rpgDefinition, {
 
 ## 开源协议
 
-本项目采用 [Apache License 2.0](LICENSE)：允许商用、修改和再分发；需要保留版权、协议和相关声明，发布修改时标注改动。协议包含明确的专利授权条款。
+从 **0.7.1** 开始，本项目采用 **[GNU AGPL v3，仅限第 3 版（AGPL-3.0-only）](LICENSE)**，具有强互惠性（通常称“开源传染力”）：分发修改版或构成同一程序的衍生作品时，需按协议提供对应源码并保留相同许可；修改版若支持通过网络与用户交互，还须向这些用户显著提供免费获取该版本对应源码的机会。协议允许商用。
+
+源码与构建入口见本仓库，面板页脚提供源码及协议链接。独立作品仅与本项目一同存放、普通聊天数据或单纯使用本项目，并不会因此自动全部改为 AGPL；具体范围以协议正文为准。分发或部署修改版时，应提供自己的实际对应源码，不能只链接未修改的上游版本。详见 [授权与版本说明](docs/licensing.md)。
+
+**已发布的 0.7.0 曾采用 Apache-2.0，已授出的许可无法追溯撤回。** 其标签与历史安装包保留原许可；当前版本和后续版本以各自声明为准。
 
 第三方依赖继续遵循各自协议。浏览器构建包中的 `THIRD_PARTY_NOTICES.txt` 保留所包含依赖的授权内容，项目声明见 [NOTICE](NOTICE)。

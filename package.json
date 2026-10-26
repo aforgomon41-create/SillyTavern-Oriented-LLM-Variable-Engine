@@ -1,7 +1,7 @@
 {
   "name": "solve-variable-engine",
-  "version": "0.7.0",
-  "license": "Apache-2.0",
+  "version": "0.7.1",
+  "license": "AGPL-3.0-only",
   "author": "aforgomon41-create",
   "repository": {
     "type": "git",

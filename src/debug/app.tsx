@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import type { Controller, DebugConnection } from "./connection.js";
 import { connect } from "./connection.js";
+import { VERSION } from "../version.js";
 import { isPreviewCurrent, parseEditor, type PreviewTicket } from "./editor.js";
 import "./style.css";
 
@@ -1896,7 +1897,11 @@ function App({ connection }: { connection: DebugConnection }) {
               />
             )}
             <footer>
-              有序的状态，自由的故事。<span>SOLVE / VARIABLE ENGINE</span>
+              有序的状态，自由的故事。
+              <span className="footer-links">
+                <a href={`https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/tree/v${VERSION}`} target="_blank" rel="noopener noreferrer">源码</a>
+                <a href={`https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/blob/v${VERSION}/LICENSE`} target="_blank" rel="noopener noreferrer">AGPL-3.0 · 无担保</a>
+              </span>
             </footer>
           </main>
         </div>

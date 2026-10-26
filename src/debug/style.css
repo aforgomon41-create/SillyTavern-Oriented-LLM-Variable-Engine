@@ -1759,3 +1759,4 @@ footer span {
 [aria-invalid="true"] {
   border-color: var(--danger);
 }
+footer{align-items:center;gap:12px;flex-wrap:wrap}.footer-links{display:inline-flex;align-items:center;gap:16px}.footer-links a{display:inline-flex;align-items:center;min-height:44px;font-size:11px;letter-spacing:0;color:var(--green)}.footer-links a:hover{text-decoration:underline}
