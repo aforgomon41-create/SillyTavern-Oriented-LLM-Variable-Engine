@@ -10,7 +10,8 @@ export class SolveRuntime {
   private currentHead: string;
   private epoch = 0;
   private queued = 0;
-  constructor(public readonly core: SolveCore, private currentArchive: Archive, headId: string, private adapter: ArchiveAdapter) {
+  constructor(public readonly core: SolveCore, private currentArchive: Archive, headId: string, private adapter: ArchiveAdapter,
+    private restoreState: typeof restore = restore) {
     this.currentHead = headId;
     if (core.definition.fingerprint !== currentArchive.definitionHash) fail('DEFINITION_MISMATCH', '会话绑定的定义已变化');
   }
@@ -18,19 +19,21 @@ export class SolveRuntime {
   get headId(): string { return this.currentHead; }
   get busy(): boolean { return this.queued > 0; }
   get pendingCount(): number { return this.pending.size; }
+  get sessionId(): string { return this.currentArchive.sessionId; }
+  getCommit(commitId = this.currentHead): Commit | undefined { const value = this.currentArchive.commits[commitId]; return value ? clone(value) : undefined; }
   getState(): LogicalState {
     if (!this.currentState) fail('STATE_NOT_READY', 'SOLVE 状态尚未恢复');
     return clone(this.currentState);
   }
   async ready(): Promise<void> {
     const epoch = this.epoch, head = this.currentHead;
-    const state = await restore(this.currentArchive, head);
+    const state = await this.restoreState(this.currentArchive, head);
     if (epoch !== this.epoch || head !== this.currentHead) fail('STALE_ACTION', '恢复期间选中历史已改变');
     this.currentState = state;
   }
   async select(headId: string): Promise<void> {
     const epoch = ++this.epoch;
-    const state = await restore(this.currentArchive, headId);
+    const state = await this.restoreState(this.currentArchive, headId);
     if (epoch !== this.epoch) fail('STALE_SELECTION', '选中历史已经改变');
     this.currentHead = headId; this.currentState = state;
   }
@@ -109,14 +112,40 @@ export class SolveRuntime {
     if (this.busy) fail('RUNTIME_BUSY', '写入运行中不能撤回草稿');
     this.pending.clear();
   }
+  /** Archive an already computed Replay result, including retries, without executing author functions again. */
+  savePrepared(input: SaveDraft, sourceText: string): Promise<Commit> {
+    const draft = clone(input), epoch = this.epoch;
+    this.queued++;
+    const task = this.queue.then(async () => {
+      if (epoch !== this.epoch) fail('STALE_ACTION', '历史已改变');
+      if (!draft.prepared || draft.expectedHead !== this.currentHead) fail('PENDING_CONFLICT', '重放候选基线已变化');
+      if (draft.sourceTextDigest && draft.sourceTextDigest !== await hash(sourceText)) fail('PENDING_TEXT_CHANGED', '重放候选的原正文已变化');
+      const key = `${headKey(draft.binding)}:prepared:${draft.commit.id}`;
+      if (this.pending.size && !this.pending.has(key)) fail('PENDING_SAVE', '请先处理已有草稿');
+      // Reuse the same structural checks as refresh recovery, before accepting a candidate.
+      this.acceptPending([draft]);
+      const state = await restore(draft.archive, draft.commit.id);
+      await this.adapter.assertCurrent(draft.binding);
+      if (epoch !== this.epoch) fail('STALE_ACTION', '保存前历史已改变');
+      await this.adapter.save(clone(draft));
+      await this.adapter.assertCurrent(draft.binding);
+      if (epoch !== this.epoch) fail('STALE_ACTION', '保存确认期间历史已改变');
+      this.currentArchive = clone(draft.archive); this.currentHead = draft.commit.id; this.currentState = state; this.pending.delete(key);
+      return clone(draft.commit);
+    });
+    this.queue = task.catch(() => undefined); return task.finally(() => { this.queued--; });
+  }
   // Persist these drafts locally for refresh recovery; they are never archived facts.
   exportPending(): SaveDraft[] { return clone([...this.pending.values()]); }
   importPending(drafts: SaveDraft[]): void {
     if (this.busy) fail('RUNTIME_BUSY', '运行中不能载入草稿');
+    this.acceptPending(drafts);
+  }
+  private acceptPending(drafts: SaveDraft[]): void {
     for (const draft of drafts) {
       if (draft.archive.sessionId !== this.currentArchive.sessionId || draft.expectedHead !== this.currentHead) fail('PENDING_CONFLICT', '待保存草稿不属于当前会话基线');
       const action = draft.commit.actions.at(-1);
-      if (!action) fail('PENDING_INVALID', '草稿没有动作');
+      if (!action && !draft.prepared) fail('PENDING_INVALID', '草稿没有动作');
       if (draft.archive.definitionHash !== this.currentArchive.definitionHash || canonical(draft.archive.commits[draft.commit.id]) !== canonical(draft.commit)
         || draft.archive.heads[headKey(draft.binding)] !== draft.commit.id || headKey(draft.commit.binding) !== headKey(draft.binding)
         || draft.commit.binding.chatId !== draft.binding.chatId) fail('PENDING_INVALID', '草稿身份或归档内容不一致');
@@ -126,7 +155,7 @@ export class SolveRuntime {
       for (const [key, head] of Object.entries(this.currentArchive.heads)) {
         if (key !== headKey(draft.binding) && draft.archive.heads[key] !== head) fail('PENDING_CONFLICT', '草稿的其他分支已过期');
       }
-      this.pending.set(`${headKey(draft.binding)}:${action.actionId}`, clone(draft));
+      this.pending.set(draft.prepared ? `${headKey(draft.binding)}:prepared:${draft.commit.id}` : `${headKey(draft.binding)}:${action!.actionId}`, clone(draft));
     }
   }
 }

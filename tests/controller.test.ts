@@ -1,36 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fixture } from './fixture.js';
-import { attachSillyTavern } from '../src/host/controller.js';
-import type { AttachOptions } from '../src/host/controller.js';
-import type { HostContext, HostMessage } from '../src/host/sillytavern.js';
 import { extractRawBlocks } from '../src/parser.js';
 
-async function setup(options: AttachOptions = {}) {
-  const { def } = await fixture();
-  let file: any[] | undefined;
-  let failAfterSave = false;
-  const macros = new Map<string, any>(), handlers = new Map<string, Set<(...args: any[]) => unknown>>();
-  const ctx: HostContext = { chatId: 'controller-test', characterId: 0, groupId: null,
-    characters: [{ name: '测试', avatar: 'test.png' }], chat: [{ mes: '开场', extra: {} }], chatMetadata: { integrity: 'test' },
-    getRequestHeaders: () => ({}), updateChatMetadata: m => { ctx.chatMetadata = m; },
-    macros: { registry: { registerMacro: (name: string, opts: any) => { macros.set(name, opts); return opts; }, unregisterMacro: (name: string) => macros.delete(name) } },
-    eventTypes: { GENERATION_STARTED: 'start', GENERATION_ENDED: 'end', GENERATION_STOPPED: 'stop', MESSAGE_SWIPED: 'swipe', CHAT_CHANGED: 'chat', MESSAGE_EDITED: 'edit' },
-    eventSource: { on: (name, fn) => { if (!handlers.has(name)) handlers.set(name, new Set()); handlers.get(name)!.add(fn); }, removeListener: (name, fn) => { handlers.get(name)?.delete(fn); } } };
-  const fetcher = (async (url: any, opts?: any) => {
-    if (url === '/version') return Response.json({ pkgVersion: '1.19.0' });
-    if (url === '/api/chats/get') return Response.json(file ?? {});
-    if (url === '/api/chats/save') { file = JSON.parse(opts.body).chat; if (failAfterSave) throw new Error('保存响应丢失'); return Response.json({ ok: true }); }
-    throw new Error(`未知请求${url}`);
-  }) as typeof fetch;
-  const controller = await attachSillyTavern(def, () => ctx, options, fetcher);
-  const emit = async (name: string, ...args: any[]) => { for (const handler of handlers.get(name) ?? []) await handler(...args); };
-  const addReply = (operations = '{"$inc":{"@alice.hp":-15}}') => {
-    ctx.chat.push({ mes: `受伤。<solve_operate>${operations}</solve_operate>`, extra: {} });
-    return ctx.chat.length - 1;
-  };
-  return { controller, ctx, emit, macros, addReply, setFail: (value: boolean) => { failAfterSave = value; } };
-}
+import { setup } from './host-fixture.js';
+
 test('控制器生成事件、双格式宏与重复结束信号', async () => {
   const { controller, emit, macros, addReply } = await setup();
   await emit('start', 'normal', {}, false); addReply(); await emit('end');

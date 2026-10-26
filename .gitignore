@@ -6,3 +6,5 @@ coverage/
 .env.*
 !.env.example
 test-results/
+artifacts/
+评估证据/

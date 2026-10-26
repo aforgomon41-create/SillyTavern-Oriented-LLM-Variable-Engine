@@ -8,6 +8,7 @@ function request<T>(r: IDBRequest<T>): Promise<T> {
 }
 export class IndexedDbCache {
   private db?: IDBDatabase;
+  lastRestoreSource: 'snapshot' | 'archive' = 'archive';
   constructor(private factory: IDBFactory = indexedDB, private name = 'solve-cache-v05') {}
   async open(): Promise<void> {
     if (this.db) return;
@@ -40,12 +41,15 @@ export class IndexedDbCache {
     try {
       const cached = await this.transaction<Snapshot | undefined>('snapshots', 'readonly', s => s.get(`${archive.sessionId}:${commitId}`));
       const commit = archive.commits[commitId];
-      if (cached && commit && cached.proof === await archiveProof(archive, commitId) && cached.definitionHash === archive.definitionHash && cached.stateHash === commit.stateHash && await hash(cached.state) === commit.stateHash) return clone(cached.state);
+      if (cached && commit && cached.proof === await archiveProof(archive, commitId) && cached.definitionHash === archive.definitionHash && cached.stateHash === commit.stateHash && await hash(cached.state) === commit.stateHash) {
+        this.lastRestoreSource = 'snapshot'; return clone(cached.state);
+      }
     } catch { /* A cache failure must not make a valid chat unrecoverable. */ }
-    return restore(archive, commitId);
+    this.lastRestoreSource = 'archive'; return restore(archive, commitId);
   }
   async savePending(sessionId: string, drafts: unknown): Promise<void> { await this.transaction('pending', 'readwrite', s => s.put(clone(drafts), sessionId)); }
   async loadPending<T>(sessionId: string): Promise<T | undefined> { return this.transaction('pending', 'readonly', s => s.get(sessionId)); }
+  async clearSnapshots(): Promise<void> { await this.transaction('snapshots', 'readwrite', s => s.clear()); }
   async clear(): Promise<void> { for (const store of ['snapshots', 'pending']) await this.transaction(store, 'readwrite', s => s.clear()); }
   close(): void { this.db?.close(); this.db = undefined; }
 }

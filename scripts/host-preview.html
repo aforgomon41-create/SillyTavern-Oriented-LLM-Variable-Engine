@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SOLVE 同源嵌入测试</title>
+    <style>
+      body {
+        font: 16px system-ui;
+        background: #f5f5ef;
+        color: #283c32;
+        margin: 40px;
+        line-height: 1.8;
+      }
+      button,
+      input {
+        font: inherit;
+        padding: 12px;
+        margin: 8px;
+        border: 1px solid #d2dcd1;
+        border-radius: 8px;
+      }
+      button {
+        background: #365c49;
+        color: white;
+        cursor: pointer;
+      }
+      p {
+        max-width: 680px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>SOLVE 同源嵌入测试</h1>
+    <p>
+      此页模拟宿主背景，只使用内存中的演示聊天，不访问真实酒馆。用于验证调试入口、iframe
+      连接、关闭与焦点恢复、未绑定时只读检查。
+    </p>
+    <label
+      >背景输入框<input placeholder="验证关闭面板后背景可继续操作"
+    /></label>
+    <p id="status">演示定义已绑定。</p>
+    <button id="open">打开嵌入面板</button
+    ><button id="detach">解除演示绑定</button>
+    <script type="module" src="./host-preview.js"></script>
+  </body>
+</html>

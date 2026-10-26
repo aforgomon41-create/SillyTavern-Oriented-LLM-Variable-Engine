@@ -2,6 +2,7 @@ import { at, covered, expand, fail, pointer, safeKey, segments, write } from './
 import type { CompiledDefinition, EntityEntry, EntitySpec, LogicalState, RefEntry } from './types.js';
 
 export class EntityGraph {
+  private byPointer = new Map<string, EntityEntry>();
   readonly entities = new Map<string, EntityEntry>();
   readonly refs: RefEntry[] = [];
   constructor(public readonly definition: CompiledDefinition, public readonly state: LogicalState) {
@@ -18,9 +19,13 @@ export class EntityGraph {
         }
       }
     }
-    const all = [...this.entities.values()];
-    for (const entity of all) {
-      entity.owner = all.filter(e => e !== entity && entity.pointer.startsWith(e.pointer + '/')).sort((a, b) => b.pointer.length - a.pointer.length)[0]?.id;
+    for (const entity of this.entities.values()) {
+      let ancestor = entity.pointer.slice(0, entity.pointer.lastIndexOf('/'));
+      while (ancestor) {
+        const owner = this.byPointer.get(ancestor);
+        if (owner) { entity.owner = owner.id; break; }
+        ancestor = ancestor.slice(0, ancestor.lastIndexOf('/'));
+      }
     }
     for (const spec of definition.refs ?? []) for (const found of expand(state.data, spec.path)) {
       if (spec.kind === 'single') {
@@ -44,7 +49,8 @@ export class EntityGraph {
     if (!id || /[.@]/u.test(id)) fail('INVALID_ENTITY_ID', '实体 ID 不含点号或 @');
     if (!value || typeof value !== 'object' || Array.isArray(value)) fail('ENTITY_TYPE', '实体必须是对象', pointer(parts));
     if (this.entities.has(id)) fail('DUPLICATE_ENTITY_ID', `实体 ID 重复：${id}`);
-    this.entities.set(id, { id, pointer: pointer(parts), type: spec.type });
+    const entry = { id, pointer: pointer(parts), type: spec.type };
+    this.entities.set(id, entry); this.byPointer.set(entry.pointer, entry);
   }
   private refId(value: unknown): string {
     if (typeof value !== 'string' || !value) fail('REF_TYPE', '引用必须是实体 ID 字符串');
@@ -58,7 +64,7 @@ export class EntityGraph {
   container(parts: string[]): EntitySpec | undefined {
     return this.definition.entities?.find(s => !s.singletonId && covered(s.path, parts) && s.path.split('.').length === parts.length);
   }
-  entityAt(parts: string[]): EntityEntry | undefined { return [...this.entities.values()].find(e => e.pointer === pointer(parts)); }
+  entityAt(parts: string[]): EntityEntry | undefined { return this.byPointer.get(pointer(parts)); }
   resolve(path: string, aliases: Record<string, string> = {}): string[] {
     if (typeof path !== 'string' || !path) fail('INVALID_PATH', '路径必须是非空字符串');
     if (path.startsWith('/')) return segments(path);

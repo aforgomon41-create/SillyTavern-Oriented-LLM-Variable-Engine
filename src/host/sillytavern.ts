@@ -39,16 +39,43 @@ interface ChatHeader { chat_metadata: Record<string, any>; user_name?: string; c
 type ChatFile = [ChatHeader, ...HostMessage[]];
 type HeaderArchive = Omit<Archive, 'commits'>;
 
+/** Keep ancestors of surviving revisions when a native deletion removes their original carrier. */
+export function preserveOrphanAncestors(archive: Archive, messages: HostMessage[]): boolean {
+  const extras = messages.flatMap(m => [m.extra, ...(m.swipe_info ?? []).map(s => s.extra)]).filter(e => e?.solve);
+  const owners = new Set(extras.map(e => headKey(e!.solve)));
+  let selectedGap = false;
+  for (const extra of extras) {
+    const saved = extra!.solve as SwipeArchive;
+    const records = saved.commits ??= {};
+    const starts = new Set([...Object.keys(records), ...(saved.headId ? [saved.headId] : [])]);
+    for (const start of starts) {
+      const seen = new Set<string>(); let cursor: string | null = start;
+      while (cursor) {
+        if (seen.has(cursor)) fail('HISTORY_CYCLE', '历史父链循环'); seen.add(cursor);
+        const commit: Commit | undefined = archive.commits[cursor]; if (!commit) break;
+        if (!owners.has(headKey(commit.binding))) {
+          records[commit.id] = clone(commit);
+          if (start === saved.headId) selectedGap = true;
+        }
+        cursor = commit.parentId;
+      }
+    }
+  }
+  return selectedGap;
+}
+
 export function archiveFromChat(header: Record<string, any>, messages: HostMessage[]): Archive | undefined {
   if (!header.solve) return undefined;
   const base = clone(header.solve) as HeaderArchive;
   if (base.version !== '0.5' || !base.sessionId || !base.geneses || !base.heads) fail('ARCHIVE_INVALID', '聊天中的SOLVE元数据无效');
   const archive: Archive = { ...base, commits: {}, heads: {} };
+  const owners = new Set<string>();
   for (const message of messages) {
     const extras = [message.extra, ...(message.swipe_info ?? []).map(info => info.extra)];
     for (const extra of extras) {
       const saved: SwipeArchive | undefined = extra?.solve;
       if (!saved) continue;
+      if (saved.messageId && saved.swipeId) owners.add(headKey({ messageId: saved.messageId, swipeId: saved.swipeId }));
       for (const [commitId, commit] of Object.entries(saved.commits ?? {})) {
         if (archive.commits[commitId] && canonical(archive.commits[commitId]) !== canonical(commit)) fail('COMMIT_COLLISION', '同一提交ID存在不同内容');
         archive.commits[commitId] = clone(commit);
@@ -56,7 +83,7 @@ export function archiveFromChat(header: Record<string, any>, messages: HostMessa
     }
   }
   // Branch files may carry stale metadata heads for messages beyond the branch point.
-  for (const [key, value] of Object.entries(base.heads)) if (archive.commits[value]) archive.heads[key] = value;
+  for (const [key, value] of Object.entries(base.heads)) if (archive.commits[value] && owners.has(key)) archive.heads[key] = value;
   return archive;
 }
 export class SillyTavern119Adapter implements ArchiveAdapter {
@@ -81,6 +108,7 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
   binding(index = this.ctx().chat.length - 1): Binding {
     const ctx = this.ctx(), message = ctx.chat[index];
     if (!message) fail('MESSAGE_NOT_FOUND', '当前消息不存在');
+    if (message.is_user || message.is_system) fail('NOT_ASSISTANT_MESSAGE', 'SOLVE 操作只能绑定角色回复，不能写入用户或系统消息');
     const extra = message.extra ??= {};
     let saved = extra.solve as SwipeArchive | undefined;
     let messageId = saved?.messageId;
@@ -124,6 +152,19 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
     this.baseline = archive ? await hash(archive) : null;
     return archive;
   }
+  async reconcileNativeSave(expected: Archive): Promise<void> {
+    const file = await this.readFile();
+    const remote = file ? archiveFromChat(file[0].chat_metadata ?? {}, file.slice(1) as HostMessage[]) : undefined;
+    const expectedHash = await hash(expected);
+    if (!remote) fail('REMOTE_HEAD_CHANGED', '酒馆原生修改尚未保存，请等待保存后重新检查');
+    const proof = clone(remote);
+    const messages = this.ctx().chat;
+    const owners = new Set(messages.flatMap(m => [m.extra, ...(m.swipe_info ?? []).map(s => s.extra)]).filter(e => e?.solve).map(e => headKey(e!.solve)));
+    // The deletion event may arrive after the native save. Only restore known, now-carrierless ancestors.
+    for (const [commitId, commit] of Object.entries(expected.commits)) if (!proof.commits[commitId] && !owners.has(headKey(commit.binding))) proof.commits[commitId] = clone(commit);
+    if (await hash(proof) !== expectedHash) fail('REMOTE_HEAD_CHANGED', '酒馆原生修改尚未保存或远端历史已变化，请等待保存后重新检查');
+    this.baseline = await hash(remote);
+  }
   async selectedHead(binding: Binding): Promise<string | undefined> {
     this.assertCurrent(binding);
     const ctx = this.ctx(), message = ctx.chat.find(m => m.extra?.solve?.messageId === binding.messageId)!;
@@ -139,6 +180,7 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
     const { commits: _commits, ...header } = archive;
     metadata.solve = header;
     for (const message of messages) {
+      if (message.is_user || message.is_system) continue;
       if (!message.extra?.solve?.messageId) continue;
       const messageId = message.extra.solve.messageId;
       const currentIndex = message.swipe_id ?? 0;
@@ -164,6 +206,7 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
         if (info?.extra?.solve) saveSwipe(info.extra, info.extra.solve.swipeId, i);
       }
     }
+    preserveOrphanAncestors(archive, messages);
     // Reject a draft that cannot carry every referenced commit into the actual file.
     const packed = archiveFromChat(metadata, messages);
     if (!packed || canonical(packed) !== canonical(archive)) fail('ARCHIVE_OWNERSHIP', '部分历史找不到可归档的消息/Swipe，拒绝保存');
@@ -197,6 +240,7 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
       const ctx = this.ctx();
       // Apply only SOLVE and target text fields, preserving unrelated live host changes.
       for (const saved of chat.slice(1) as HostMessage[]) {
+        if (saved.is_user || saved.is_system || !saved.extra?.solve?.messageId) continue;
         const live = ctx.chat.find(m => m.extra?.solve?.messageId === saved.extra?.solve?.messageId);
         if (!live) continue;
         live.extra ??= {}; live.extra.solve = clone(saved.extra!.solve);

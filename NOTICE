@@ -1,0 +1,12 @@
+SOLVE — SillyTavern-Oriented-LLM-Variable-Engine
+Copyright 2026 aforgomon41-create and SOLVE contributors
+
+This project is licensed under the Apache License, Version 2.0.
+
+Third-party dependencies retain their own copyright notices and licenses.
+Browser distributions include THIRD_PARTY_NOTICES.txt, generated from the
+licenses of the bundled dependencies. The project license does not replace
+those third-party licenses.
+
+SillyTavern is a separate project. This project is not an official
+SillyTavern distribution and does not include the SillyTavern application.

@@ -8,4 +8,6 @@ export { SolveRuntime } from './runtime.js';
 export { IndexedDbCache } from './cache.js';
 export * from './projection.js';
 export * from './parser.js';
+export * from './diagnostics.js';
+export { VERSION } from './version.js';
 export { z } from 'zod';

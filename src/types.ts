@@ -86,7 +86,7 @@ export interface Archive {
   commits: Record<string, Commit>;
   heads: Record<string, string>;
 }
-export interface SaveDraft { archive: Archive; commit: Commit; text: string; binding: Binding; expectedHead: string | null; sourceTextDigest?: string }
+export interface SaveDraft { archive: Archive; commit: Commit; text: string; binding: Binding; expectedHead: string | null; sourceTextDigest?: string; prepared?: true }
 export interface ArchiveAdapter {
   assertCurrent(binding: Binding): void | Promise<void>;
   save(draft: SaveDraft): Promise<void>;
