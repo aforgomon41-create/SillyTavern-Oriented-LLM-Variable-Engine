@@ -1,6 +1,6 @@
 # SOLVE 后续开发计划（实施中）
 
-更新日期：2026-10-26。原始基线：后端 0.5.0；当前已推进到 0.7.1（变量引擎与调试面板，AGPL-3.0-only 授权）。
+更新日期：2026-10-26。原始基线：后端 0.5.0；当前基线为 0.8.3、格式 3、113 项自动检查（变量引擎与调试面板，AGPL-3.0-only 授权）。本轮开始执行 [边界验收与交付计划](acceptance-release-plan.md)，保持 JSON Patch 单一变更格式。
 
 用户已确认开始实施，前端缩为功能全面的调试面板；明确使用 React + Radix，要求美观、高级、简洁、易用，同时适配电脑和手机。最新授权“不用向我确认布局了，直接开始吧”。已采用松绿＋暖灰，设计见 [frontend-design.md](frontend-design.md)。当前已实现内容和验证边界见 [当前交付](implementation-status.md)，调试程序接口见 [debug-api.md](debug-api.md)。
 
@@ -14,15 +14,15 @@
 |---|---|---|
 | 核心执行 | 十个原算子、`$group`、实体引用、模块、双格式投影已实现 | `src/engine.ts`、`src/entities.ts`、`src/schema.ts`、`src/projection.ts`；自动测试通过 |
 | 历史与保存 | 已实现按回复版本保存、失败草稿、恢复和重放 | `src/history.ts`、`src/runtime.ts`；已有真实服务端保存/回读记录 |
-| 酒馆接入 | 原生扩展和双模型模式已实现 | `src/extension.ts`、`src/host/`；完整浏览器事件链尚未验收 |
+| 酒馆接入 | 三种分发入口与双模型模式已实现 | `src/extension.ts`、`src/dynamic.ts`、`src/host/`；三载体真实回复、保存、恢复已验收，其余事件边界见验证记录 |
 | 作者入口 | 目前采用分离式 JS/TS 定义，提供一个 RPG 示例 | `src/types.ts`、`examples/rpg-definition.ts`；需要作者脚本调用 `SOLVE.attach()` |
 | 自动加载 | 已有定义注册、明确角色绑定、自动会话切换和过期绑定检查 | `src/host/sessions.ts`、`src/extension.ts`；作者脚本需在页面加载时注册 |
 | 浏览器缓存 | 默认启用，可关闭；已接入恢复和控制器级草稿处理 | `src/cache.ts`、`src/host/controller.ts`、`src/runtime.ts`；真实浏览器配额和容量策略待验收 |
-| 调试面板 | React + Radix 五个工作区、浅色/深色、电脑/手机已实现 | `src/debug/`、`docs/frontend-design.md`；真实酒馆完整生成生命周期仍待验收 |
-| 作者制作体系 | 世界书编译、完整 Facet、内联声明、多载体自动握手仍待开发 | 以 README 的“当前边界”为准 |
+| 调试面板 | React + Radix 五个工作区、浅色/深色、电脑/手机已实现 | `src/debug/`、`docs/frontend-design.md`；已在真实酒馆验证路径读取、手机预演与正式保存 |
+| 作者制作体系 | 世界书编译、完整 Facet、内联声明、不同引擎版本并行共存仍待开发 | 以 README 的“当前边界”为准 |
 | 性能 | 已增加正式引擎 S/M 基准并优化实体索引；大规模基准待完成 | Node 结果不代表浏览器或真实保存耗时 |
 
-规划阶段检查为 71 项测试。0.6 实施后扩充到 85 项，0.7 增加到 **90 项**，并重新构建；最终结果以 `docs/verification.md` 和命令输出为准。
+规划阶段检查为 71 项测试。0.6 实施后扩充到 85 项，0.7 增加到 90 项，0.8.0 增加到 96 项，0.8.3 已达到 **113 项**；最终结果以 `docs/verification.md` 和命令输出为准。
 
 已有的 `test-results/host-1.19.json` 记录宿主 1.19.0、passed=true、cleanup=true。该脚本连接真实服务端，但在 Node 中构造宿主上下文，不能据此认定页面里的生成事件、宏、渲染和连接预设已经完整实测。
 
@@ -110,8 +110,8 @@ Inspector 候选范围：状态与实体定位、操作与变更记录、模型�
 | 位置 | 当前行为 | 后续判断依据 |
 |---|---|---|
 | `src/engine.ts:114`、`src/schema.ts:150` | 每条候选操作复制状态并校验，执行中多次重建实体图 | 测量批量指令随状态/实体数量增长的耗时 |
-| `src/entities.ts:23` | 逐个实体扫描其他实体以确定拥有关系 | 测量大量实体和深层嵌套时的构图成本 |
-| `src/history.ts:52`、`src/runtime.ts:25` | 恢复从开局沿父链应用变更，标准 Runtime 尚未使用缓存恢复 | 比较长历史冷恢复、缓存恢复和每次提交开销 |
+| `src/entities.ts` | 已优化实体拥有关系索引，仍需大规模浏览器数据 | 测量大量实体和深层嵌套时的构图成本 |
+| `src/history.ts`、`src/host/controller.ts` | 默认缓存恢复已接入，失效时从开局沿父链恢复 | 比较长历史冷恢复、缓存恢复和每次提交开销 |
 | `src/runtime.ts:17` | 读取 archive 会复制整份内存归档 | 测量控制器和宏多次读取时的历史长度影响 |
 | `src/cache.ts:31` | 每次写快照前重新验证历史；尚无容量淘汰机制 | 测量写快照成本、配额和快照保留策略 |
 

@@ -4,6 +4,7 @@ import { fixture } from './fixture.js';
 import { createArchive, hash, SolveRuntime, restore, headKey } from '../src/index.js';
 import { SillyTavern119Adapter, archiveFromChat } from '../src/host/sillytavern.js';
 import type { HostContext, HostMessage } from '../src/host/sillytavern.js';
+import { readToken } from '../src/host/storage-tokens.js';
 
 async function hostFixture() {
   const { core } = await fixture();
@@ -38,8 +39,8 @@ test('1.19保存响应和回读验证，正文与Swipe数据同步', async () =>
   const commit = await runtime.submit({ actionId: 'model-1', kind: 'operations', source: 'model', operations: { $inc: { '@alice.hp': -15 } } }, binding, '正文<solve_operate>{"$inc":{"@alice.hp":-15}}</solve_operate>');
   const file = getFile();
   assert.equal(file[1].mes, file[1].swipes[0]);
-  assert.equal(file[1].extra.solve.headId, commit.id);
-  assert.equal(file[1].swipe_info[0].extra.solve.headId, commit.id);
+  assert.equal(readToken(file[1].extra.solve.ref), commit.id);
+  assert.equal(readToken(file[1].swipe_info[0].extra.solve.ref), commit.id);
   assert.equal(ctx.chatMetadata.unrelated, true);
   assert.equal(await adapter.selectedHead(binding), commit.id);
   const archive = archiveFromChat(file[0].chat_metadata, file.slice(1))!;

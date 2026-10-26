@@ -1899,8 +1899,8 @@ function App({ connection }: { connection: DebugConnection }) {
             <footer>
               有序的状态，自由的故事。
               <span className="footer-links">
-                <a href={`https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/tree/v${VERSION}`} target="_blank" rel="noopener noreferrer">源码</a>
-                <a href={`https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/blob/v${VERSION}/LICENSE`} target="_blank" rel="noopener noreferrer">AGPL-3.0 · 无担保</a>
+                <a href="https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine" target="_blank" rel="noopener noreferrer">项目源码</a>
+                <a href="https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">AGPL-3.0 · 无担保</a>
               </span>
             </footer>
           </main>

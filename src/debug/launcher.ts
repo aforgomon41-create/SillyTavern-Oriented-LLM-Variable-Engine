@@ -15,21 +15,21 @@ export function closeDebugger(): void {
   returnFocus?.focus();
   returnFocus = null;
 }
-export function openDebugger(url: string): void {
+export interface DebugTarget { url?: string; html?: string }
+export function openDebugger(target: string | DebugTarget, doc: Document = document): void {
   if (frame) {
     frame.focus();
     return;
   }
-  returnFocus =
-    document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-  frame = document.createElement("iframe");
-  frame.src = url;
+  returnFocus = doc.activeElement as HTMLElement | null;
+  frame = doc.createElement("iframe");
+  if (typeof target === 'string') frame.src = target;
+  else if (target.html) frame.srcdoc = target.html;
+  else if (target.url) frame.src = target.url;
   frame.title = "SOLVE 变量调试面板";
   frame.style.cssText =
     "display:block;width:100%;height:100%;border:0;background:#f5f5ef;color-scheme:light;";
-  modal = document.createElement("dialog");
+  modal = doc.createElement("dialog");
   modal.setAttribute("aria-label", "SOLVE 调试工作台");
   modal.style.cssText =
     "position:fixed;inset:0;margin:0;padding:0;border:0;width:100vw;max-width:none;height:100dvh;max-height:none;z-index:2147483646;background:#f5f5ef;";
@@ -38,14 +38,14 @@ export function openDebugger(url: string): void {
     closeDebugger();
   });
   modal.append(frame);
-  document.body.append(modal);
+  doc.body.append(modal);
   modal.showModal();
   frame.focus();
-  document.addEventListener("keydown", escapeClose);
+  doc.addEventListener("keydown", escapeClose);
 }
-export function installLauncher(url: string): void {
-  if (document.getElementById("solve-debug-launcher")) return;
-  const button = document.createElement("button");
+export function installLauncher(target: string | DebugTarget | (() => void), doc: Document = document): void {
+  if (doc.getElementById("solve-debug-launcher")) return;
+  const button = doc.createElement("button");
   button.id = "solve-debug-launcher";
   button.type = "button";
   button.textContent = "◈ SOLVE";
@@ -53,6 +53,6 @@ export function installLauncher(url: string): void {
   button.setAttribute("aria-label", "打开 SOLVE 变量调试面板");
   button.style.cssText =
     "position:fixed;right:14px;bottom:18px;z-index:2147483645;border:1px solid #bac8bd;border-radius:24px;padding:12px 18px;background:#365c49;color:#fff;font:600 13px system-ui;box-shadow:0 4px 18px #172e2826;cursor:pointer;min-height:44px;";
-  button.addEventListener("click", () => openDebugger(url));
-  document.body.append(button);
+  button.addEventListener("click", () => typeof target === 'function' ? target() : openDebugger(target, doc));
+  doc.body.append(button);
 }

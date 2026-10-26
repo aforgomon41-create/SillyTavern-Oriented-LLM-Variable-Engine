@@ -1,19 +1,28 @@
 # SOLVE · SillyTavern-Oriented-LLM-Variable-Engine
 
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-365c49.svg)](LICENSE)
-[![Version: 0.7.1](https://img.shields.io/badge/Version-0.7.1-647063.svg)](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases)
+[![Version: 0.8.4-preview.1](https://img.shields.io/badge/Version-0.8.4--preview.1-647063.svg)](docs/release-guide.md)
 
 面向 **SillyTavern 1.19.x 单角色聊天**的结构化变量引擎。模型输出 JSON 指令，Core 执行与校验，聊天文件保存实际结果。现包含 React + Radix 调试工作台，松绿与暖灰配色，支持浅色/深色以及电脑/手机。
 
 ![SOLVE 调试工作台](docs/images/debug-desktop-light.jpg)
 
-当前版本 **0.7.1**，属于持续开发中的首版。本次更新改用强互惠开源协议 AGPL-3.0-only，功能与 0.7.0 一致。已通过 90 项自动测试，完整真实聊天流程与长期企划的其余范围见 [验证记录](docs/verification.md) 和 [开发计划](docs/development-plan.md)。
+当前版本 **0.8.4-preview.1（预览版）**。修复删除回复版本时的变量对齐和旧客户端覆盖保护，保持 JSON Patch 单一格式与格式 3 的瘦身结果。**120 项自动测试**与本机接口 12 个边界检查通过；真实页面仍有待验收项，详见 [验证记录](docs/verification.md)，远程检查结果以仓库 Actions 为准。三种分发包附带实际源码和校验清单，见 [交付说明](docs/release-guide.md)。
 
 ## 安装到酒馆
 
-从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases) 下载 `SOLVE-0.7.1.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
+已发布的 0.7.1 可从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases) 下载 `SOLVE-0.7.1.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
 
-如果使用源码安装，运行 `npm ci` 和 `npm run build`，然后将 `dist/` 的全部文件复制到上述目录。
+安装本地预览版时，运行下列构建与打包命令，使用 `artifacts/releases/0.8.4-preview.1/` 中对应分发包。不要将本机验收辅助脚本放进正式扩展。
+
+```sh
+npm ci
+npm run check:portable
+npm run package
+npm run test:release
+```
+
+原生包解压后的 `solve/manifest.json` 位于扩展根部。动态包托管整个 `solve/`；内嵌包提供酒馆助手脚本 JSON 和入门定义。每包都有 `SOURCE_CODE.zip`，它是本次实际对应源码，不依赖尚未发布的远程标签。
 
 ## 先试用调试面板
 
@@ -56,6 +65,7 @@ npm run test:host
 - 不可变历史修订、累计 Patch、Restore、Replay、Greeting 变体与旧分支保留。
 - 单会话队列、动作去重、保存失败草稿和迟到请求检查；IndexedDB 派生快照与草稿。
 - 酒馆 1.19 保存/回读确认、Swipe 同步、原生请求准入、渲染与提示词过滤。
+- 酒馆助手标准变量：楼层按 Swipe 展示操作、双 Patch 与提交信息，聊天保存当前确认快照；旧聊天自动补齐。
 - 随正文和独立操作模型模式；独立连接预设、自定义请求函数、超时、取消。
 - 作者定义注册与按角色绑定；切聊天自动释放旧控制器并恢复原定义。
 - 浏览器默认启用快照与草稿缓存；草稿重试、放弃与损坏隔离。
@@ -89,7 +99,7 @@ console.log(toJson(definition, result.state));
 console.log(toToon(definition, result.state));
 ```
 
-构建后的 `dist/solve.js` 是浏览器核心 ESM，`sillytavern.js` 是绑定入口，`index.js` 和 `manifest.json` 是原生扩展；`debug.html`、`debug.js`、`debug.css` 是调试面板，必须一起复制。`rpg-example.js` 是可直接导入的示例定义。
+三种分发的配置示例见 [分发与安装](docs/distributions.md)。构建后的 `dist/solve.js` 是浏览器核心 ESM，`sillytavern.js` 是绑定入口，`dynamic.js` 是动态加载器，`embedded.js` 是卡内单文件入口，`index.js` 和 `manifest.json` 是原生扩展；`debug.html`、`debug.js`、`debug.css` 是调试面板，必须一起复制。`rpg-example.js` 是可直接导入的示例定义。
 
 将 `dist/` 文件放进酒馆自定义扩展目录的独立 `solve/` 文件夹，重载后由作者脚本绑定：
 
@@ -134,13 +144,28 @@ await SOLVE.register(rpgDefinition, {
 
 时间、随机数、远程结果在调用前准备并以 authorInputs 归档。普通 Replay 复用这些值；Restore 不执行作者函数、模型请求或外部写入。外部副作用不在变量回退保证内。
 
-聊天元数据保存 Genesis/HEAD，每条消息的 Swipe 元数据保存不可变提交修订。清缓存后可离线恢复；缓存不能掩盖归档损坏。
+聊天元数据保存 Genesis 和共享校验/执行上下文；楼层变量按 Swipe 保存唯一的不可变提交修订，消息元数据只保留短指针，各回复 HEAD 按指针恢复。旧格式在打开时自动无损转换。清缓存后可离线恢复；缓存不能掩盖归档损坏。
+
+## 酒馆助手变量
+
+更新引擎并刷新酒馆后，在酒馆助手的变量面板展开 `solve`：
+
+| 位置 | 字段 | 内容 |
+| --- | --- | --- |
+| 楼层变量 | `solve.operations` | 此回复的有序动作记录，含来源与操作指令 |
+| 楼层变量 | `solve.dataPatch` / `solve.enginePatch` | 数据与引擎状态的实际变化 |
+| 楼层变量 | `solve.commit` | 短提交编号、父提交、校验索引与绑定 |
+| 楼层变量 | `solve.feedback` / `solve.aliases` | 执行反馈与实体别名 |
+| 聊天变量 | `solve.data` / `solve.engineState` | 当前已确认的数据快照与引擎状态 |
+| 聊天变量 | `solve.headId` / `solve.stateHash` / `solve.ready` | 快照对应提交、校验值和是否可用于当前聊天 |
+
+切换回复会同步活跃快照；预演不写入。保存失败时保留上次确认状态，并将内存中的 `ready` 标为 false。旧聊天自动迁移，不重跑模型操作或增加提交。0.8.3 的楼层 `solve.version` 为 3，是唯一正式记录；空的 `enginePatch`、反馈与别名省略，旧修订放在 `history`，默认动作类型/来源省略。完整内容可用 `SOLVE.controller.inspectCommit(solve.commit.id)` 查看，支持短编号。聊天快照只保留 data、engineState、headId、stateHash、ready 和必要时的 reason，会话身份从状态 API 获取。请通过操作 API 修改正式状态。脚本读取方式见 [调试 API](docs/debug-api.md#酒馆助手标准变量)。
 
 ## 当前边界
 
 已验证 1.19.0 单聊。原生拦截器覆盖原生生成入口，不承诺拦住助手或第三方自行联网。服务端没有版本比较后原子写入接口；浏览器锁与回读协调 SOLVE 实例，第三方绕过队列保存仍可能竞争。
 
-世界书自动编译、完整 Facet/内联作者 DSL、多分发自动加载握手、复杂查询和大规模性能验收仍在规划中。当前采用分离式作者定义，不把企划全部目标标为已完成。调试工作台已实现；面向玩家的状态栏和作者可视化制作工具仍属后续范围。
+世界书自动编译、完整 Facet/内联作者 DSL、不同版本引擎共存、复杂查询和大规模性能验收仍在规划中。当前采用分离式作者定义，不把企划全部目标标为已完成。调试工作台已实现；面向玩家的状态栏和作者可视化制作工具仍属后续范围。
 
 实施规范：`docs/backend-design.md`。实施与验证进度见 [当前交付](docs/implementation-status.md)。主企划保留原文件名。
 

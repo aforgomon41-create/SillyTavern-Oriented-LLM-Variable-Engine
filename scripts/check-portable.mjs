@@ -1,0 +1,13 @@
+import { build } from 'esbuild';
+import { readdir, mkdir } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+const run = args => execFileSync(process.execPath, args, { cwd: process.cwd(), stdio: 'inherit', windowsHide: true });
+run(['node_modules/typescript/bin/tsc','--noEmit']);
+const files = (await readdir('tests')).filter(f=>f.endsWith('.test.ts'));
+const output = 'test-results/compiled-check';
+await mkdir(output,{recursive:true});
+await build({entryPoints:files.map(f=>'tests/'+f),outdir:output,outExtension:{'.js':'.cjs'},format:'cjs',platform:'node',target:'node22',bundle:true});
+run(['--test','--test-reporter=spec',...files.map(f=>output+'/'+f.replace(/\.ts$/,'.cjs'))]);
+await import('./build.mjs');
+run(['scripts/test-bundle.mjs']);
+console.log('类型检查、全部测试、三载体构建与构建包验证通过。');

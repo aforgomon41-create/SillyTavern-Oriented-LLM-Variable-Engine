@@ -14,6 +14,9 @@ import { project } from '../projection.js';
 import type { ProjectionOptions } from '../projection.js';
 import jsonpatch from 'fast-json-patch';
 import { isModuleEnabled } from '../schema.js';
+import { activeVariableView, writeMessageVariableViews } from './variables.js';
+import { readToken } from './storage-tokens.js';
+import { reconcileSwipeDeletion } from './storage-pointers.js';
 import type { HostContext } from './sillytavern.js';
 import type { Action, Batch, Commit, Definition, Json } from '../types.js';
 
@@ -38,6 +41,10 @@ export class SillyTavernController {
   private queued = 0;
   private chatId: string;
   private generated = false;
+  private generationEpoch = 0;
+  private generationRendered?: Promise<void>;
+  private releaseGeneration?: () => void;
+  private finalizingGeneration = false;
   private disposed = false;
   private reason = '正在初始化';
   private hostVersion?: string;
@@ -54,13 +61,37 @@ export class SillyTavernController {
     if (options.cache) this.cache = options.cache;
     else if (options.cache !== false && typeof indexedDB !== 'undefined') { this.cache = new IndexedDbCache(); this.ownsCache = true; }
   }
-  get busy(): boolean { return this.queued > 0 || Boolean(this.operator) || Boolean(this.runtime?.busy); }
+  get busy(): boolean { return this.finalizingGeneration || this.queued > 0 || Boolean(this.operator) || Boolean(this.runtime?.busy); }
   get boundChatId(): string { return this.chatId; }
   get ready(): boolean { return this.readyState && this.context().chatId === this.chatId; }
   assertReady(): void { if (!this.ready) fail('STATE_NOT_READY', `当前聊天尚未绑定并恢复SOLVE状态${this.reason ? `：${this.reason}` : ''}`); }
   private assertBound(): void { if (this.disposed || this.context().chatId !== this.chatId) fail('STALE_BINDING', '控制器已释放或聊天已经切换'); }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  private notify(): void { for (const listener of this.listeners) { try { listener(); } catch { /* A debug view cannot break a commit. */ } } }
+  private notify(): void {
+    this.updateVariableSnapshot();
+    for (const listener of this.listeners) { try { listener(); } catch { /* A debug view cannot break a commit. */ } }
+  }
+  private updateVariableSnapshot(): void {
+    if (!this.runtime) return;
+    try {
+      const ctx = this.context(); if (ctx.chatId !== this.chatId) return;
+      const status = this.getStatus(), commit = this.runtime.getCommit();
+      if (!commit) return;
+      const ready = status.ready && !status.pendingCount && !this.disposed;
+      const reason = status.pendingCount ? '有待保存操作，显示已确认的历史状态' : status.reason;
+      const view = activeVariableView(commit, this.runtime.getState(), ready, reason);
+      ctx.chatMetadata.variables = { ...ctx.chatMetadata.variables, solve: view };
+    } catch { /* Stale/disposed contexts must not touch the next chat. */ }
+  }
+  private async syncVariableViews(): Promise<void> {
+    this.assertBound();
+    this.updateVariableSnapshot();
+    if (this.ready && !this.runtime.pendingCount && !this.pendingImportError && !this.nativeHistoryChanged) {
+      try { await this.adapter.syncVariables(this.runtime.archive, this.runtime.headId); }
+      catch (error) { this.readyState = false; this.reason = describeError(error).message; throw error; }
+      this.assertBound(); this.updateVariableSnapshot();
+    }
+  }
   private record(code: string, message: string, level: 'info' | 'warning' | 'error' = 'info', durationMs?: number): void { this.journal.add(level, code, message, durationMs); this.notify(); }
   private report(error: unknown): void {
     const e = describeError(error); this.record(e.code, e.message, 'error');
@@ -125,6 +156,7 @@ export class SillyTavernController {
       if (this.findParent(this.context().chat.length) !== this.runtime.headId) fail('STATE_NOT_ALIGNED', '模型输入尚未对齐当前选中的历史');
       return { definition: this.core.definition, state: this.runtime.getState(), feedback: this.runtime.archive.commits[this.runtime.headId]!.feedback };
     }));
+    await this.syncVariableViews();
     this.installEvents();
     for (const capability of inspectCapabilities(ctx, this.hostVersion).filter(c => !c.available)) this.record('CAPABILITY_MISSING', `${capability.label}：${capability.detail}`, 'warning');
     this.record(this.readyState ? 'READY' : 'HISTORY_DIRTY', this.readyState ? '当前聊天状态已恢复' : this.reason, this.readyState ? 'info' : 'warning');
@@ -153,24 +185,40 @@ export class SillyTavernController {
     if (roots.length !== 1) fail('GENESIS_SELECTION', '无法确定当前开场分支的初始状态');
     return roots[0]!.id;
   }
-  private listen(event: string, fn: (...args: any[]) => unknown): void {
+  private listen(event: string, fn: (...args: any[]) => unknown, last = false): void {
     const ctx = this.context(), name = ctx.eventTypes?.[event];
     if (!name || !ctx.eventSource) return;
-    ctx.eventSource.on(name, fn);
+    if (last && ctx.eventSource.makeLast) ctx.eventSource.makeLast(name, fn);
+    else ctx.eventSource.on(name, fn);
     this.disposers.push(() => ctx.eventSource!.removeListener(name, fn));
   }
   private installEvents(): void {
     const onError = (error: unknown) => this.report(error);
     this.listen('CHAT_CHANGED', () => { this.readyState = false; this.reason = '聊天已切换'; this.operator?.abort(); this.adapter.invalidate(); this.runtime.invalidate(); this.record('CHAT_CHANGED', this.reason); });
-    this.listen('GENERATION_STARTED', (_type, _options, dryRun) => {
-      if (dryRun || !this.ready) return;
+    this.listen('GENERATION_STARTED', (type, _options, dryRun) => {
+      if (dryRun || !this.ready || type === 'quiet' || type === 'impersonate') return;
+      this.releaseGeneration?.(); this.generationEpoch++; this.finalizingGeneration = false;
+      const ctx = this.context();
+      this.generationRendered = ctx.saveChat && ctx.eventTypes?.CHARACTER_MESSAGE_RENDERED ? new Promise(resolve => { this.releaseGeneration = resolve; }) : undefined;
       this.generated = true; this.adapter.invalidate(); this.record('GENERATION_STARTED', '宿主开始生成');
     });
-    this.listen('GENERATION_STOPPED', () => { this.generated = false; this.operator?.abort(); this.adapter.invalidate(); this.record('GENERATION_STOPPED', '生成已停止，不执行未完成的回复'); });
+    this.listen('CHARACTER_MESSAGE_RENDERED', () => { this.releaseGeneration?.(); });
+    this.listen('GENERATION_STOPPED', () => { this.generated = false; this.generationEpoch++; this.finalizingGeneration = false; this.releaseGeneration?.(); this.operator?.abort(); this.adapter.invalidate(); this.record('GENERATION_STOPPED', '生成已停止，不执行未完成的回复'); });
     this.listen('GENERATION_ENDED', async () => {
       if (!this.ready || !this.generated) return;
-      this.generated = false;
-      try { await this.processMessage(); } catch (error) { onError(error); }
+      this.generated = false; const epoch = this.generationEpoch; this.finalizingGeneration = true;
+      try {
+        // In 1.19 streaming, ENDED fires before render hooks and the final native save.
+        // Wait for rendering, then join the native save queue before committing SOLVE.
+        if (this.generationRendered) {
+          await this.generationRendered;
+          await new Promise(resolve => setTimeout(resolve, 0));
+          if (epoch !== this.generationEpoch || this.disposed) return;
+          this.assertBound(); await this.context().saveChat?.();
+        }
+        if (epoch === this.generationEpoch && !this.disposed) await this.processMessage();
+      } catch (error) { if (!this.disposed) onError(error); }
+      finally { if (epoch === this.generationEpoch) { this.finalizingGeneration = false; this.notify(); } }
     });
     this.listen('MESSAGE_SWIPED', async (index: number) => {
       if (!this.ready) return;
@@ -179,6 +227,8 @@ export class SillyTavernController {
         const binding = this.adapter.binding(index);
         const head = await this.adapter.selectedHead(binding);
         await this.runtime.select(head ?? this.findParent(index));
+        await this.syncVariableViews();
+        this.record('SWIPE_SELECTED', `已恢复楼层 ${index} 当前回复的变量状态`);
       } catch (error) { this.readyState = false; onError(error); }
     });
     this.listen('MESSAGE_EDITED', (index: number) => {
@@ -194,11 +244,18 @@ export class SillyTavernController {
         const archive = this.adapter.loadMemory(); if (!archive) fail('BROKEN_HISTORY', '当前聊天缺少归档');
         const head = this.findParent(this.context().chat.length, archive);
         this.runtime.invalidate(); this.runtime = this.createRuntime(archive, head); await this.runtime.ready(); this.assertBound();
-        this.readyState = true; this.reason = ''; this.record('HISTORY_TRIMMED', '已恢复删除后的剩余历史');
+        this.readyState = true; this.reason = '';
+        this.context().chatMetadata.solve.storage = writeMessageVariableViews(this.context().chat, this.runtime.archive);
+        this.record('HISTORY_TRIMMED', '已恢复删除后的剩余历史');
       } catch (error) { this.markDirty(describeError(error).message); onError(error); }
     };
     this.listen('MESSAGE_DELETED', deleted);
-    this.listen('MESSAGE_SWIPE_DELETED', deleted);
+    this.listen('MESSAGE_SWIPE_DELETED', async event => {
+      try {
+        this.assertBound(); reconcileSwipeDeletion(this.context().chat, this.runtime.archive, event);
+        await deleted();
+      } catch (error) { this.markDirty(describeError(error).message); onError(error); }
+    }, true);
     const formatter = this.context().messageFormatter;
     if (formatter) {
       let controllers = formatterRouters.get(formatter);
@@ -231,7 +288,7 @@ export class SillyTavernController {
       const archive = this.runtime.archive;
       const existingId = message.extra?.solve?.headId, existing = existingId ? archive.commits[existingId] : undefined;
       if (existing?.binding.swipeId === binding.swipeId && existing.textDigest === await hash(text!) && existing.actions.some(a => a.source === 'model')) {
-        await this.runtime.select(existing.id); return existing;
+        await this.runtime.select(existing.id); await this.syncVariableViews(); return existing;
       }
       if (raw.mutual && (!existing || existing.binding.swipeId !== binding.swipeId || existing.textDigest !== await hash(text!))) fail('UNTRUSTED_MUTUAL_BLOCK', '模型输出不能自行伪造玩家操作块');
       const parent = existing?.binding.swipeId === binding.swipeId && existing.parentId ? existing.parentId : this.findParent(index);
@@ -244,7 +301,7 @@ export class SillyTavernController {
       let operations: Batch;
       let finalText = text!;
       if ((this.options.mode ?? 'in-band') === 'in-band') {
-        if (!raw.model) return undefined;
+        if (!raw.model) { await this.syncVariableViews(); return undefined; }
         operations = parseOperations(raw.model);
       } else {
         const prompt = this.operatorPrompt(index);
@@ -373,7 +430,8 @@ export class SillyTavernController {
       }
       const result = await replay(this.core, archive, [old.id], parent, { [old.id]: actions });
       const commit = result.archive.commits[result.headId]!;
-      commit.binding = binding; commit.textDigest = await hash(originalText);
+      const { generationToken: _generationToken, ...storedBinding } = binding;
+      commit.binding = storedBinding; commit.textDigest = await hash(originalText);
       result.archive.heads[headKey(binding)] = commit.id;
       await this.persist(() => this.runtime.savePrepared({ archive: result.archive, commit, binding, text: originalText,
         sourceTextDigest: commit.textDigest, expectedHead: this.runtime.headId, prepared: true }, originalText), false);
@@ -437,7 +495,9 @@ export class SillyTavernController {
     return Object.values(archive.commits).map(commit => ({ ...commit, current: commit.id === this.runtime.headId, selected: archive.heads[headKey(commit.binding)] === commit.id }));
   }
   async inspectCommit(commitId = this.runtime.headId) {
-    this.assertBound(); const archive = this.runtime.archive, commit = archive.commits[commitId];
+    this.assertBound(); const archive = this.runtime.archive;
+    if (!archive.commits[commitId]) commitId = readToken(commitId);
+    const commit = archive.commits[commitId];
     if (!commit) fail('BROKEN_HISTORY', '找不到指定提交');
     const state = await restore(archive, commitId), graph = new EntityGraph(this.core.definition, state);
     return { commit: clone(commit), state, entities: [...graph.entities.values()].map(clone), references: clone(graph.refs) };
@@ -449,6 +509,8 @@ export class SillyTavernController {
   }
   async compareCommits(beforeId: string, afterId: string) {
     const archive = this.runtime.archive;
+    if (!archive.commits[beforeId]) beforeId = readToken(beforeId);
+    if (!archive.commits[afterId]) afterId = readToken(afterId);
     const [before, after] = await Promise.all([restore(archive, beforeId), restore(archive, afterId)]);
     return { beforeId, afterId, dataPatch: jsonpatch.compare(before.data, after.data), enginePatch: jsonpatch.compare(before.engineState, after.engineState) };
   }
@@ -503,6 +565,7 @@ export class SillyTavernController {
       if (this.nativeHistoryChanged) { await this.adapter.reconcileNativeSave(archive); this.nativeHistoryChanged = false; }
       const next = this.createRuntime(archive, head); await next.ready(); this.assertBound();
       this.runtime.invalidate(); this.runtime = next; this.readyState = true; this.reason = '';
+      await this.syncVariableViews();
       this.record('RESTORE_COMPLETED', '当前选中历史已重新恢复');
     });
   }
@@ -528,6 +591,7 @@ export class SillyTavernController {
   }
   dispose(): void {
     if (this.disposed) return;
+    this.generationEpoch++; this.finalizingGeneration = false; this.releaseGeneration?.();
     this.disposed = true; this.readyState = false; this.reason = '控制器已释放'; this.operator?.abort(); this.adapter.invalidate(); this.runtime?.invalidate();
     this.disposers.splice(0).reverse().forEach(fn => fn()); if (this.ownsCache) this.cache?.close();
     this.record('DISPOSED', this.reason); this.listeners.clear();

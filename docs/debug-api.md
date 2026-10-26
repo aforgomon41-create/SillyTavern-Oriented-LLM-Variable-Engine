@@ -1,4 +1,4 @@
-# SOLVE 0.7 调试与恢复 API
+# SOLVE 0.8.4-preview.1 调试与恢复 API
 
 调试界面通过本文件的接口工作。所有正式状态修改仍走操作归档；读取和预演不会直接写聊天。
 
@@ -38,6 +38,32 @@
 
 `getState` 等状态读取在未就绪时拒绝。历史待修复时仍可调用 `inspectCommit` 查看已归档事实。`getStatus().ready` 额外检查当前选中历史与执行位置是否对齐；界面应据此启用写入按钮。
 
+## 酒馆助手标准变量
+
+酒馆助手变量面板可展开 `solve` 查看。楼层变量是唯一正式归档，聊天快照是读取副本。0.8.3 使用格式 3 的短编号和校验索引，操作指令与 dataPatch 继续使用普通 JSON。酒馆助手脚本可直接读取：
+
+```js
+const floor = getVariables({ type: 'message', message_id: 1 }).solve;
+console.log(floor.operations); // 有序动作：短 actionId、operations 或模块事件
+console.log(floor.dataPatch, floor.enginePatch ?? []); // 实际数据/引擎变更
+console.log(floor.commit); // 短 id、parentId、checks 校验索引、绑定
+console.log(floor.feedback ?? [], floor.aliases ?? {});
+const full = await SOLVE.controller.inspectCommit(floor.commit.id);
+console.log(full.commit); // 展开后的完整编号、四种校验、动作来源与原始绑定
+
+const active = getVariables({ type: 'chat' }).solve;
+console.log(active.data, active.engineState); // 当前已确认的完整快照
+console.log(active.headId, active.stateHash, active.ready, active.reason);
+```
+
+`message_id` 是从 0 开始的楼层下标，读取该楼当前选中的 Swipe。底层路径分别是 `message.variables[swipe_id].solve` 和 `chat_metadata.variables.solve`。同楼不同 Swipe 各有自己的变量，`operations` 和 Patch 是此回复当前累计修订的结果；更早的修订在 `history` 中使用精简形式保存。模型操作省略默认的 kind/source，模块事件保留 module/enabled，玩家操作保留 source=user；读取完整 Action 使用 `getHistory()` / `inspectCommit()`。`inspectCommit` 和 `compareCommits` 同时接受完整编号和格式 3 短编号。
+
+聊天快照保留 `data`、`engineState`、`headId`、`stateHash` 和 `ready`，有原因时附带 `reason`。会话身份通过 `getStatus()` 或聊天级正式元数据查询，快照不再重复 version、derived、chatId、sessionId、definitionHash。切回复后同步；`ready: false` 时查看 `reason`。失败候选不发布成正式数据，预演不改变快照。快照包含完整逻辑数据，不应用 narrative/operator 的披露筛选。
+
+楼层 `solve.version: 3` 是正式事实来源，当前短提交编号读取 `solve.commit.id`；消息 `extra.solve` 和 `swipe_info` 物理文件中仅留 ref/index。聊天快照可从正式历史重建，篡改快照会在恢复时修复。直接改坏或删除正式楼层记录会明确报告错误；正式变更必须通过操作 API。
+
+更新引擎、刷新并绑定原作者定义后，0.8.0/0.8.1 旧聊天和 0.8.2 格式 2 会自动转换，不增加提交或重新执行指令；旧版派生楼层变量不作为迁移依据。保存后的聊天快照缺失会报告 `VARIABLES_VERIFY_FAILED`，正式归档不符则报告归档校验错误，保留候选。完整存储规则见 [storage-format.md](storage-format.md)。
+
 ## 操作、预演与模块
 
 ```js
@@ -69,6 +95,8 @@ await backend.submit(batch, {expectedHead: candidate.baseHeadId});
 
 原生删除末尾楼层会恢复剩余历史；删除中间楼层需要重放后续楼层。运行中的控制器会把仍被保留修订依赖的已删楼祖先放进存活回复的归档记录。没有控制器参与的第三方删除、且祖先从聊天文件中已彻底丢失时，不能凭缓存伪造恢复成功。
 
+0.8.4 预览版按 1.19 的原生删除事件负载对齐当前/非当前 Swipe 的下标、身份和标准变量；宿主支持 makeLast 时在已注册的助手变量处理之后执行。另一客户端已更新归档，而当前页面仍选中旧修订时，`refresh()` 不会以旧正文覆盖新结果，会报 `STATE_NOT_ALIGNED` 并要求在酒馆重新加载聊天。先处理本地草稿，再重载聊天；该操作不自动合并两个客户端的动作。
+
 ## 保存失败与请求
 
 - `getPending()`：查看有效待保存候选。
@@ -88,3 +116,7 @@ await backend.submit(batch, {expectedHead: candidate.baseHeadId});
 `exportDebugReport({includeState,includeText})` 返回本地可导出的对象，默认不附完整状态与正文；历史动作及 Patch 仍可能含角色变量值。界面应说明导出内容，让用户自行决定是否分享，不自动上传。
 
 调试面板已接入上述接口。`SOLVE.openDebugger()` 打开、`SOLVE.closeDebugger()` 关闭；扩展会显示右下角入口。SessionManager 状态额外包含当前 chatId，供界面隔离不同聊天的只读结果。世界书作者编译、完整 Facet 和复杂查询尚未交付。
+
+## 三种分发的共享入口
+
+0.8.0 新增 `dynamic.js` 与 `embedded.js`。它们返回一个脚本作用域的 SOLVE 接口，支持 `register()`、`controller`、`sessions`、`openDebugger()`、`closeDebugger()` 和引擎工具。脚本关闭时自动 `dispose()` 注销自己的定义；也可主动调用。原生页面上的 `SOLVE.distribution()` 返回是否有原生载体以及当前脚本提供者列表，只用于检查。接入示例及版本、拦截边界见 [distributions.md](distributions.md)。

@@ -45,8 +45,9 @@ export async function buildCommit(archive: Archive, parentId: string | null, gen
   const baseHash = await hash(before);
   if (parentId && archive.commits[parentId]?.stateHash !== baseHash) fail('PARENT_MISMATCH', '父提交与执行前状态不一致');
   if (!parentId && archive.geneses[genesisId]?.stateHash !== baseHash) fail('GENESIS_MISMATCH', '根提交与开局状态不一致');
+  const { generationToken: _generationToken, ...storedBinding } = binding;
   return { id: id('commit'), parentId, genesisId, baseHash, stateHash: await hash(after), semantics: SEMANTICS,
-    binding: clone(binding), dataPatch: compare(before.data, after.data), enginePatch: compare(before.engineState, after.engineState),
+    binding: clone(storedBinding), dataPatch: compare(before.data, after.data), enginePatch: compare(before.engineState, after.engineState),
     actions: clone(actions), opsDigest: await hash(actions), feedback: clone(feedback), aliases: clone(aliases), textDigest: await hash(text) };
 }
 export async function restore(archive: Archive, targetId: string): Promise<LogicalState> {
