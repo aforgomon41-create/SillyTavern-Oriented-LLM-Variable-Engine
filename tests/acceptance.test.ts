@@ -19,6 +19,7 @@ for (const removeCurrent of [false, true]) for (const helper of [false, true]) {
     message.swipe_info!.push({ extra: structuredClone(message.extra) }); message.mes = message.swipes![1]!;
     message.extra = structuredClone(message.swipe_info![1]!.extra);
     await env.emit('swipe', index); await c.processMessage(index);
+    message.variables[0].foreign = 'first'; message.variables[1].foreign = 'second';
     const second = c.runtime.headId, remove = removeCurrent ? 1 : 0;
     message.swipes!.splice(remove, 1); message.swipe_info!.splice(remove, 1); message.swipe_id = 0;
     // Match script.js: the old .mes/.extra still exist at this exact event boundary.
@@ -27,6 +28,8 @@ for (const removeCurrent of [false, true]) for (const helper of [false, true]) {
     assert.equal(c.runtime.headId, removeCurrent ? first : second);
     assert.equal(c.getValue('@alice.hp'), removeCurrent ? 85 : 70);
     assert.equal(readToken(message.variables[0].solve.commit.id), c.runtime.headId);
+    assert.equal(message.variables.length, message.swipes!.length);
+    assert.equal(message.variables[0].foreign, removeCurrent ? 'first' : 'second');
     env.saveNative(); await c.refresh();
     const file = env.files.get(env.ctx.chatId)!, archive = archiveFromChat(file[0].chat_metadata, file.slice(1))!;
     assert.deepEqual(await restore(archive, c.runtime.headId), c.getState()); c.dispose();

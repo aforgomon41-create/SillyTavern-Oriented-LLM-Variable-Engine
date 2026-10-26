@@ -5,6 +5,7 @@ import { activeVariableView, applyMessageVariableViews, variableViews, writeMess
 import { readFloor, readGeneses, storeGeneses } from './storage.js';
 import { readToken } from './storage-tokens.js';
 import { compactPointers, expandPointers } from './storage-pointers.js';
+import { engineRequest } from './fetch-origin.js';
 import type { CompactStorage } from './storage.js';
 
 export interface SwipeArchive {
@@ -119,6 +120,7 @@ export function archiveFromChat(header: Record<string, any>, messages: HostMessa
 export class SillyTavern119Adapter implements ArchiveAdapter {
   private generation = id('generation');
   private baseline?: string | null;
+  private nativeBaseline?: string | null;
   constructor(private context: () => HostContext, private fetcher: typeof fetch = fetch,
     private lock: <T>(name: string, fn: () => Promise<T>) => Promise<T> = async (_name, fn) => fn()) {}
   private ctx(): HostContext {
@@ -167,7 +169,8 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
   }
   private async post(path: string, body: unknown): Promise<any> {
     const ctx = this.ctx();
-    const response = await this.fetcher(path, { method: 'POST', headers: { ...ctx.getRequestHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const options = { method: 'POST', headers: { ...ctx.getRequestHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body), [engineRequest]: true };
+    const response = await this.fetcher(path, options);
     if (!response.ok) fail('HOST_SAVE_FAILED', `酒馆请求失败（${response.status}）：${path}`);
     return response.json();
   }
@@ -184,7 +187,32 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
     const file = await this.readFile();
     const archive = file ? archiveFromChat(file[0].chat_metadata ?? {}, file.slice(1) as HostMessage[]) : undefined;
     this.baseline = archive ? await hash(archive) : null;
+    if (this.nativeBaseline === undefined) this.nativeBaseline = this.baseline;
     return archive;
+  }
+  /** Native edits/deletions use the same lock and disk baseline as SOLVE commits. */
+  async guardNativeSave(body: any, send: () => Promise<Response>): Promise<Response> {
+    return this.lock(`solve:${body.file_name}`, async () => {
+      const address = this.address();
+      if (body.file_name !== address.file_name || body.avatar_url !== address.avatar_url) fail('STALE_BINDING', '原生保存的聊天已切换');
+      if (!Array.isArray(body.chat) || !body.chat.length) fail('ARCHIVE_INVALID', '原生保存缺少聊天数据');
+      const incoming = archiveFromChat(body.chat[0].chat_metadata ?? {}, body.chat.slice(1));
+      const incomingHash = incoming ? await hash(incoming) : null;
+      const remote = await this.readFile();
+      const archive = remote ? archiveFromChat(remote[0].chat_metadata ?? {}, remote.slice(1) as HostMessage[]) : undefined;
+      const remoteHash = archive ? await hash(archive) : null;
+      if (this.nativeBaseline === undefined || remoteHash !== this.nativeBaseline && incomingHash !== remoteHash)
+        fail('REMOTE_HEAD_CHANGED', '磁盘上的SOLVE历史已被其他标签页更新，原生保存已阻止，请重新加载聊天');
+      if (remoteHash !== null && incomingHash === null) fail('ARCHIVE_INVALID', '原生保存缺少SOLVE历史，拒绝覆盖');
+      const response = await send();
+      if (response.ok) {
+        const saved = await this.readFile(), verified = saved ? archiveFromChat(saved[0].chat_metadata ?? {}, saved.slice(1) as HostMessage[]) : undefined;
+        if ((verified ? await hash(verified) : null) !== incomingHash) fail('SAVE_VERIFY_FAILED', '原生保存后回读的SOLVE历史不一致');
+        this.baseline = incomingHash;
+        this.nativeBaseline = incomingHash;
+      }
+      return response;
+    });
   }
   async reconcileNativeSave(expected: Archive): Promise<void> {
     const file = await this.readFile();
@@ -299,6 +327,8 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
       const metadata = { ...ctx.chatMetadata, solve: clone(chat[0].chat_metadata.solve),
         variables: { ...ctx.chatMetadata.variables, solve: clone(chat[0].chat_metadata.variables.solve) } };
       if (ctx.updateChatMetadata) ctx.updateChatMetadata(metadata, true); else Object.assign(ctx.chatMetadata, metadata);
+      // A disk-only refresh may fail to align old live text; advance native writes only after applying a confirmed view.
+      this.nativeBaseline = draftHash;
     });
   }
   /** Backfill old chats and persist a selected Swipe snapshot without executing or creating actions. */

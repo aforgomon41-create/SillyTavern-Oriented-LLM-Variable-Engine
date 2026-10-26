@@ -92,6 +92,10 @@ export class SillyTavernController {
       this.assertBound(); this.updateVariableSnapshot();
     }
   }
+  async guardNativeSave(body: unknown, send: () => Promise<Response>): Promise<Response> {
+    try { this.assertBound(); return await this.adapter.guardNativeSave(body, send); }
+    catch (error) { this.markDirty(describeError(error).message); this.report(error); throw error; }
+  }
   private record(code: string, message: string, level: 'info' | 'warning' | 'error' = 'info', durationMs?: number): void { this.journal.add(level, code, message, durationMs); this.notify(); }
   private report(error: unknown): void {
     const e = describeError(error); this.record(e.code, e.message, 'error');

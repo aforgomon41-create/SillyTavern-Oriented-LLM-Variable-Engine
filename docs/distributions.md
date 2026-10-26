@@ -1,6 +1,6 @@
 # SOLVE 三种分发方式
 
-适用版本：0.8.4-preview.1；SillyTavern 1.19.x，脚本方式需要酒馆助手。三种载体需统一版本，旧引擎不能读取格式 3。当前为预览版，全部真实页面边界尚未完成；构建、打包和源码位置见 [release-guide.md](release-guide.md)，远程交付以仓库 Releases 为准。
+适用版本：0.8.4-preview.2；SillyTavern 1.19.x，脚本方式需要酒馆助手。三种载体需统一版本，旧引擎不能读取格式 3。当前为预览版，真实页面覆盖范围见 [verification.md](verification.md)；构建、打包和源码位置见 [release-guide.md](release-guide.md)，远程交付以仓库 Releases 为准。
 
 | 方式 | 入口 | 放置位置 |
 | --- | --- | --- |

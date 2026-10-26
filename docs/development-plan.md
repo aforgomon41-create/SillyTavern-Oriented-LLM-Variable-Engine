@@ -1,6 +1,6 @@
 # SOLVE 后续开发计划（实施中）
 
-更新日期：2026-10-26。原始基线：后端 0.5.0；当前基线为 0.8.3、格式 3、113 项自动检查（变量引擎与调试面板，AGPL-3.0-only 授权）。本轮开始执行 [边界验收与交付计划](acceptance-release-plan.md)，保持 JSON Patch 单一变更格式。
+更新日期：2026-10-27。原始基线：后端 0.5.0；当前为 0.8.4-preview.2、格式 3、129 项自动检查（变量引擎与调试面板，AGPL-3.0-only 授权）。本轮继续落实 [边界验收与交付计划](acceptance-release-plan.md)，保持 JSON Patch 单一变更格式。
 
 用户已确认开始实施，前端缩为功能全面的调试面板；明确使用 React + Radix，要求美观、高级、简洁、易用，同时适配电脑和手机。最新授权“不用向我确认布局了，直接开始吧”。已采用松绿＋暖灰，设计见 [frontend-design.md](frontend-design.md)。当前已实现内容和验证边界见 [当前交付](implementation-status.md)，调试程序接口见 [debug-api.md](debug-api.md)。
 

@@ -47,7 +47,7 @@ await writeFile('dist/manifest.json', JSON.stringify({ display_name: 'SOLVE ÂèòÈ
   auto_update: false, minimum_client_version: '1.19.0' }, null, 2));
 await mkdir('dist/docs', { recursive: true });
 await mkdir('dist/docs/images', { recursive: true });
-for (const name of ['debug-desktop-light.jpg', 'debug-mobile-dark.jpg', 'live-native-desktop.jpg', 'live-mobile-operation.jpg']) await copyFile(`docs/images/${name}`, `dist/docs/images/${name}`);
+for (const name of ['debug-desktop-light.jpg', 'debug-mobile-dark.jpg', 'live-native-desktop.jpg', 'live-mobile-operation.jpg', 'live-preview2-desktop.jpg', 'live-preview2-mobile.jpg']) await copyFile(`docs/images/${name}`, `dist/docs/images/${name}`);
 await copyFile('README.md', 'dist/README.md');
 await copyFile('LICENSE', 'dist/LICENSE');
 await copyFile('NOTICE', 'dist/NOTICE');

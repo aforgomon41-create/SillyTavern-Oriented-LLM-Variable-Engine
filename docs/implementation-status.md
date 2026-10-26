@@ -1,6 +1,8 @@
-# SOLVE 0.8.4-preview.1 当前工作区交付
+# SOLVE 0.8.4-preview.2 当前工作区交付
 
-预览版修复删除回复版本时的下标/变量对齐，以及过期页面重新检查历史时的旧正文覆盖风险。新增 7 项回归，合计 120 项；真实酒馆 API 的 12 个边界检查及 PNG 往返通过。保留 0.8.3 的格式 3 和全部历史校验；不采用 Merge Patch。源码提交 `69a4536` 已推送，Linux/Windows 的[远程检查](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/actions/runs/40359602612)均通过，[预览发布](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.8.4-preview.1)包含三种分发包、实际源码和校验清单。分发说明见 [distributions.md](distributions.md)，剩余页面验收范围见 [verification.md](verification.md)，发布命令见 [release-guide.md](release-guide.md)。
+完整访问后的真实页面复测已完成当前主流程，发现并修复旧标签页原生编辑保存覆盖新变量、删除回复后的多余变量槽。129 项自动检查与 12 项本机接口检查通过，另有 10 组页面结果，覆盖三载体独立启动、双真实标签、真实模型请求、PNG 导入执行和恢复测试环境。旧预览版发布记录保留在下文，当前范围与证据见 [verification.md](verification.md)，远程交付以实际仓库记录为准。
+
+此前 0.8.4-preview.1 修复删除回复版本时的下标/变量对齐，以及过期页面重新检查历史时的旧正文覆盖风险。新增 7 项回归，合计 120 项；真实酒馆 API 的 12 个边界检查及 PNG 往返通过。保留 0.8.3 的格式 3 和全部历史校验；不采用 Merge Patch。源码提交 `69a4536` 已推送，Linux/Windows 的[远程检查](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/actions/runs/40359602612)均通过，[预览发布](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.8.4-preview.1)包含三种分发包、实际源码和校验清单。分发说明见 [distributions.md](distributions.md)，验收范围见 [verification.md](verification.md)，发布命令见 [release-guide.md](release-guide.md)。
 
 日期：2026-10-27。这是规划的第一批落地，尚未标记全部 V1 目标完成。0.7.1 改用 AGPL-3.0-only 并提供源码入口，保留 0.7.0 已授出的 Apache-2.0 许可，详见 [授权与版本说明](licensing.md)。
 
@@ -53,4 +55,4 @@
 
 ## 其余后续工作
 
-真实浏览器全部生成入口和多标签页验收、缓存容量策略、大规模性能、世界书编译、完整 Facet、不同版本引擎并行共存及作者制作体系仍需继续推进。蓝图和可视化状态栏构建器保持原企划的后续版本定位。
+更多宿主生成入口、跨浏览器并发、缓存容量策略、大规模性能、世界书编译、完整 Facet、不同版本引擎并行共存及作者制作体系仍需继续推进。当前同源双标签页主流程已实际验证，范围见 verification.md。蓝图和可视化状态栏构建器保持原企划的后续版本定位。

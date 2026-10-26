@@ -5,6 +5,8 @@ import type { RegistrationOptions } from './sessions.js';
 import type { Definition } from '../types.js';
 import { closeDebugger, installLauncher, openDebugger } from '../debug/launcher.js';
 import type { DebugTarget } from '../debug/launcher.js';
+import { engineRequest, nativeSaveBody } from './fetch-origin.js';
+import { guardUnboundNativeSave } from './native-save.js';
 
 export type Carrier = 'native' | 'dynamic' | 'embedded';
 const registryKey = '__SOLVE_RUNTIME_V1__';
@@ -73,6 +75,16 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     const upstream = scope.fetch;
     scope.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
       const url = new URL(typeof input === 'string' ? input : 'url' in input ? input.url : input.href, scope.location.href);
+      if (url.origin === scope.location.origin && url.pathname === '/api/chats/save' && !(init as any)?.[engineRequest]) {
+        return (async () => {
+          const body = await nativeSaveBody(input, init, url), controller = sessions?.controller;
+          const ctx = scope.SillyTavern?.getContext();
+          const avatar = ctx?.characters?.[ctx.characterId]?.avatar;
+          if (controller && body.file_name === controller.boundChatId && body.avatar_url === avatar)
+            return controller.guardNativeSave(body, () => upstream.call(scope, input, init));
+          return guardUnboundNativeSave(body, ctx?.getRequestHeaders?.() ?? {}, upstream.bind(scope), () => upstream.call(scope, input, init));
+        })();
+      }
       if (!native && url.origin === scope.location.origin && /^\/api\/(?:backends\/(?:chat-completions|text-completions)|novelai|horde|kobold)\/generate(?:\/|$)/u.test(url.pathname)) {
         const status = sessions?.controller?.getStatus();
         if (status && (!status.ready || status.pendingCount || (status.busy && !status.operatorBusy))) return Promise.reject(new Error('SOLVE：变量状态未就绪，请先在调试面板处理待保存操作或重放历史'));

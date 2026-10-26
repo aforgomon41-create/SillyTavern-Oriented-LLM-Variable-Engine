@@ -7,9 +7,13 @@ import type { Archive } from '../types.js';
 /** 1.19 emits deletion before switching displayed text; stable identities survive index shifts. */
 export function reconcileSwipeDeletion(messages: HostMessage[], archive: Archive, event: { messageId: number; swipeId: number; newSwipeId: number }): void {
   const message = messages[event.messageId];
-  if (!message?.swipes?.length || !Number.isInteger(event.newSwipeId) || typeof message.swipes[event.newSwipeId] !== 'string') fail('STORAGE_INVALID', '删除后的回复版本无效');
-  const slots: Record<string, any>[] = Array.from({ length: Math.max(message.variables?.length ?? 0, message.swipes.length) }, (_, index) => ({ ...message.variables?.[index] }));
-  const records = new Map(slots.flatMap(slot => slot.solve?.commit?.id ? [[readToken(slot.solve.commit.id), slot.solve] as const] : []));
+  if (!message?.swipes?.length || !Number.isInteger(event.newSwipeId) || typeof message.swipes[event.newSwipeId] !== 'string'
+    || !Number.isInteger(event.swipeId) || event.swipeId < 0 || event.swipeId > message.swipes.length) fail('STORAGE_INVALID', '删除后的回复版本无效');
+  const previous: Record<string, any>[] = Array.from({ length: Math.max(message.variables?.length ?? 0, message.swipes.length) }, (_, index) => ({ ...message.variables?.[index] }));
+  const records = new Map(previous.flatMap(slot => slot.solve?.commit?.id ? [[readToken(slot.solve.commit.id), slot.solve] as const] : []));
+  // Helper may have shifted variables already. Otherwise shift the whole slot once, including foreign fields.
+  const slots = previous.length === message.swipes.length + 1
+    ? previous.filter((_slot, index) => index !== event.swipeId) : previous.slice(0, message.swipes.length);
   for (let index = 0; index < slots.length; index++) {
     const saved = message.swipe_info?.[index]?.extra?.solve;
     const headId = index < message.swipes.length && saved ? saved.headId ?? (saved.ref ? readToken(saved.ref) : undefined) : undefined;

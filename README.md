@@ -7,13 +7,13 @@
 
 ![SOLVE 调试工作台](docs/images/debug-desktop-light.jpg)
 
-当前版本 **0.8.4-preview.1（预览版）**。修复删除回复版本时的变量对齐和旧客户端覆盖保护，保持 JSON Patch 单一格式与格式 3 的瘦身结果。**120 项自动测试**与本机接口 12 个边界检查通过；真实页面仍有待验收项，详见 [验证记录](docs/verification.md)，远程检查结果以仓库 Actions 为准。三种分发包附带实际源码和校验清单，见 [交付说明](docs/release-guide.md)。
+当前版本 **0.8.4-preview.2（预览版）**。补上真实双标签页发现的原生保存覆盖保护，以及删除回复版本后的变量槽清理，保持 JSON Patch 单一格式与格式 3 的瘦身结果。**129 项自动测试**和本机接口 12 个边界检查通过；真实页面的分发隔离、停止/重新生成、删楼重放、双标签页与独立模型请求结果见 [验证记录](docs/verification.md)，远程检查结果以仓库 Actions 为准。三种分发包附带实际源码和校验清单，见 [交付说明](docs/release-guide.md)。
 
 ## 安装到酒馆
 
 已发布的 0.7.1 可从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases) 下载 `SOLVE-0.7.1.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
 
-安装本地预览版时，运行下列构建与打包命令，使用 `artifacts/releases/0.8.4-preview.1/` 中对应分发包。不要将本机验收辅助脚本放进正式扩展。
+安装本地预览版时，运行下列构建与打包命令，使用 `artifacts/releases/0.8.4-preview.2/` 中对应分发包。不要将本机验收辅助脚本放进正式扩展。
 
 ```sh
 npm ci

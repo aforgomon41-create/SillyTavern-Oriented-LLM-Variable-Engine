@@ -119,4 +119,8 @@ await backend.submit(batch, {expectedHead: candidate.baseHeadId});
 
 ## 三种分发的共享入口
 
+0.8.4-preview.2 起，共享运行时同时保护酒馆原生的聊天保存：原生编辑、删楼等请求使用与 SOLVE 提交相同的浏览器聊天锁，保存前核对磁盘历史。旧标签页发现历史已经变化时拒绝保存，并提示重新加载；本地编辑文字仍留在页面，用户可先复制再重载。聊天切换或控制器加载期间的延迟保存也会核对已有归档，不允许丢失或替换另一页已保存的历史。普通无 SOLVE 聊天、归档相同的文字保存及新分支不受此限制。
+
+保护覆盖安装了当前共享运行时、经酒馆标准 `/api/chats/save` 发出的请求，包括原生 gzip 压缩。未加载运行时的页面、其他浏览器、直接修改服务器文件和第三方另设保存入口不共享这把浏览器锁，不能承诺跨这些入口的原子保存。这里的“锁”指同源标签页按顺序保存，避免两页同时覆盖同一聊天。
+
 0.8.0 新增 `dynamic.js` 与 `embedded.js`。它们返回一个脚本作用域的 SOLVE 接口，支持 `register()`、`controller`、`sessions`、`openDebugger()`、`closeDebugger()` 和引擎工具。脚本关闭时自动 `dispose()` 注销自己的定义；也可主动调用。原生页面上的 `SOLVE.distribution()` 返回是否有原生载体以及当前脚本提供者列表，只用于检查。接入示例及版本、拦截边界见 [distributions.md](distributions.md)。
