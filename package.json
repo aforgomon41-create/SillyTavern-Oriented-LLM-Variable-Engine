@@ -1,6 +1,6 @@
 {
   "name": "solve-variable-engine",
-  "version": "0.8.4-preview.2",
+  "version": "0.9.0-dev.8",
   "license": "AGPL-3.0-only",
   "author": "aforgomon41-create",
   "repository": {
@@ -25,8 +25,11 @@
     "build": "node scripts/build.mjs",
     "dev": "npm run build && node scripts/dev.mjs",
     "test:host": "tsx scripts/test-host.ts",
+    "test:world-info:host": "tsx scripts/test-world-info-host.ts",
     "test:bundle": "node scripts/test-bundle.mjs",
-    "benchmark": "tsx scripts/benchmark.ts",
+    "benchmark": "node scripts/run-benchmark.mjs",
+    "benchmark:long-chat": "node scripts/run-long-chat-benchmark.mjs",
+    "benchmark:pipeline": "node scripts/run-commit-pipeline-benchmark.mjs",
     "check": "npm run typecheck && npm test && npm run build && npm run test:bundle",
     "check:portable": "node scripts/check-portable.mjs",
     "package": "node scripts/package-release.mjs",

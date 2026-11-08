@@ -1,4 +1,4 @@
-# SOLVE 0.8.4-preview.1 调试与恢复 API
+# SOLVE 0.9.0-dev.8 调试与恢复 API
 
 调试界面通过本文件的接口工作。所有正式状态修改仍走操作归档；读取和预演不会直接写聊天。
 
@@ -25,9 +25,13 @@
 
 以下例子中的 `backend` 为 `SOLVE.controller`。
 
+操作指南可通过 `SOLVE.getGuide(tag?)`、载体入口 `lease.getGuide(tag?)` 或 `backend.getGuide(tag?)` 读取，结果与 `{{solve_guide}}` / `{{solve_guide::combat}}` 共用筛选逻辑。tag是模块名；省略时包含全局指南。支持条件表达式与纯同步条件函数，具体写法见 [authoring.md](authoring.md)。当前聊天未绑定、未就绪或所选历史未对齐时拒绝读取，条件错误包含指南来源。`getContextPreview().guide` 也展示筛选后的指南。
+
 | 方法 | 返回内容 |
 |---|---|
 | `getStatus()` | 就绪/忙碌原因、聊天和提交身份、待保存数量、缓存与宿主能力 |
+| `getPerformance()` / `clearPerformance()` | 最近160条阶段耗时及成功标记；清理只影响测量记录 |
+| `getVerificationStats()` | 完整恢复、后缀恢复、内存命中、已核对提交与检查点容量计数 |
 | `getState()` | 已恢复的逻辑状态安全拷贝，包含 data 与 engineState |
 | `getValue('@alice.hp')` | 按实体或普通路径读取值 |
 | `getProjectedState({view, paths})` | 应用视图和路径筛选后的结构 |
@@ -37,6 +41,10 @@
 | `subscribe(listener)` | 状态/诊断变化通知，返回取消订阅函数 |
 
 `getState` 等状态读取在未就绪时拒绝。历史待修复时仍可调用 `inspectCommit` 查看已归档事实。`getStatus().ready` 额外检查当前选中历史与执行位置是否对齐；界面应据此启用写入按钮。
+
+性能阶段可能互相包含，例如adapter.save包含adapter.pack，不应把所有阶段耗时直接相加。记录不含正文、变量或作者输入；exportDebugReport同时附带这些计时和认证计数。内存检查点与IndexedDB快照分开管理，getVerificationStats().estimatedBytes只估算检查点状态的JSON字节，不是真实内存峰值。
+
+`getStatus().cache.source`只区分IndexedDB目标快照是否命中；显示archive时，仍可能复用按当前实际归档内容核对过的进程内检查点。清理IndexedDB快照不等于清理进程内认证；显式历史验证和公开restore继续完整检查，不受内存命中影响。
 
 ## 酒馆助手标准变量
 
@@ -107,6 +115,8 @@ await backend.submit(batch, {expectedHead: candidate.baseHeadId});
 
 浏览器缓存失败不会改变正式聊天的权威地位，但未保存草稿可能无法跨刷新保留。放弃操作若无法清理本地缓存会返回错误，不能显示为已成功放弃。
 
+dev.3 的 IndexedDbCache 支持容量选项、getStats()、pruneSnapshots() 和 clearSnapshots()，默认 64 份/32 MiB/每会话4份。容量清理不淘汰 pending；clear() 则明确清空快照和草稿。升级后刷新旧构建标签页。参数、估算字节与配额失败边界见 [performance.md](performance.md)。
+
 ## 上下文、日志与导出
 
 `getContextPreview({view,paths})` 返回 JSON、TOON、指令说明、指南、当前反馈与独立操作模型的提示词预览。预览不会调用模型。
@@ -115,7 +125,9 @@ await backend.submit(batch, {expectedHead: candidate.baseHeadId});
 
 `exportDebugReport({includeState,includeText})` 返回本地可导出的对象，默认不附完整状态与正文；历史动作及 Patch 仍可能含角色变量值。界面应说明导出内容，让用户自行决定是否分享，不自动上传。
 
-调试面板已接入上述接口。`SOLVE.openDebugger()` 打开、`SOLVE.closeDebugger()` 关闭；扩展会显示右下角入口。SessionManager 状态额外包含当前 chatId，供界面隔离不同聊天的只读结果。世界书作者编译、完整 Facet 和复杂查询尚未交付。
+调试面板已接入上述接口。`SOLVE.openDebugger()` 打开、`SOLVE.closeDebugger()` 关闭；扩展会显示右下角入口。SessionManager 状态额外包含当前 chatId，供界面隔离不同聊天的只读结果。0.9 开发版已增加 author、compileAuthorDefinition、compose、registerWorldInfo/readWorldInfo、条件指南和Facet生命周期，见 [authoring.md](authoring.md)；指南正文热更新、关键词触发和复杂查询仍待推进。世界书固定声明坏掉或原包缺失时，sessions.inspectArchive() 仍可只读检查合法 Patch 事实。
+
+dev.5 的 getStatus().facetHooksPending 表示保存后回调队列的未完成数量，与正常保存 busy 分开。高级集成可 await controller.runtime.settledHooks() 等待当前及连带回调结束，并通过 runtime.getHookErrors() 读取最近最多100条回调失败；控制器日志记为 FACET_HOOK_FAILED。回调内部不能等待自身队列结束。通知失败不改变已确认保存结果，期间新状态会使旧基线上的回调操作被拒绝。
 
 ## 三种分发的共享入口
 

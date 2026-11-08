@@ -1,5 +1,6 @@
 import type { ZodType } from 'zod';
 import type { Operation as JsonPatch } from 'fast-json-patch';
+import type { SolveFacet } from './authoring.js';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Data = { [key: string]: Json };
@@ -19,11 +20,41 @@ export interface RefSpec {
 }
 export interface RefEntry { pointer: string; target: string; spec: RefSpec }
 export interface ModuleSpec { paths: string[]; enabled?: boolean; parent?: string; guide?: string }
+export interface GuideConditionContext { get(path: string): Json | undefined }
+export interface GuideRule {
+  id: string;
+  module?: string;
+  when?: string | ((context: Readonly<GuideConditionContext>) => boolean);
+  text: string;
+  source?: string;
+}
 export interface NumericRule { min?: number; max?: number; integer?: boolean; destroyOnZero?: boolean }
+export interface RuntimeBinding {
+  id: string;
+  version: string;
+  build?: string;
+  dependencies?: Data;
+}
+export interface DefinitionBindings {
+  build?: string;
+  dependencies?: Data;
+  authoring?: { version: '1'; initialDataHash: string; facets: RuntimeBinding[] };
+}
+export interface DefinitionSnapshot {
+  version: 1;
+  baseHash: string;
+  fingerprint: string;
+  declaration: Data;
+  views: string[];
+  customValidation: boolean;
+  books: string[];
+  digest: string;
+}
 export interface Definition {
   id: string;
   version: string;
   schema: ZodType;
+  runtimeBindings?: DefinitionBindings;
   outputSchema?: ZodType;
   initialData: unknown;
   entities?: EntitySpec[];
@@ -33,13 +64,15 @@ export interface Definition {
   readonly?: string[];
   internal?: string[];
   guide?: string;
+  guides?: GuideRule[];
+  facets?: SolveFacet[];
   templates?: Record<string, { type: string; data: Data }>;
   prefabs?: Record<string, { type: string; data: Data }>;
   views?: Record<string, (state: Readonly<Data>) => Json>;
   // Pure output-state checks; unlike transforms, safe to run on existing values.
   validateState?: (state: Readonly<LogicalState>, context: ExecutionContext) => void | Promise<void>;
 }
-export interface CompiledDefinition extends Definition { fingerprint: string; schemaShape: Json; storedSchema: ZodType; structuralSchema: ZodType }
+export interface CompiledDefinition extends Definition { fingerprint: string; schemaShape: Json; outputShape?: Json; storedSchema: ZodType; structuralSchema: ZodType; authoringSnapshot?: DefinitionSnapshot }
 export interface ExecutionContext { authorInputs?: Json; source?: 'model' | 'user' | 'replay' }
 export interface ExecutionResult {
   state: LogicalState;
@@ -85,6 +118,7 @@ export interface Archive {
   geneses: Record<string, Genesis>;
   commits: Record<string, Commit>;
   heads: Record<string, string>;
+  authoring?: DefinitionSnapshot;
 }
 export interface SaveDraft { archive: Archive; commit: Commit; text: string; binding: Binding; expectedHead: string | null; sourceTextDigest?: string; prepared?: true }
 export interface ArchiveAdapter {

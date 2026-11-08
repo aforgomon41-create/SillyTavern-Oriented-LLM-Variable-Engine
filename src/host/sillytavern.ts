@@ -1,11 +1,14 @@
 import { canonical, clone, fail, hash, id } from '../json.js';
-import { headKey, restore } from '../history.js';
+import { commitsByOwner, headKey } from '../history.js';
+import { PerformanceTrace, measure, measureSync } from '../performance.js';
+import { VerifiedHistory } from '../verified-history.js';
 import type { Archive, ArchiveAdapter, Binding, Commit, LogicalState, SaveDraft } from '../types.js';
 import { activeVariableView, applyMessageVariableViews, variableViews, writeMessageVariableViews } from './variables.js';
 import { readFloor, readGeneses, storeGeneses } from './storage.js';
 import { readToken } from './storage-tokens.js';
 import { compactPointers, expandPointers } from './storage-pointers.js';
 import { engineRequest } from './fetch-origin.js';
+import { assertDefinitionSnapshotUnchanged } from '../definition-snapshot.js';
 import type { CompactStorage } from './storage.js';
 
 export interface SwipeArchive {
@@ -41,6 +44,7 @@ export interface HostContext {
   eventSource?: { on(name: string, fn: (...args: any[]) => unknown): void; makeLast?(name: string, fn: (...args: any[]) => unknown): void; removeListener(name: string, fn: (...args: any[]) => unknown): void };
   eventTypes?: Record<string, string>;
   ConnectionManagerRequestService?: { sendRequest(...args: any[]): Promise<any> };
+  substituteParams?(content: string, options?: Record<string, unknown>): string;
 }
 interface ChatHeader { chat_metadata: Record<string, any>; user_name?: string; character_name?: string }
 type ChatFile = [ChatHeader, ...HostMessage[]];
@@ -50,23 +54,35 @@ type HeaderArchive = Omit<Archive, 'commits'>;
 export function preserveOrphanAncestors(archive: Archive, messages: HostMessage[]): boolean {
   const extras = messages.flatMap(m => [m.extra, ...(m.swipe_info ?? []).map(s => s.extra)]).filter(e => e?.solve);
   const owners = new Set(extras.map(e => headKey(e!.solve)));
+  const grouped = commitsByOwner(archive), nearest = new Map<string, string | null>(), orphanNext = new Map<string, string | null>();
+  // Memoize only within this call. Each reachable parent edge is checked once;
+  // orphan records themselves are still copied to every required carrier.
+  const firstOrphan = (start: string): string | null => {
+    const path: Commit[] = [], seen = new Set<string>(); let cursor: string | null = start;
+    while (cursor && !nearest.has(cursor)) {
+      if (seen.has(cursor)) fail('HISTORY_CYCLE', '历史父链循环'); seen.add(cursor);
+      const commit: Commit | undefined = archive.commits[cursor]; if (!commit) break;
+      path.push(commit); cursor = commit.parentId;
+    }
+    let orphan = cursor ? nearest.get(cursor) ?? null : null;
+    for (const commit of path.reverse()) {
+      if (!owners.has(headKey(commit.binding))) { orphanNext.set(commit.id, orphan); orphan = commit.id; }
+      nearest.set(commit.id, orphan);
+    }
+    return nearest.get(start) ?? null;
+  };
   let selectedGap = false;
   for (const extra of extras) {
     const saved = extra!.solve as SwipeArchive;
     if (!saved.messageId || !saved.swipeId) continue;
     const records = saved.commits ??= {};
-    const starts = new Set([...Object.keys(records), ...Object.values(archive.commits)
-      .filter(commit => headKey(commit.binding) === headKey({ messageId: saved.messageId!, swipeId: saved.swipeId! })).map(commit => commit.id), ...(saved.headId ? [saved.headId] : [])]);
+    const starts = new Set([...Object.keys(records), ...(grouped.get(headKey({ messageId: saved.messageId, swipeId: saved.swipeId })) ?? []).map(commit => commit.id), ...(saved.headId ? [saved.headId] : [])]);
+    const carried = new Set<string>();
     for (const start of starts) {
-      const seen = new Set<string>(); let cursor: string | null = start;
-      while (cursor) {
-        if (seen.has(cursor)) fail('HISTORY_CYCLE', '历史父链循环'); seen.add(cursor);
-        const commit: Commit | undefined = archive.commits[cursor]; if (!commit) break;
-        if (!owners.has(headKey(commit.binding))) {
-          records[commit.id] = clone(commit);
-          if (start === saved.headId) selectedGap = true;
-        }
-        cursor = commit.parentId;
+      let cursor = firstOrphan(start);
+      if (cursor && start === saved.headId) selectedGap = true;
+      while (cursor && !carried.has(cursor)) {
+        carried.add(cursor); records[cursor] = clone(archive.commits[cursor]!); cursor = orphanNext.get(cursor) ?? null;
       }
     }
   }
@@ -122,7 +138,8 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
   private baseline?: string | null;
   private nativeBaseline?: string | null;
   constructor(private context: () => HostContext, private fetcher: typeof fetch = fetch,
-    private lock: <T>(name: string, fn: () => Promise<T>) => Promise<T> = async (_name, fn) => fn()) {}
+    private lock: <T>(name: string, fn: () => Promise<T>) => Promise<T> = async (_name, fn) => fn(), readonly performance = new PerformanceTrace(),
+    private history = new VerifiedHistory({}, performance)) {}
   private ctx(): HostContext {
     const ctx = this.context();
     if (ctx.chatMetadata.solve?.storage?.version === 3) expandPointers(ctx.chat);
@@ -204,6 +221,9 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
       if (this.nativeBaseline === undefined || remoteHash !== this.nativeBaseline && incomingHash !== remoteHash)
         fail('REMOTE_HEAD_CHANGED', '磁盘上的SOLVE历史已被其他标签页更新，原生保存已阻止，请重新加载聊天');
       if (remoteHash !== null && incomingHash === null) fail('ARCHIVE_INVALID', '原生保存缺少SOLVE历史，拒绝覆盖');
+      if (archive && Object.keys(archive.commits).length && !Object.keys(incoming?.commits ?? {}).length)
+        fail('ARCHIVE_OWNERSHIP', '原生重新创建开场消息将丢失全部SOLVE历史，已阻止保存；请重载聊天，或另开新聊天修改开场');
+      await assertDefinitionSnapshotUnchanged(archive, incoming);
       const response = await send();
       if (response.ok) {
         const saved = await this.readFile(), verified = saved ? archiveFromChat(saved[0].chat_metadata ?? {}, saved.slice(1) as HostMessage[]) : undefined;
@@ -242,7 +262,11 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
     const ctx = this.ctx(), messages = clone(ctx.chat), metadata = clone(ctx.chatMetadata);
     expandPointers(messages);
     const { commits: _commits, heads: _heads, ...header } = archive;
+    const grouped = commitsByOwner(archive);
     metadata.solve = { ...header, geneses: storeGeneses(archive) };
+    // 1.19 recreates an untainted one-message chat while editing/exporting a card.
+    // A fixed SOLVE Genesis is already persisted history, even before the first user message.
+    metadata.tainted = true;
     for (const message of messages) {
       if (message.is_user || message.is_system) continue;
       if (!message.extra?.solve?.messageId) continue;
@@ -256,7 +280,7 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
       }
       const saveSwipe = (extra: Record<string, any>, swipeId: string | undefined, nativeIndex: number): void => {
         if (!swipeId) return;
-        const records = Object.fromEntries(Object.entries(archive.commits).filter(([, c]) => c.binding.messageId === messageId && c.binding.swipeId === swipeId));
+        const records = Object.fromEntries((grouped.get(headKey({ messageId, swipeId })) ?? []).map(commit => [commit.id, commit]));
         const headId = archive.heads[headKey({ messageId, swipeId })];
         extra.solve = { messageId, swipeId, nativeIndex, ...(headId ? { headId } : {}), commits: records } satisfies SwipeArchive;
       };
@@ -279,8 +303,11 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
     if (!packed || canonical(packed) !== canonical(archive)) fail('ARCHIVE_OWNERSHIP', '部分历史找不到可归档的消息/Swipe，拒绝保存');
     return [{ chat_metadata: metadata, user_name: 'unused', character_name: 'unused' }, ...messages];
   }
-  async save(draft: SaveDraft): Promise<void> {
-    await this.lock(`solve:${draft.binding.chatId}`, async () => {
+  async save(input: SaveDraft): Promise<void> {
+    const draft = clone(input);
+    const record = draft.archive.commits[draft.commit.id];
+    if (!record || canonical(record) !== canonical(draft.commit)) fail('PENDING_INVALID', '候选提交与归档记录不一致');
+    await measure(this.performance, 'adapter.save', () => this.lock(`solve:${draft.binding.chatId}`, async () => {
       this.assertCurrent(draft.binding);
       const sourceMessage = this.ctx().chat.find(m => m.extra?.solve?.messageId === draft.binding.messageId);
       if (draft.sourceTextDigest && (!sourceMessage || await hash(sourceMessage.mes) !== draft.sourceTextDigest)) fail('SOURCE_TEXT_CHANGED', '操作执行后原正文已变化，拒绝覆盖');
@@ -289,34 +316,39 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
       const remoteHash = remoteArchive ? await hash(remoteArchive) : null;
       const draftHash = await hash(draft.archive);
       const alreadySaved = remoteHash === draftHash;
+      await assertDefinitionSnapshotUnchanged(remoteArchive, draft.archive);
       if (this.baseline === undefined) this.baseline = remoteHash;
       if (remoteHash !== this.baseline && !alreadySaved) fail('REMOTE_HEAD_CHANGED', '磁盘上的SOLVE历史已被其他实例更新，请重新加载');
-      const state = await restore(draft.archive, draft.commit.id);
+      const state = await measure(this.performance, 'adapter.restore', () => VerifiedHistory.recover(this.history, draft.archive, draft.commit.id));
       if (await hash(draft.text) !== draft.commit.textDigest) fail('SAVE_TEXT_MISMATCH', '候选正文与提交摘要不对应，拒绝保存');
-      const chat = this.pack(draft.archive, draft.binding, draft.text, state, draft.commit.id);
+      const chat = measureSync(this.performance, 'adapter.pack', () => this.pack(draft.archive, draft.binding, draft.text, state, draft.commit.id));
       const views = variableViews(chat[0].chat_metadata, chat.slice(1) as HostMessage[]);
       const viewsMatch = remote && canonical(variableViews(remote[0].chat_metadata ?? {}, remote.slice(1) as HostMessage[])) === canonical(views)
-        && canonical(remote[0].chat_metadata?.solve?.storage ?? null) === canonical(chat[0].chat_metadata.solve.storage);
+        && canonical(remote[0].chat_metadata?.solve?.storage ?? null) === canonical(chat[0].chat_metadata.solve.storage)
+        && remote[0].chat_metadata?.tainted === true;
       this.assertCurrent(draft.binding);
       if (!alreadySaved || !viewsMatch) {
-        const result = await this.post('/api/chats/save', { ...this.address(), chat, force: false });
+        const result = await measure(this.performance, 'adapter.write', () => this.post('/api/chats/save', { ...this.address(), chat, force: false }));
         if (result?.ok !== true) fail('HOST_SAVE_FAILED', '酒馆没有确认保存');
       }
-      const readback = await this.readFile();
+      const readback = await measure(this.performance, 'adapter.readback', () => this.readFile());
       const confirmed = readback ? archiveFromChat(readback[0].chat_metadata ?? {}, readback.slice(1) as HostMessage[]) : undefined;
-      if (!confirmed || await hash(confirmed) !== await hash(draft.archive)) fail('SAVE_VERIFY_FAILED', '保存后回读的历史与候选不一致');
+      if (!confirmed || await hash(confirmed) !== draftHash) fail('SAVE_VERIFY_FAILED', '保存后回读的历史与候选不一致');
+      if (readback![0].chat_metadata?.tainted !== true) fail('SAVE_VERIFY_FAILED', '保存后的固定开场保护标记缺失');
       expandPointers(readback!.slice(1) as HostMessage[]);
       const savedMessage = (readback!.slice(1) as HostMessage[]).find(m => m.extra?.solve?.messageId === draft.binding.messageId);
       if (!savedMessage || savedMessage.mes !== draft.text) fail('SAVE_TEXT_MISMATCH', '保存后的正文与操作结果不对应');
       if (canonical(variableViews(readback![0].chat_metadata ?? {}, readback!.slice(1) as HostMessage[])) !== canonical(views)) fail('VARIABLES_VERIFY_FAILED', '保存后楼层变量或聊天快照未完整回读');
-      this.baseline = await hash(confirmed);
+      this.baseline = draftHash;
       this.assertCurrent(draft.binding);
       const ctx = this.ctx();
       expandPointers(chat.slice(1) as HostMessage[]);
+      const liveByMessage = new Map<string, HostMessage>();
+      for (const message of ctx.chat) if (message.extra?.solve?.messageId && !liveByMessage.has(message.extra.solve.messageId)) liveByMessage.set(message.extra.solve.messageId, message);
       // Apply only SOLVE and target text fields, preserving unrelated live host changes.
       for (const saved of chat.slice(1) as HostMessage[]) {
         if (saved.is_user || saved.is_system || !saved.extra?.solve?.messageId) continue;
-        const live = ctx.chat.find(m => m.extra?.solve?.messageId === saved.extra?.solve?.messageId);
+        const live = liveByMessage.get(saved.extra!.solve.messageId);
         if (!live) continue;
         live.extra ??= {}; live.extra.solve = clone(saved.extra!.solve);
         applyMessageVariableViews(live, saved);
@@ -324,12 +356,12 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
         live.swipe_info = clone(saved.swipe_info);
       }
       expandPointers(ctx.chat);
-      const metadata = { ...ctx.chatMetadata, solve: clone(chat[0].chat_metadata.solve),
+      const metadata = { ...ctx.chatMetadata, tainted: true, solve: clone(chat[0].chat_metadata.solve),
         variables: { ...ctx.chatMetadata.variables, solve: clone(chat[0].chat_metadata.variables.solve) } };
       if (ctx.updateChatMetadata) ctx.updateChatMetadata(metadata, true); else Object.assign(ctx.chatMetadata, metadata);
       // A disk-only refresh may fail to align old live text; advance native writes only after applying a confirmed view.
       this.nativeBaseline = draftHash;
-    });
+    }));
   }
   /** Backfill old chats and persist a selected Swipe snapshot without executing or creating actions. */
   async syncVariables(archive: Archive, headId: string): Promise<void> {

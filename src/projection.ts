@@ -3,6 +3,8 @@ import { at, assertJson, clone, covered, expand, fail, matches, pointer, segment
 import { EntityGraph } from './entities.js';
 import { dormant, isModuleEnabled } from './schema.js';
 import { OPERATORS } from './engine.js';
+import { selectGuides } from './guides.js';
+import { projectFacets } from './facets.js';
 import type { CompiledDefinition, Feedback, Json, LogicalState, View } from './types.js';
 
 export interface ProjectionOptions { view?: View; paths?: string[] }
@@ -38,7 +40,7 @@ export function project(def: CompiledDefinition, state: LogicalState, options: P
     }
     return value;
   }
-  const filtered = walk(state.data, []);
+  const filtered = projectFacets(def, walk(state.data, []), view, options.paths);
   // Custom projectors only receive filtered state; they cannot recover dormant data.
   const custom = def.views?.[view];
   const result = custom ? custom(clone(filtered)) : filtered;
@@ -48,7 +50,7 @@ export function project(def: CompiledDefinition, state: LogicalState, options: P
 export function toJson(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): string { return JSON.stringify(project(def, state, options)); }
 export function toToon(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): string { return encode(project(def, state, options)); }
 export function guide(def: CompiledDefinition, state: LogicalState, tag?: string): string {
-  return [tag ? '' : def.guide ?? '', ...Object.entries(def.modules ?? {}).filter(([name]) => (!tag || tag === name) && isModuleEnabled(def, state, name)).map(([, m]) => m.guide ?? '')].filter(Boolean).join('\n');
+  return [tag ? '' : def.guide ?? '', ...Object.entries(def.modules ?? {}).filter(([name]) => (!tag || tag === name) && isModuleEnabled(def, state, name)).map(([, m]) => m.guide ?? ''), ...selectGuides(def, state, tag)].filter(Boolean).join('\n');
 }
 export function sop(): string {
   return `通过 <solve_operate> 输出 JSON。实体路径用 @ID.field；真实数据键不带 @。支持 ${OPERATORS.join(', ')}。普通算子按创建、移动/交换、数值、数组、销毁执行。$group 接收有序操作数组，全部成功才生效；组内越界直接失败。$valueOf 读取本条开始时状态，可选 $mul。示例：{"$group":[{"$inc":{"@player.gold":-50}},{"$move":{"@sword":"@player.items"}}]}。`;

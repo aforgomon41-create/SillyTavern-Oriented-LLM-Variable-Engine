@@ -2,6 +2,8 @@ import { compile } from '../schema.js';
 import { SolveCore } from '../engine.js';
 import { createArchive, headKey, restore, replay } from '../history.js';
 import { SolveRuntime } from '../runtime.js';
+import { PerformanceTrace, measure } from '../performance.js';
+import { VerifiedHistory } from '../verified-history.js';
 import { IndexedDbCache } from '../cache.js';
 import { assertJson, clone, fail, hash, id } from '../json.js';
 import { extractRawBlocks, parseOperations, stripBlocks } from '../parser.js';
@@ -17,6 +19,7 @@ import { isModuleEnabled } from '../schema.js';
 import { activeVariableView, writeMessageVariableViews } from './variables.js';
 import { readToken } from './storage-tokens.js';
 import { reconcileSwipeDeletion } from './storage-pointers.js';
+import { verifyDefinitionSnapshot } from '../definition-snapshot.js';
 import type { HostContext } from './sillytavern.js';
 import type { Action, Batch, Commit, Definition, Json } from '../types.js';
 
@@ -55,15 +58,25 @@ export class SillyTavernController {
   private nativeHistoryChanged = false;
   private listeners = new Set<() => void>();
   readonly journal = new DiagnosticJournal();
+  readonly performance = new PerformanceTrace();
+  private history = new VerifiedHistory({}, this.performance);
+  getPerformance() { return this.performance.read(); }
+  getVerificationStats() { return this.history.getStats(); }
+  clearPerformance(): void { this.performance.clear(); }
   constructor(public readonly core: SolveCore, private context: () => HostContext, public readonly options: AttachOptions = {}, fetcher: typeof fetch = fetch) {
     this.chatId = context().chatId;
-    this.adapter = new SillyTavern119Adapter(context, fetcher, browserWriteLock);
+    this.adapter = new SillyTavern119Adapter(context, fetcher, browserWriteLock, this.performance, this.history);
     if (options.cache) this.cache = options.cache;
     else if (options.cache !== false && typeof indexedDB !== 'undefined') { this.cache = new IndexedDbCache(); this.ownsCache = true; }
   }
   get busy(): boolean { return this.finalizingGeneration || this.queued > 0 || Boolean(this.operator) || Boolean(this.runtime?.busy); }
   get boundChatId(): string { return this.chatId; }
-  get ready(): boolean { return this.readyState && this.context().chatId === this.chatId; }
+  get ready(): boolean {
+    if (!this.readyState || this.disposed) return false;
+    // The host replaces chat data before its CHAT_CHANGED signal. Formatting
+    // may probe the previous scoped controller during that interval.
+    try { return this.context().chatId === this.chatId; } catch { return false; }
+  }
   assertReady(): void { if (!this.ready) fail('STATE_NOT_READY', `当前聊天尚未绑定并恢复SOLVE状态${this.reason ? `：${this.reason}` : ''}`); }
   private assertBound(): void { if (this.disposed || this.context().chatId !== this.chatId) fail('STALE_BINDING', '控制器已释放或聊天已经切换'); }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -101,8 +114,18 @@ export class SillyTavernController {
     const e = describeError(error); this.record(e.code, e.message, 'error');
     try { this.options.onError?.(error); } catch { /* observer only */ }
   }
-  private restoreState: typeof restore = (archive, commitId) => this.cache ? this.cache.restore(archive, commitId) : restore(archive, commitId);
-  private createRuntime(archive: import('../types.js').Archive, head: string): SolveRuntime { return new SolveRuntime(this.core, archive, head, this.adapter, this.restoreState); }
+  private restoreState: typeof restore = (archive, commitId) => this.cache ? this.cache.restore(archive, commitId, this.history) : VerifiedHistory.recover(this.history, archive, commitId);
+  private createRuntime(archive: import('../types.js').Archive, head: string): SolveRuntime {
+    return new SolveRuntime(this.core, archive, head, this.adapter, this.restoreState, {
+      onError: error => { this.record('FACET_HOOK_FAILED', error instanceof Error ? error.message : String(error), 'warning'); },
+      submit: (operations, parent, chain, actionId) => {
+        this.assertBound(); this.adapter.assertCurrent(parent.binding);
+        const index = this.context().chat.findIndex(message => message.extra?.solve?.messageId === parent.binding.messageId);
+        if (index < 0) fail('STALE_BINDING', 'Hook原消息已经不存在');
+        return this.submit(operations, { actionId, index, expectedHead: parent.id, authorInputs: { solveFacetChain: chain } });
+      },
+    }, this.performance, this.history);
+  }
   private async useCache(task: (cache: IndexedDbCache) => Promise<unknown>): Promise<void> {
     if (!this.cache) return;
     try { await task(this.cache); this.cacheError = undefined; }
@@ -125,6 +148,7 @@ export class SillyTavernController {
       await this.adapter.save({ archive, commit: root, binding: initialBinding, text: ctx.chat[index]!.mes, expectedHead: null });
     } else {
       if (archive.definitionHash !== this.core.definition.fingerprint) fail('DEFINITION_MISMATCH', '此聊天使用不同版本的作者定义');
+      if (archive.authoring) await verifyDefinitionSnapshot(archive.authoring, archive.definitionHash);
       try { head = this.findParent(ctx.chat.length, archive); }
       catch (error) {
         if (!['HISTORY_BRANCH_CONFLICT', 'GENESIS_SELECTION'].includes(describeError(error).code)) throw error;
@@ -158,7 +182,7 @@ export class SillyTavernController {
     if (ctx.macros?.registry) this.disposers.push(registerMacros(ctx.macros.registry, () => {
       this.assertReady();
       if (this.findParent(this.context().chat.length) !== this.runtime.headId) fail('STATE_NOT_ALIGNED', '模型输入尚未对齐当前选中的历史');
-      return { definition: this.core.definition, state: this.runtime.getState(), feedback: this.runtime.archive.commits[this.runtime.headId]!.feedback };
+      return { definition: this.core.definition, state: this.runtime.getState(), feedback: this.runtime.getCommit()!.feedback };
     }));
     await this.syncVariableViews();
     this.installEvents();
@@ -166,28 +190,28 @@ export class SillyTavernController {
     this.record(this.readyState ? 'READY' : 'HISTORY_DIRTY', this.readyState ? '当前聊天状态已恢复' : this.reason, this.readyState ? 'info' : 'warning');
     return this;
   }
-  private findParent(beforeIndex: number, archive = this.runtime.archive): string {
+  private findParent(beforeIndex: number, archive?: import('../types.js').Archive): string {
+    const links = archive ? new Map(Object.values(archive.commits).map(commit => [commit.id, commit.parentId])) : this.runtime.historyLinks();
     const messages = this.context().chat;
     let selected: string | undefined;
     for (let i = 0; i < beforeIndex; i++) {
       const head = messages[i]?.extra?.solve?.headId;
-      const commit = head ? archive.commits[head] : undefined;
-      if (!commit) continue;
-      if (selected && selected !== commit.id) {
-        let cursor = commit.parentId;
+      if (!head || !links.has(head)) continue;
+      if (selected && selected !== head) {
+        let cursor = links.get(head) ?? null;
         const seen = new Set<string>();
         while (cursor && cursor !== selected) {
           if (seen.has(cursor)) fail('HISTORY_CYCLE', '父链出现循环');
-          seen.add(cursor); cursor = archive.commits[cursor]?.parentId ?? null;
+          seen.add(cursor); cursor = links.get(cursor) ?? null;
         }
         if (cursor !== selected) fail('HISTORY_BRANCH_CONFLICT', '当前选中的回复版本与后续楼层不属于同一历史，请从变更处重放');
       }
       selected = head;
     }
     if (selected) return selected;
-    const roots = Object.values(archive.commits).filter(c => c.parentId === null);
+    const roots = [...links].filter(([, parentId]) => parentId === null);
     if (roots.length !== 1) fail('GENESIS_SELECTION', '无法确定当前开场分支的初始状态');
-    return roots[0]!.id;
+    return roots[0]![0];
   }
   private listen(event: string, fn: (...args: any[]) => unknown, last = false): void {
     const ctx = this.context(), name = ctx.eventTypes?.[event];
@@ -329,7 +353,7 @@ export class SillyTavernController {
     const state = this.runtime.getState(), def = this.core.definition;
     const context = this.context().chat.slice(Math.max(0, index - 3), index + 1).map(m => stripBlocks(m.mes)).join('\n');
     const encoded = this.options.operatorFormat === 'toon' ? toToon(def, state, { view: 'operator' }) : toJson(def, state, { view: 'operator' });
-    return [sop(), guide(def, state), encoded, JSON.stringify(this.runtime.archive.commits[this.runtime.headId]?.feedback ?? []), context].join('\n\n');
+    return [sop(), guide(def, state), encoded, JSON.stringify(this.runtime.getCommit()?.feedback ?? []), context].join('\n\n');
   }
   private async requestOperator(prompt: string): Promise<string> {
     if (this.operator) fail('OPERATOR_BUSY', '操作模型任务正在运行');
@@ -357,8 +381,8 @@ export class SillyTavernController {
   private async persist<T>(task: () => Promise<T>, align = true): Promise<T> {
     try {
       if (this.nativeHistoryChanged) { await this.adapter.reconcileNativeSave(this.runtime.archive); this.nativeHistoryChanged = false; }
-      const result = await task();
-      await this.useCache(cache => cache.put(this.runtime.archive, this.runtime.headId, this.runtime.getState()));
+      const result = await measure(this.performance, 'controller.mutation', task);
+      await measure(this.performance, 'controller.cache', () => this.useCache(cache => cache.put(this.runtime.archive, this.runtime.headId, this.runtime.getState(), this.history)));
       this.record('ARCHIVED', '状态已保存并通过回读核验');
       if (align) this.checkAlignment();
       return result;
@@ -385,7 +409,7 @@ export class SillyTavernController {
       if (!head) fail('NO_SWIPE_STATE', '当前回复尚未完成变量同步');
       if (expectedHead !== undefined && (expectedHead !== head || expectedHead !== this.runtime.headId)) fail('HEAD_CHANGED', '状态已变化或目标楼层不一致，请重新预演；当前执行位置未改变');
       if (this.runtime.headId !== head) await this.runtime.select(head);
-      const commit = this.runtime.archive.commits[head]!;
+      const commit = this.runtime.getCommit(head)!;
       const existing = commit.actions.filter(a => a.source === 'user');
       const prefix = message.mes.replace(/<solve_mutual_operate>[\s\S]*?<\/solve_mutual_operate>/gu, '').trimEnd();
       const actions = existing.some(a => a.actionId === input.actionId) ? existing : [...existing, input];
@@ -470,11 +494,17 @@ export class SillyTavernController {
       definition: { id: this.core.definition.id, version: this.core.definition.version, fingerprint: this.core.definition.fingerprint },
       sessionId: this.runtime?.sessionId, headId: this.runtime?.headId, pendingCount: (this.runtime?.pendingCount ?? 0) + (this.pendingImportError ? 1 : 0), pendingImportError: this.pendingImportError,
       cache: { enabled: Boolean(this.cache), error: this.cacheError, source: this.cache?.lastRestoreSource ?? 'archive' },
+      facetHooksPending: this.runtime?.pendingHookCount ?? 0,
       capabilities: inspectCapabilities(this.context(), this.hostVersion), mode: this.options.mode ?? 'in-band', operatorBusy: Boolean(this.operator),
     };
   }
   getState() { this.assertReady(); return this.runtime.getState(); }
   getValue(path: string) { const state = this.getState(); const graph = new EntityGraph(this.core.definition, state); return clone(at(state.data, graph.resolve(path))); }
+  getGuide(tag?: string): string {
+    this.assertReady();
+    if (this.findParent(this.context().chat.length) !== this.runtime.headId) fail('STATE_NOT_ALIGNED', '模型输入尚未对齐当前选中的历史');
+    return guide(this.core.definition, this.runtime.getState(), tag);
+  }
   getProjectedState(options: ProjectionOptions = {}) { return project(this.core.definition, this.getState(), options); }
   getContextPreview(options: ProjectionOptions = {}) {
     const state = this.getState(), def = this.core.definition;
@@ -568,7 +598,9 @@ export class SillyTavernController {
       const head = this.findParent(this.context().chat.length, archive);
       if (this.nativeHistoryChanged) { await this.adapter.reconcileNativeSave(archive); this.nativeHistoryChanged = false; }
       const next = this.createRuntime(archive, head); await next.ready(); this.assertBound();
-      this.runtime.invalidate(); this.runtime = next; this.readyState = true; this.reason = '';
+      // The replacement has just checked the same shared certificates. Retire
+      // the old Runtime without clearing the replacement's verification cache.
+      this.runtime.invalidate(false); this.runtime = next; this.readyState = true; this.reason = '';
       await this.syncVariableViews();
       this.record('RESTORE_COMPLETED', '当前选中历史已重新恢复');
     });
@@ -584,11 +616,13 @@ export class SillyTavernController {
   }
   async rebuildCache(): Promise<void> {
     this.assertBound(); if (!this.cache) fail('CACHE_DISABLED', '当前未启用浏览器缓存');
-    await this.cache.clearSnapshots(); await this.cache.put(this.runtime.archive, this.runtime.headId, await restore(this.runtime.archive, this.runtime.headId));
+    const archive = this.runtime.archive, head = this.runtime.headId;
+    await this.cache.clearSnapshots(); await this.cache.put(archive, head, await restore(archive, head), this.history);
     this.cacheError = undefined; this.record('CACHE_REBUILT', '已重建快照缓存，待保存草稿保留');
   }
   exportDebugReport(options: { includeState?: boolean; includeText?: boolean } = {}) {
     const report: Record<string, unknown> = { exportedAt: new Date().toISOString(), status: this.getStatus(), logs: this.journal.read(),
+      performance: { samples: this.getPerformance(), verification: this.getVerificationStats() },
       history: this.getHistory(), messages: this.getMessages().map(({ text, ...meta }) => options.includeText ? { ...meta, text } : meta) };
     if (options.includeState) { try { report.state = this.runtime.getState(); } catch { report.state = null; } }
     return report;

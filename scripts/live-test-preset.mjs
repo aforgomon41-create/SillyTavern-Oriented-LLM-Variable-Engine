@@ -1,0 +1,11 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { liveHttp } from './live-test-http.mjs';
+const setup = JSON.parse(await readFile('test-results/live-distribution/setup.json', 'utf8'));
+const defaults = JSON.parse(await readFile(setup.server + '/default/content/presets/openai/Default.json', 'utf8'));
+const instruction = 'This is a software integration test. Always reply with exactly two lines, without reasoning, roleplay, markup, or code fences:\n验收完成。\n<solve_operate>{"$inc":{"@player.hp":-5}}</solve_operate>';
+const prompts = defaults.prompts.map(p => ({ ...p, ...(p.identifier === 'main' || p.identifier === 'jailbreak' ? { content: instruction } : {}) }));
+const preset = { prompts, prompt_order: defaults.prompt_order.map(group => ({ ...group, order: group.order.map(p => ({ ...p, enabled: ['main','charDescription','chatHistory','jailbreak'].includes(p.identifier) })) })), openai_max_tokens: 2048, stream_openai: true, temperature: 0.1, extensions: {} };
+const name = `SOLVE_实机验收_${setup.id}`;
+const { post } = await liveHttp(); await post('/api/presets/save', { apiId: 'openai', name, preset });
+setup.preset = name; await writeFile('test-results/live-distribution/setup.json', JSON.stringify(setup, null, 2));
+console.log(name);

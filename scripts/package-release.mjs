@@ -21,12 +21,12 @@ async function collect(path, target, filter = () => true) {
 }
 for (const name of ['src', 'tests', 'examples', 'docs', '.github']) await collect(name, source);
 await collect('scripts', source, name => !/(?:^|\/)(?:live-test-|test-live-|update-live-test-)/u.test(name));
-for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'README.md', 'LICENSE', 'NOTICE', '.gitignore', '.gitattributes', 'CHANGELOG.md']) source.set(name, await read(name));
+for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'README.md', 'CONTRIBUTING.md', 'LICENSE', 'NOTICE', '.gitignore', '.gitattributes', 'CHANGELOG.md']) source.set(name, await read(name));
 for (const name of (await readdir('.')).filter(name => name.startsWith('SOLVE_') && name.endsWith('.md'))) source.set(name, await read(name));
 const sourcePrefix = `SOLVE-source-${version}/`;
 const sourceZip = createZip([...source].map(([name, data]) => [sourcePrefix + name, data]));
 const sourceNotice = Buffer.from(`# SOLVE ${version} 对应源码\n\n本包附带 [SOURCE_CODE.zip](SOURCE_CODE.zip)，其 SHA256 为 ${digest(sourceZip)}。解压后运行 npm ci、npm run check:portable。\n\n该归档包含本次构建的实际源码、锁文件、构建脚本、测试与文档；项目仓库为 https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine 。远程预览标签和发布状态见 release.json/交付说明，未发布时不以仓库首页代替本归档。\n\n许可：AGPL-3.0-only。保留 LICENSE、NOTICE、THIRD_PARTY_NOTICES.txt。\n`);
-const names = ['manifest.json', 'index.js', 'solve.js', 'sillytavern.js', 'runtime.js', 'dynamic.js', 'embedded.js', 'debug.html', 'debug-inline.html', 'debug.js', 'debug.css', 'rpg-example.js', 'README.md', 'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.txt'];
+const names = ['manifest.json', 'index.js', 'solve.js', 'sillytavern.js', 'runtime.js', 'dynamic.js', 'embedded.js', 'debug.html', 'debug-inline.html', 'debug.js', 'debug.css', 'rpg-example.js', 'author-examples.js', 'README.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.txt'];
 for (const name of names) runtime.set(name, await read('dist/' + name));
 for (const name of (await readdir('dist')).filter(name => name.endsWith('.map'))) runtime.set(name, await read('dist/' + name));
 const docs = new Map(); await collect('dist/docs', docs);

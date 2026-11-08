@@ -59,28 +59,40 @@ function readAction(action: StoredAction): Action {
   return { ...common, kind: 'operations', source: action.source ?? 'model', operations: clone(action.operations!) };
 }
 export function storeFloor(head: Commit, records: Commit[], storage: StorageV3): StoredFloor {
-  const owner = head.binding;
-  const encode = (record: Commit, historical: boolean): StoredRecord => {
-    const context = storage.contexts.findIndex(item => canonical(item) === canonical(tupleOf(contextOf(record))));
-    if (context < 0) fail('STORAGE_CONTEXT', '提交缺少存储上下文');
-    const checks = [record.baseHash, record.stateHash, record.opsDigest, record.textDigest].map(value => storage.hashes.indexOf(storeToken(value)));
-    if (checks.some(index => index < 0)) fail('STORAGE_CONTEXT', '提交缺少校验上下文');
-    const commit: CompactCommit = { id: storeToken(record.id), ...(record.parentId ? { parentId: storeToken(record.parentId) } : {}),
-      ...(context ? { context } : {}), checks };
-    if (!historical || record.binding.messageId !== owner.messageId || record.binding.swipeId !== owner.swipeId)
-      commit.binding = [storeToken(record.binding.messageId), storeToken(record.binding.swipeId)];
-    return { commit,
-      ...(historical && isPrefix(record.actions, head.actions) ? { operationsPrefix: record.actions.length }
-        : record.actions.length || !historical ? { operations: record.actions.map(storeAction) } : {}),
-      ...(historical && record.dataPatch.length && canonical(record.dataPatch) === canonical(head.dataPatch) ? { dataSame: 1 as const }
-        : record.dataPatch.length || !historical ? { dataPatch: clone(record.dataPatch) } : {}),
-      ...(record.enginePatch.length ? { enginePatch: clone(record.enginePatch) } : {}),
-      ...(historical && isPrefix(record.feedback, head.feedback) ? { feedbackPrefix: record.feedback.length }
-        : record.feedback.length ? { feedback: clone(record.feedback) } : {}),
-      ...(Object.keys(record.aliases).length ? { aliases: clone(record.aliases) } : {}) };
+  return createFloorWriter(storage)(head, records);
+}
+/** One synchronous packing pass shares lookup tables, without changing format 3. */
+export function createFloorWriter(storage: StorageV3): (head: Commit, records: Commit[]) => StoredFloor {
+  const contexts = new Map<string, number>(), hashes = new Map<string, number>();
+  storage.contexts.forEach((item, index) => { const key = canonical(item); if (!contexts.has(key)) contexts.set(key, index); });
+  storage.hashes.forEach((value, index) => { if (!hashes.has(value)) hashes.set(value, index); });
+  return (head, records) => {
+    const owner = head.binding;
+    const encode = (record: Commit, historical: boolean): StoredRecord => {
+      const contextKey = canonical(tupleOf(contextOf(record))), context = contexts.get(contextKey);
+      if (context === undefined || canonical(storage.contexts[context]) !== contextKey) fail('STORAGE_CONTEXT', '提交缺少存储上下文');
+      const checks = [record.baseHash, record.stateHash, record.opsDigest, record.textDigest].map(value => {
+        const key = storeToken(value), index = hashes.get(key);
+        if (index === undefined || storage.hashes[index] !== key) fail('STORAGE_CONTEXT', '提交缺少校验上下文');
+        return index;
+      });
+      const commit: CompactCommit = { id: storeToken(record.id), ...(record.parentId ? { parentId: storeToken(record.parentId) } : {}),
+        ...(context ? { context } : {}), checks };
+      if (!historical || record.binding.messageId !== owner.messageId || record.binding.swipeId !== owner.swipeId)
+        commit.binding = [storeToken(record.binding.messageId), storeToken(record.binding.swipeId)];
+      return { commit,
+        ...(historical && isPrefix(record.actions, head.actions) ? { operationsPrefix: record.actions.length }
+          : record.actions.length || !historical ? { operations: record.actions.map(storeAction) } : {}),
+        ...(historical && record.dataPatch.length && canonical(record.dataPatch) === canonical(head.dataPatch) ? { dataSame: 1 as const }
+          : record.dataPatch.length || !historical ? { dataPatch: clone(record.dataPatch) } : {}),
+        ...(record.enginePatch.length ? { enginePatch: clone(record.enginePatch) } : {}),
+        ...(historical && isPrefix(record.feedback, head.feedback) ? { feedbackPrefix: record.feedback.length }
+          : record.feedback.length ? { feedback: clone(record.feedback) } : {}),
+        ...(Object.keys(record.aliases).length ? { aliases: clone(record.aliases) } : {}) };
+    };
+    const history = records.filter(record => record.id !== head.id).map(record => encode(record, true));
+    return { version: 3, ...encode(head, false), ...(history.length ? { history } : {}) };
   };
-  const history = records.filter(record => record.id !== head.id).map(record => encode(record, true));
-  return { version: 3, ...encode(head, false), ...(history.length ? { history } : {}) };
 }
 
 export function floorBinding(floor: StoredFloor): { messageId: string; swipeId: string } {

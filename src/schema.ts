@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { assertJson, at, canonical, clone, covered, fail, hash, matches, pointer, safeKey } from './json.js';
 import type { CompiledDefinition, Definition, ExecutionContext, Feedback, Json, LogicalState, NumericRule } from './types.js';
+import { compileGuideRules, describeGuideRules } from './guides.js';
+import { hasInline, isAuthorPrepared } from './inline.js';
+import { compileAuthorDefinition } from './authoring.js';
+import { copyFacets, describeFacetHooks } from './facets.js';
 
 export function unwrap(schema: any): any {
   for (let i = 0; i < 32; i++) {
@@ -23,6 +27,11 @@ export function childSchema(schema: any, key: string): any {
   }
   if (d?.type === 'record') return d.valueType;
   if (d?.type === 'array') return d.element;
+  if (d?.type === 'tuple') return /^(?:0|[1-9]\d*)$/u.test(key) ? d.items[Number(key)] ?? d.rest : undefined;
+  if (d?.type === 'intersection') {
+    const left = childSchema(d.left, key), right = childSchema(d.right, key);
+    return left && right ? z.intersection(left, right) : left ?? right;
+  }
   if (d?.type === 'union') return undefined; // validate the enclosing union as a whole
   return undefined;
 }
@@ -42,6 +51,8 @@ function schemaDescription(schema: any, seen = new Set<any>()): Json {
   }
   if (d.type === 'record') { result.key = schemaDescription(d.keyType, seen); result.value = schemaDescription(d.valueType, seen); }
   if (d.type === 'array') result.element = schemaDescription(d.element, seen);
+  if (d.type === 'tuple') { result.items = d.items.map((s: any) => schemaDescription(s, seen)); if (d.rest) result.rest = schemaDescription(d.rest, seen); }
+  if (d.type === 'intersection') { result.left = schemaDescription(d.left, seen); result.right = schemaDescription(d.right, seen); }
   if (d.innerType) result.inner = schemaDescription(d.innerType, seen);
   if (d.type === 'pipe') { result.input = schemaDescription(d.in, seen); result.output = schemaDescription(d.out, seen); }
   if (d.type === 'lazy') result.inner = schemaDescription(d.getter(), seen);
@@ -62,7 +73,20 @@ function schemaDescription(schema: any, seen = new Set<any>()): Json {
   return result;
 }
 export async function compile(definition: Definition): Promise<CompiledDefinition> {
+  if (!isAuthorPrepared(definition) && (definition.facets?.length || hasInline(definition.schema) || definition.outputSchema && hasInline(definition.outputSchema))) return (await compileAuthorDefinition(definition)).definition;
+  return compilePrepared(definition);
+}
+/** Internal normalized definition compiler; never runs author collectors or notifications. */
+export async function compilePrepared(definition: Definition): Promise<CompiledDefinition> {
   if (!definition.id || !definition.version) fail('DEFINITION_VERSION', '作者定义必须有固定 id 与版本');
+  if (definition.runtimeBindings !== undefined) assertJson(definition.runtimeBindings);
+  const guides = compileGuideRules(definition);
+  const facets = definition.facets ? copyFacets(definition.facets) : undefined;
+  for (const facet of facets ?? []) {
+    const record = definition.runtimeBindings?.authoring?.facets.find(value => value.id === facet.id);
+    if (!record || canonical(record) !== canonical({ id: facet.id, version: facet.version, ...(facet.build !== undefined ? { build: facet.build } : {}), ...(facet.dependencies !== undefined ? { dependencies: facet.dependencies } : {}) })) fail('FACET_BINDING', 'Facet版本绑定缺失或变化：' + facet.id);
+  }
+  const facetRuntime = describeFacetHooks(facets);
   const schemaShape = schemaDescription(definition.schema);
   for (const [name, m] of Object.entries(definition.modules ?? {})) {
     safeKey(name);
@@ -83,15 +107,21 @@ export async function compile(definition: Definition): Promise<CompiledDefinitio
   const metadata = { id: definition.id, version: definition.version, schemaShape,
     entities: definition.entities ?? [], refs: definition.refs ?? [], modules: definition.modules ?? {},
     numeric: definition.numeric ?? {}, readonly: definition.readonly ?? [], internal: definition.internal ?? [],
-    templates: definition.templates ?? {}, prefabs: definition.prefabs ?? {} };
-  const fingerprint = await hash({ ...metadata, outputShape: definition.outputSchema ? schemaDescription(definition.outputSchema) : null });
+    templates: definition.templates ?? {}, prefabs: definition.prefabs ?? {},
+    ...(definition.runtimeBindings !== undefined ? { runtimeBindings: definition.runtimeBindings } : {}) };
+  const outputShape = definition.outputSchema ? schemaDescription(definition.outputSchema) : null;
+  const fingerprint = await hash({ ...metadata, outputShape, ...(guides.length ? { guides: describeGuideRules(guides) } : {}), ...(facetRuntime.length ? { facetRuntime } : {}) });
   const storedSchema = definition.outputSchema ?? storedProjection(definition.schema);
   const fixed = clone(metadata);
   const freeze = (value: any): void => { if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); } };
   freeze(fixed);
   return { ...definition, initialData: clone(definition.initialData), entities: fixed.entities, refs: fixed.refs, modules: fixed.modules,
     numeric: fixed.numeric, readonly: fixed.readonly, internal: fixed.internal, templates: fixed.templates, prefabs: fixed.prefabs,
-    fingerprint, schemaShape, storedSchema, structuralSchema: storedProjection(storedSchema, true) };
+    ...(fixed.runtimeBindings !== undefined ? { runtimeBindings: fixed.runtimeBindings } : {}),
+    views: definition.views ? Object.freeze({ ...definition.views }) : undefined,
+    guides: guides.length ? guides : undefined,
+    ...(facets ? { facets: Object.freeze(facets) as typeof facets } : {}),
+    fingerprint, schemaShape, outputShape, storedSchema, structuralSchema: storedProjection(storedSchema, true) };
 }
 // Input effects are one-way and must never run on already stored output.
 // A transform's output cannot be inferred from JS; use outputSchema for its constraints.
@@ -105,6 +135,8 @@ function storedProjection(schema: any, structuralOnly = false): any {
   if (d.innerType) return schema.clone({ ...d, innerType: storedProjection(d.innerType, structuralOnly), ...(checks ? { checks } : {}) });
   if (d.type === 'object') return schema.clone({ ...d, shape: Object.fromEntries(Object.entries(schema.shape).map(([k, s]) => [k, storedProjection(s, structuralOnly)])), ...(checks ? { checks } : {}) });
   if (d.type === 'array') return schema.clone({ ...d, element: storedProjection(d.element, structuralOnly), ...(checks ? { checks } : {}) });
+  if (d.type === 'tuple') return schema.clone({ ...d, items: d.items.map((s: any) => storedProjection(s, structuralOnly)), ...(d.rest ? { rest: storedProjection(d.rest, structuralOnly) } : {}), ...(checks ? { checks } : {}) });
+  if (d.type === 'intersection') return schema.clone({ ...d, left: storedProjection(d.left, structuralOnly), right: storedProjection(d.right, structuralOnly), ...(checks ? { checks } : {}) });
   if (d.type === 'record') return schema.clone({ ...d, valueType: storedProjection(d.valueType, structuralOnly), ...(checks ? { checks } : {}) });
   if (d.options) return schema.clone({ ...d, options: d.options.map((s: any) => storedProjection(s, structuralOnly)), ...(checks ? { checks } : {}) });
   return checks ? schema.clone({ ...d, checks }) : schema;

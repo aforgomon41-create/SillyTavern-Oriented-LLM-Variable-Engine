@@ -1,0 +1,18 @@
+import { readFile, writeFile, mkdir, cp, access } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { liveHttp } from './live-test-http.mjs';
+const setup = JSON.parse(await readFile('test-results/live-distribution/setup.json', 'utf8'));
+const directory = resolve('test-results/live-distribution/native-build'), repo = resolve(`test-results/live-distribution/repos/solve-live-native-${setup.id}.git`);
+await access(directory).then(() => { throw new Error('测试构建目录已存在'); }, () => {});
+await cp('dist', directory, { recursive: true, errorOnExist: true, force: false });
+await writeFile(resolve(directory, 'index.js'), await readFile(resolve(directory, 'index.js'), 'utf8') + setup.nativeExtra);
+const git = args => execFileSync('git', args, { cwd: directory, encoding: 'utf8', stdio: 'pipe', windowsHide: true });
+git(['init', '-b', 'main']); git(['add', '.']); git(['-c','user.name=SOLVE Test','-c','user.email=solve-test@localhost','commit','-m','Isolated live distribution test build']);
+await mkdir(resolve('test-results/live-distribution/repos'), { recursive: true });
+git(['clone','--bare',directory,repo]);
+const url = `http://localhost:4176/repos/solve-live-native-${setup.id}.git`;
+const { post } = await liveHttp();
+const result = await (await post('/api/extensions/install', { url, global: false })).json();
+setup.nativeInstall = result; await writeFile('test-results/live-distribution/setup.json', JSON.stringify(setup, null, 2));
+console.log(JSON.stringify(result, null, 2));

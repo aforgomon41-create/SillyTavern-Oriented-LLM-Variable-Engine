@@ -46,7 +46,7 @@
 
 ## 当前交付补充（2026-10-26）
 
-作者入口为分离式 Definition；提供输入 schema、可选纯校验 outputSchema 及 validateState。输入变换不会在 Restore 或已有状态校验中重复执行；变换后的类型约束无法自动推断时，由作者给出 outputSchema。完整 Facet、世界书自动编译和大规模性能仍为后续目标，以 README 的实现清单为准。
+作者入口支持分离式 Definition、内联字段工具、世界书与多文件组合；提供输入 schema、可选纯校验 outputSchema 及 validateState。输入变换不会在 Restore 或已有状态校验中重复执行；无法自动推断输出约束时，由作者给出 outputSchema。0.9-dev.5补齐版本化Facet的结构/元信息收集与编译、投影、保存后回调，契约见 authoring.md。投影只接收过滤副本，正式修改仍走动作队列与保存确认；恢复不重发通知。指南条件已接入宏/API，正文热更新、关键词触发与浏览器规模性能仍为后续目标。
 
 作为恢复依据的聊天级 `chat_metadata.solve` 保存 Genesis 与共享上下文；提交修订唯一存于 `message.variables[swipe_id].solve`。0.8.3 的格式 3 以短指针推导 HEAD，省略独立 HEAD 表，旧格式仍能读取并自动转换。互相指向的选中楼层必须来自同一父链，历史 Swipe 变化后不能把旧下游直接接续。replayMessage/replayFrom 用于显式重建后继链。
 

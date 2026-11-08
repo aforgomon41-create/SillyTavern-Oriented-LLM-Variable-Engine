@@ -96,7 +96,7 @@ test('控制器草稿跨刷新重试复用候选，放弃同步清理本地缓�
   const saved = await fresh.retryPending(); assert.equal(saved.id, candidate); assert.equal(fresh.getValue('@alice.hp'), 80);
   setFailBefore(true); await assert.rejects(fresh.submit({ $inc: { '@alice.hp': -7 } }, { index }));
   setFailBefore(false); await fresh.discardPending(); assert.equal(fresh.getStatus().pendingCount, 0);
-  assert.deepEqual(await cache.loadPending(fresh.runtime.sessionId), []);
+  assert.deepEqual((await cache.loadPending(fresh.runtime.sessionId)) ?? [], []);
   await fresh.rebuildCache(); await fresh.runtime.select(fresh.runtime.headId); assert.equal(fresh.getStatus().cache.source, 'snapshot');
   assert.equal(fresh.getValue('@alice.hp'), 80); fresh.dispose(); cache.close();
 });

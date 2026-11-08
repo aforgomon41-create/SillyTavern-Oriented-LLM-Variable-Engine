@@ -1,19 +1,28 @@
 # SOLVE · SillyTavern-Oriented-LLM-Variable-Engine
 
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-365c49.svg)](LICENSE)
-[![Version: 0.8.4-preview.1](https://img.shields.io/badge/Version-0.8.4--preview.1-647063.svg)](docs/release-guide.md)
+[![Version: 0.9.0-dev.8](https://img.shields.io/badge/Version-0.9.0--dev.8-647063.svg)](docs/release-guide.md)
 
 面向 **SillyTavern 1.19.x 单角色聊天**的结构化变量引擎。模型输出 JSON 指令，Core 执行与校验，聊天文件保存实际结果。现包含 React + Radix 调试工作台，松绿与暖灰配色，支持浅色/深色以及电脑/手机。
 
 ![SOLVE 调试工作台](docs/images/debug-desktop-light.jpg)
 
-当前版本 **0.8.4-preview.2（预览版）**。补上真实双标签页发现的原生保存覆盖保护，以及删除回复版本后的变量槽清理，保持 JSON Patch 单一格式与格式 3 的瘦身结果。**129 项自动测试**和本机接口 12 个边界检查通过；真实页面的分发隔离、停止/重新生成、删楼重放、双标签页与独立模型请求结果见 [验证记录](docs/verification.md)，远程检查结果以仓库 Actions 为准。三种分发包附带实际源码和校验清单，见 [交付说明](docs/release-guide.md)。
+当前开发基线为 **0.9.0-dev.8**，已记录的公开预览基线为 **0.8.4-preview.2**。开发版包含内联作者工具、世界书接入、Facet 生命周期、宏与 API 条件指南，以及长聊天第一阶段性能优化。235 项自动测试通过，当前完成情况与接手任务集中在实施状态中。[当前状态](docs/implementation-status.md)
+
+## 开发与文档入口
+
+| 目的 | 入口 |
+| --- | --- |
+| 参与开发、分工和提交合并申请 | [协作指南](CONTRIBUTING.md) |
+| 编写角色定义、世界书和条件指南 | [作者接入](docs/authoring.md) |
+| 查找设计、接口、验收和交付文档 | [文档目录](docs/README.md) |
+| 查看长聊天测量与剩余瓶颈 | [性能记录](docs/performance.md) |
 
 ## 安装到酒馆
 
-已发布的 0.7.1 可从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases) 下载 `SOLVE-0.7.1.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
+已发布的预览版可从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.8.4-preview.2) 下载 `SOLVE-native-0.8.4-preview.2.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
 
-安装本地预览版时，运行下列构建与打包命令，使用 `artifacts/releases/0.8.4-preview.2/` 中对应分发包。不要将本机验收辅助脚本放进正式扩展。
+安装本地开发版时，运行下列构建与打包命令，使用 `artifacts/releases/0.9.0-dev.8/` 中对应分发包。不要将本机验收辅助脚本放进正式扩展。
 
 ```sh
 npm ci
@@ -68,6 +77,7 @@ npm run test:host
 - 酒馆助手标准变量：楼层按 Swipe 展示操作、双 Patch 与提交信息，聊天保存当前确认快照；旧聊天自动补齐。
 - 随正文和独立操作模型模式；独立连接预设、自定义请求函数、超时、取消。
 - 作者定义注册与按角色绑定；切聊天自动释放旧控制器并恢复原定义。
+- 多文件定义组合、世界书条目编译与实际文件读取、带版本的 Facet 收集、来源诊断与可序列化编译清单；聊天头保存一份固定声明用于冷恢复。
 - 浏览器默认启用快照与草稿缓存；草稿重试、放弃与损坏隔离。
 - 调试接口：状态/实体/引用、定义与模块、操作预演、历史对比、归档检查、上下文预览和有界日志。
 - 原生删除后的恢复与重放；被保留旧修订依赖的已删楼祖先，随存活回复归档。
@@ -165,7 +175,7 @@ await SOLVE.register(rpgDefinition, {
 
 已验证 1.19.0 单聊。原生拦截器覆盖原生生成入口，不承诺拦住助手或第三方自行联网。服务端没有版本比较后原子写入接口；浏览器锁与回读协调 SOLVE 实例，第三方绕过队列保存仍可能竞争。
 
-世界书自动编译、完整 Facet/内联作者 DSL、不同版本引擎共存、复杂查询和大规模性能验收仍在规划中。当前采用分离式作者定义，不把企划全部目标标为已完成。调试工作台已实现；面向玩家的状态栏和作者可视化制作工具仍属后续范围。
+已支持内联作者声明、Facet编译/投影/保存后回调、registerWorldInfo固定恢复和按状态条件选择指南；指南正文热更新、宿主关键词触发、不同版本引擎共存和复杂查询仍待推进。保存后回调异步执行，后续操作基线变化时明确拒绝；恢复不重发外部通知，不提供跨进程通知送达保证。已完成 Node 大数据/长历史测量，浏览器、IndexedDB、控制器和真实保存的规模验收仍未完成。调试工作台已实现；面向玩家的状态栏和作者可视化制作工具仍属后续范围。
 
 实施规范：`docs/backend-design.md`。实施与验证进度见 [当前交付](docs/implementation-status.md)。主企划保留原文件名。
 

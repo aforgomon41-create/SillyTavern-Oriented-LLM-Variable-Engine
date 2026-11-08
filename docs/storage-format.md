@@ -9,6 +9,8 @@
 - `message.variables[i].solve`：`version: 3`、当前 `operations`、`dataPatch`、`commit`，可选 `enginePatch`、反馈、别名和 `history`。当前短提交 ID 读取 `commit.id`，省略重复的顶层 headId。
 - `chat_metadata.variables.solve`：当前已确认的完整 data/engineState、headId、stateHash、ready，以及必要时的 reason。快照可重建，省略 version/derived 和重复会话身份。
 
+dev.3 会同时设置宿主原生的 chat_metadata.tainted=true，表示这份固定开局已使用，防止编辑/导出角色时重建唯一开场并丢失楼层记录。载入合法旧聊天会补写该宿主标记；它不是新的 SOLVE 存储版本、状态字段或提交。原生保存全部丢失已有提交时拒绝覆盖。
+
 每份修订只存在一个正式楼层变量槽中。`commit.context` 引用聊天级公共上下文，编号 0 省略；`commit.binding` 是消息/回复短编号数组，历史同属一回复时省略。`commit.checks` 按 baseHash、stateHash、opsDigest、textDigest 的顺序引用 hashes 表，四种完整校验全部保留。UUID 和 SHA256 使用无损 Base64URL 编码，分别保留全部 128/256 位；作者数据、操作内容和 authorInputs 中的字符串不作编号解码。新提交及新重放不保存运行期 generationToken，待保存草稿仍保留迟到请求检查所需的绑定。
 
 模型操作省略默认的 kind=operations、source=model，玩家操作保留 source=user，模块事件使用 module/enabled。动作编号同样无损缩短，其他作者输入保持原样。同楼旧修订的操作或反馈是当前修订的前缀时，`history` 只记录 `operationsPrefix` / `feedbackPrefix` 的数量；历史 dataPatch 与当前完全相同时使用 `dataSame: 1`。其他历史内容直接保存，所有旧修订都保留。空的 enginePatch、反馈与别名省略，读取时分别使用 `[]`、`[]`、`{}`。操作与 dataPatch 始终可以直接查看。
@@ -50,3 +52,19 @@
 计入聊天级开局、公共上下文和活跃快照后，SOLVE 总载荷分别减少 61.42%、63.85%、60.75%。动态版单次操作楼层从 3,847 B 降为 1,118 B，三个修订的楼层从 10,517 B 降为 2,893 B。这些测试的变量状态本身很小（约 132 B），精简后仍大于单份全量状态；本轮保留完整指令、变更与历史校验，尚未采用 diff/全量结果择小保存。
 
 完整证据见 `test-results/live-distribution/compact-report.json`，转换前备份目录写在报告的 backup 字段中。该结果验证存储和控制器，不代称浏览器页面已刷新。
+
+## 0.9 开发版：可选的固定作者声明
+
+registerWorldInfo 初始化的新聊天，在聊天头 solve.authoring 保存一份声明；原有聊天和手工注册不会自动增加它。楼层正式记录仍为格式 3，JSON Patch、旧修订和原有四种历史校验均保留。
+
+作者声明的 version:1 是独立的声明格式编号，字段包括 baseHash、fingerprint、declaration、views、customValidation、books 和 digest。declaration 保存实际开局输入、实体引用、模块、数值规则、模板/预制、指南与运行时绑定；schema、视图函数和校验函数留在原 JS 包。普通世界书条目不保存。
+
+dev.4的可选declaration.guides保存id、text、可选module/when/source。字符串when原样保存；JS条件只存when:{binding:指南id}，恢复时从原基础包按id绑定函数，不保存函数正文或闭包。声明与正文仍是开局固定值，读取时按已确认状态选取；Patch恢复不运行条件。无guides的旧快照摘要和旧定义身份不变，不增加楼层格式编号。
+
+它不是每楼的完整状态快照，只在聊天头存一次；包含开局声明时会增加这份声明自身的体积。重新加载用声明和原包重建执行定义，再按原有 Patch 恢复状态。声明完整摘要、开局绑定摘要、原包身份与重建出的定义指纹均需一致。当前引擎下的原生保存和 SOLVE 保存禁止替换或删除已固定的声明。
+
+IndexedDB 派生证明包含该可选声明，旧式无声明归档的证明保持兼容。声明坏掉或原包缺失不妨碍只读检查合法 Patch 事实，但不能冒用当前世界书继续写入。复制聊天/分支会自然携带声明，并保持各自的后续状态。此机制不迁移旧聊天定义，不包含跨浏览器原子保存保证。
+
+dev.5的内联规则先归一为上述声明；Facet函数继续留在原版本JS基础包，快照只含版本绑定和JSON数据，运行时Hook名称参与定义身份。恢复不执行收集器或生命周期通知。Hook新增操作使用原有Action结构，在authorInputs.solveFacetChain中保存扩展来源链以阻止循环；Replay保留动作效果，但不重发保存后通知。没有引入新的楼层格式或替代JSON Patch。
+
+dev.6的消息/回复、祖先和摘要位置索引只存在于单次同步打包中，不写入聊天或作为认证来源。规范JSON仍使用相同的键排序和输出字节，原SHA256不缩短；恢复仍核对每楼全部校验。打包后的归档与原归档完整对比、磁盘基线和保存回读均保留，未升级存储格式。

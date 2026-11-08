@@ -2,7 +2,43 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractRawBlocks } from '../src/parser.js';
 
-import { setup } from './host-fixture.js';
+import { hostEnvironment, setup } from './host-fixture.js';
+import { attachSillyTavern } from '../src/host/controller.js';
+import { SolveSessionManager } from '../src/host/sessions.js';
+
+test('原生重新载入同名聊天后重建控制器，可继续提交且保留确认历史', async () => {
+  const env = await hostEnvironment(), manager = new SolveSessionManager(() => env.ctx, env.fetcher);
+  try {
+    await manager.register(env.def, { characters: ['test.png'], attach: { cache: false } });
+    const before = manager.controller!; await before.submit({ $inc: { '@alice.hp': -1 } }); const head = before.runtime.headId;
+    env.switchChat(env.ctx.chatId); await env.emit('chat'); await manager.settled();
+    assert.notEqual(manager.controller, before); assert.equal(manager.controller!.ready, true); assert.equal(manager.controller!.runtime.headId, head);
+    await manager.controller!.submit({ $inc: { '@alice.hp': -1 } }); assert.equal(manager.controller!.getValue('@alice.hp'), 98);
+  } finally { manager.dispose(); }
+});
+
+test('普通定义恢复中的重复同聊天事件合并，不互相废弃绑定任务', async () => {
+  const env = await hostEnvironment(); let release!: () => void, entered!: () => void, reads = 0;
+  const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+  const fetcher = (async (url: any, options?: any) => { if (url === '/api/chats/get' && ++reads === 1) { entered(); await gate; } return env.fetcher(url, options); }) as typeof fetch;
+  const manager = new SolveSessionManager(() => env.ctx, fetcher);
+  try {
+    const pending = manager.register(env.def, { characters: ['test.png'], attach: { cache: false } }); await started;
+    const events = Promise.all([env.emit('chat'),env.emit('chat')]); await new Promise(resolve => setImmediate(resolve)); assert.equal(reads, 1);
+    release(); await pending; await events; await manager.settled();
+    assert.equal(manager.controller!.ready, true); assert.equal(reads, 5); assert.equal(manager.journal.read().filter(row => row.code === 'SESSION_ATTACHED').length, 1);
+  } finally { release?.(); manager.dispose(); }
+});
+
+test('宿主先切聊天再渲染再发事件时，就绪探测和格式化钩子不抛出旧绑定错误', async () => {
+  const env = await hostEnvironment(); let stale = false;
+  const c = await attachSillyTavern(env.def, () => { if (stale) throw new Error('绑定期间聊天已切换'); return env.ctx; }, { cache: false }, env.fetcher);
+  try {
+    stale = true; assert.equal(c.ready, false);
+    const text = '正文<solve_operate>{}</solve_operate>'; assert.equal(env.hooks[0]!(text), text);
+    await assert.rejects(c.submit({}), /绑定期间聊天已切换/u);
+  } finally { stale = false; c.dispose(); }
+});
 
 test('控制器生成事件、双格式宏与重复结束信号', async () => {
   const { controller, emit, macros, addReply } = await setup();

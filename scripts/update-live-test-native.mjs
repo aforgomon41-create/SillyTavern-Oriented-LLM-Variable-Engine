@@ -1,0 +1,27 @@
+import { cp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { resolve, sep } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { liveHttp } from './live-test-http.mjs';
+
+const setupPath = 'test-results/live-distribution/setup.json';
+const setup = JSON.parse(await readFile(setupPath, 'utf8'));
+const expectedName = `solve-live-native-${setup.id}`;
+if (setup.nativeInstall?.folderName !== expectedName) throw new Error('测试扩展身份不符');
+const workspace = await realpath('.');
+const directory = await realpath('test-results/live-distribution/native-build');
+if (!directory.toLowerCase().startsWith((workspace + sep + 'test-results' + sep).toLowerCase())) throw new Error('测试构建目录越界');
+const git = args => execFileSync('git', ['-c', 'core.autocrlf=input', '-C', directory, ...args], { encoding: 'utf8', windowsHide: true });
+if (git(['status', '--porcelain']).trim()) throw new Error('测试构建仓库有额外修改，请先核对');
+await cp(resolve('dist'), directory, { recursive: true });
+await writeFile(resolve(directory, 'index.js'), await readFile(resolve(directory, 'index.js'), 'utf8') + setup.nativeExtra);
+git(['add', '.']);
+git(['-c', 'user.name=SOLVE Test', '-c', 'user.email=solve-test@localhost', 'commit', '-m', 'Update local SOLVE acceptance build']);
+git(['push', resolve(`test-results/live-distribution/repos/${expectedName}.git`), 'main']);
+const { post } = await liveHttp();
+const result = await (await post('/api/extensions/update', { extensionName: expectedName, global: false })).json();
+const installed = await readFile(resolve(setup.nativeInstall.extensionPath, 'index.js'), 'utf8');
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+if (!installed.includes(version) || !installed.includes('VARIABLES_VERIFY_FAILED')) throw new Error('实机扩展尚未更新到变量修复版');
+setup.lastNativeUpdate = { version, at: new Date().toISOString(), commit: git(['rev-parse', 'HEAD']).trim(), result };
+await writeFile(setupPath, JSON.stringify(setup, null, 2));
+console.log(JSON.stringify({ version, extension: expectedName, installedVariableViews: true }, null, 2));
