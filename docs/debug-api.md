@@ -136,3 +136,7 @@ dev.5 的 getStatus().facetHooksPending 表示保存后回调队列的未完成�
 保护覆盖安装了当前共享运行时、经酒馆标准 `/api/chats/save` 发出的请求，包括原生 gzip 压缩。未加载运行时的页面、其他浏览器、直接修改服务器文件和第三方另设保存入口不共享这把浏览器锁，不能承诺跨这些入口的原子保存。这里的“锁”指同源标签页按顺序保存，避免两页同时覆盖同一聊天。
 
 0.8.0 新增 `dynamic.js` 与 `embedded.js`。它们返回一个脚本作用域的 SOLVE 接口，支持 `register()`、`controller`、`sessions`、`openDebugger()`、`closeDebugger()` 和引擎工具。脚本关闭时自动 `dispose()` 注销自己的定义；也可主动调用。原生页面上的 `SOLVE.distribution()` 返回是否有原生载体以及当前脚本提供者列表，只用于检查。接入示例及版本、拦截边界见 [distributions.md](distributions.md)。
+
+## 官方结构相关接口（claude/dev）
+
+`setSettings`、`getSettings`、`getComputed`、`getDisplay`、`getMigration` 与全局 `SOLVE.bgm` 的说明见 [官方数据结构 11.4](official-structure.md#114-新增的控制器与全局接口)。

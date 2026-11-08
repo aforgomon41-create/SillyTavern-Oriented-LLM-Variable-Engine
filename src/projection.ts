@@ -6,6 +6,7 @@ import { OPERATORS } from './engine.js';
 import { selectGuides } from './guides.js';
 import { projectFacets } from './facets.js';
 import type { CompiledDefinition, Feedback, Json, LogicalState, View } from './types.js';
+import { applyProjectionRules, computedFor, listWarnings, migrationText } from './features.js';
 
 export interface ProjectionOptions { view?: View; paths?: string[] }
 export function project(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): Json {
@@ -35,12 +36,18 @@ export function project(def: CompiledDefinition, state: LogicalState, options: P
         const outputKey = entity ? `@${entity.id}` : key;
         if (Object.hasOwn(out, outputKey)) fail('PROJECTION_KEY_COLLISION', `实体标记导致键冲突：${outputKey}`);
         out[outputKey] = result;
+        for (const computed of computedFor(def, p, child)) {
+          const computedKey = `${outputKey}(${computed.label})`;
+          if (!Object.hasOwn(value, computedKey)) out[computedKey] = computed.value;
+        }
       }
       return out;
     }
     return value;
   }
-  const filtered = projectFacets(def, walk(state.data, []), view, options.paths);
+  // Declarative prompt rules only shape whole-state projections; explicit paths stay exact.
+  const source = options.paths?.length ? state.data : applyProjectionRules(def.projection, state.data);
+  const filtered = projectFacets(def, walk(source, []), view, options.paths);
   // Custom projectors only receive filtered state; they cannot recover dormant data.
   const custom = def.views?.[view];
   const result = custom ? custom(clone(filtered)) : filtered;
@@ -50,7 +57,11 @@ export function project(def: CompiledDefinition, state: LogicalState, options: P
 export function toJson(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): string { return JSON.stringify(project(def, state, options)); }
 export function toToon(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): string { return encode(project(def, state, options)); }
 export function guide(def: CompiledDefinition, state: LogicalState, tag?: string): string {
-  return [tag ? '' : def.guide ?? '', ...Object.entries(def.modules ?? {}).filter(([name]) => (!tag || tag === name) && isModuleEnabled(def, state, name)).map(([, m]) => m.guide ?? ''), ...selectGuides(def, state, tag)].filter(Boolean).join('\n');
+  const engine = tag ? [] : [
+    ...(state.engineState.migration ? [migrationText(def, state.engineState.migration)] : []),
+    ...listWarnings(def, state, parts => dormant(def, state, parts)),
+  ];
+  return [tag ? '' : def.guide ?? '', ...Object.entries(def.modules ?? {}).filter(([name]) => (!tag || tag === name) && isModuleEnabled(def, state, name)).map(([, m]) => m.guide ?? ''), ...selectGuides(def, state, tag), ...engine].filter(Boolean).join('\n');
 }
 export function sop(): string {
   return `通过 <solve_operate> 输出 JSON。实体路径用 @ID.field；真实数据键不带 @。支持 ${OPERATORS.join(', ')}。普通算子按创建、移动/交换、数值、数组、销毁执行。$group 接收有序操作数组，全部成功才生效；组内越界直接失败。$valueOf 读取本条开始时状态，可选 $mul。示例：{"$group":[{"$inc":{"@player.gold":-50}},{"$move":{"@sword":"@player.items"}}]}。`;

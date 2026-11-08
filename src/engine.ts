@@ -1,7 +1,8 @@
 import { at, assertJson, canonical, clone, covered, expand, fail, matches, merge, pointer, safeKey, SolveError, write } from './json.js';
 import { EntityGraph } from './entities.js';
 import { clamp, dormant, initialState, isModuleEnabled, numericRule, parseInput, schemaAt, unwrap, validateStored } from './schema.js';
-import type { Batch, CompiledDefinition, ExecutionContext, ExecutionResult, Feedback, LogicalState } from './types.js';
+import type { Batch, CompiledDefinition, ExecutionContext, ExecutionResult, Feedback, LogicalState, SettingsPatch } from './types.js';
+import { applySettings, assertListCaps, isRoundPath, limitDelta, stampValue, switchExclusive } from './features.js';
 
 export const OPERATORS = ['$createEntity', '$move', '$swap', '$set', '$inc', '$transfer', '$push', '$pull', '$unset', '$deleteEntity', '$group'] as const;
 const MAX_STATEMENTS = 2000;
@@ -27,15 +28,25 @@ export class SolveCore {
   async execute(operations: Batch, state: LogicalState, context: ExecutionContext = {}): Promise<ExecutionResult> {
     assertJson(operations);
     if (JSON.stringify(operations).length > 1_000_000) fail('OPERATIONS_TOO_LARGE', '指令块超过 1 MB');
-    const runner = new Runner(this.definition, clone(state), context);
+    const start = clone(state), notes: Feedback[] = [];
+    const round = (context.authorInputs as any)?.solveRound;
+    if (this.definition.round && context.source === 'model' && round !== undefined) {
+      if (!Number.isInteger(round) || round < 0) fail('ROUND_INVALID', '轮次必须是非负整数');
+      const parts = this.definition.round.split('.');
+      write(start.data, parts, await parseInput(this.definition, start, parts, round, true, notes));
+    }
+    const runner = new Runner(this.definition, start, context);
     await runner.run(operations, false, 0);
-    return { state: runner.state, feedback: runner.feedback, aliases: runner.aliases, applied: runner.applied };
+    // The migration instruction is shown to exactly one model action.
+    if (context.source === 'model' && runner.state.engineState.migration) delete runner.state.engineState.migration;
+    return { state: runner.state, feedback: [...notes, ...runner.feedback], aliases: runner.aliases, applied: runner.applied };
   }
   async setModule(name: string, enabled: boolean, state: LogicalState, context: ExecutionContext = {}): Promise<ExecutionResult> {
     const def = this.definition;
     if (typeof enabled !== 'boolean') fail('MODULE_VALUE', '模块开关必须为布尔值');
     if (!Object.hasOwn(def.modules ?? {}, name)) fail('MODULE_NOT_FOUND', `未知模块：${name}`);
     const next = clone(state), feedback: Feedback[] = [];
+    switchExclusive(def, next, name, enabled);
     next.engineState.activeModules[name] = enabled;
     // Hydrate newly visible missing leaves only; never re-transform existing state.
     if (enabled) for (const [moduleName, spec] of Object.entries(def.modules ?? {})) {
@@ -56,6 +67,13 @@ export class SolveCore {
     }
     await validateStored(def, next, context); new EntityGraph(def, next);
     feedback.push({ level: 'L2', code: 'MODULE_CHANGED', message: `${name}: ${enabled ? '开启' : '关闭'}` });
+    return { state: next, feedback, aliases: {}, applied: 1 };
+  }
+  /** Player settings (list caps, change limits) are recorded as actions so Replay stays deterministic. */
+  async setSettings(patch: SettingsPatch, state: LogicalState, context: ExecutionContext = {}): Promise<ExecutionResult> {
+    const next = clone(state);
+    const feedback = applySettings(this.definition, next, patch);
+    await validateStored(this.definition, next, context);
     return { state: next, feedback, aliases: {}, applied: 1 };
   }
 }
@@ -120,6 +138,7 @@ class Runner {
               if (current && current.type !== old.type) fail('ENTITY_TYPE', '结构搬移不能改变已有实体类型');
             }
             this.destroyZero(next, this.state);
+            assertListCaps(this.def, this.state, next);
             await validateStored(this.def, next, this.context, strict); this.graph(next);
             this.state = next; this.aliases = aliases; this.feedback.push(...notes); this.applied++;
           } catch (error) { this.issue(error); success = false; if (strict) return false; }
@@ -145,6 +164,7 @@ class Runner {
     return success;
   }
   private writable(state: LogicalState, parts: string[]): void {
+    if (this.context.source === 'model' && isRoundPath(this.def, parts)) fail('SYSTEM_FIELD', '轮次由引擎维护，模型不能修改', pointer(parts));
     if (dormant(this.def, state, parts)) fail('MODULE_DORMANT', '目标模块已休眠', pointer(parts));
     if (!parts.length) fail('ROOT_WRITE', '禁止修改根节点');
   }
@@ -185,8 +205,9 @@ class Runner {
     if (value && current && typeof value === 'object' && typeof current === 'object' && !Array.isArray(value) && !Array.isArray(current)) {
       for (const [key, v] of Object.entries(value)) await this.patchSet(state, [...parts, key], v, strict, notes);
     } else {
-      const parsed = await parseInput(this.def, state, parts, value, strict, notes);
+      let parsed = await parseInput(this.def, state, parts, stampValue(this.def, state, parts, value), strict, notes);
       if (parsed === undefined) fail('UNDEFINED_STATE', '不能写入 undefined');
+      if (typeof parsed === 'number' && typeof current === 'number') parsed = limitDelta(this.def, state, parts, current, parsed, strict, notes);
       write(state.data, parts, parsed);
     }
   }
@@ -218,7 +239,7 @@ class Runner {
       const value = merge(prefab?.data ?? template?.data ?? {}, input);
       const parts = [...parent, entityId];
       if (at(state.data, parts, false) !== undefined) fail('TARGET_OCCUPIED', '目标 Key 已存在');
-      const parsed = await parseInput(this.def, state, parts, value, strict, notes);
+      const parsed = await parseInput(this.def, state, parts, stampValue(this.def, state, parts, value), strict, notes);
       write(state.data, parts, parsed);
       if (prefab) state.engineState.prefabLifecycle[entityId] = 'active';
       return;
@@ -276,7 +297,8 @@ class Runner {
     if (s.op === '$set') { await this.patchSet(state, parts, this.value(s.value, state, graph), strict, notes); return; }
     if (s.op === '$inc') {
       const amount = number(this.value(s.value, state, graph));
-      const next = clamp(this.def, parts, number(old) + amount, strict, notes);
+      const limited = limitDelta(this.def, state, parts, number(old), number(old) + amount, strict, notes);
+      const next = clamp(this.def, parts, limited, strict, notes);
       write(state.data, parts, next);
       return;
     }
@@ -306,7 +328,8 @@ class Runner {
       if (!isRef || !old.some(v => String(v).replace(/^@/u, '') === String(value).replace(/^@/u, ''))) {
         const schema = unwrap(schemaAt(this.def.schema, parts))?._zod?.def?.element;
         if (!schema) fail('NOT_ARRAY', '目标 Schema 不是数组');
-        const parsed = await parseInput(this.def, state, [...parts, String(old.length)], value, strict, notes); assertJson(parsed); old.push(parsed);
+        const index = [...parts, String(old.length)];
+        const parsed = await parseInput(this.def, state, index, stampValue(this.def, state, index, value), strict, notes); assertJson(parsed); old.push(parsed);
       }
     } else if (s.op === '$pull') write(state.data, parts, old.filter(v => canonical(v) !== canonical(value)));
   }

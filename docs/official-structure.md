@@ -1,6 +1,6 @@
 # SOLVE 官方数据结构规格（草案 v1）
 
-更新日期 2026-11-08。本文记录用户与 Claude 讨论确认的官方数据结构，以及它要求引擎和前端新增的能力。目前只是规格，尚未实现；实现进度另见 [当前实施状态](implementation-status.md)。
+更新日期 2026-11-08。本文记录用户与 Claude 讨论确认的官方数据结构，以及它要求引擎和前端新增的能力。引擎部分已在 `claude/dev` 分支实现并通过实机验收（第 11 节）；前端（状态栏、调试面板、结构制作面板）尚未实现。
 
 ## 1. 定位
 
@@ -27,7 +27,7 @@
 | `time.era` | 纪元 | 文字 | |
 | `time.year` / `month` / `day` | 年 / 月 / 日 | 整数 | 月、日范围不固定（架空历法），只校验为整数 |
 | `time.clock` | 时分 | 文字 | 格式 `HH:MM` |
-| `location` | 当前地点 | 引用 → `places` | 地图模块关闭时为文字 |
+| `location` | 当前地点 | 引用 → `places`，可为空 | 地点实体始终可用，见 5.1 |
 | `weather` | 天气 | 枚举 | 晴/雨/阴/雪/雾/大风/雷暴/暴雨/沙暴/瘴气/异象 |
 | `present` | 在场角色 | 引用数组 → `characters` | 删除角色时自动移除 |
 | `mood` | 场景情绪 | 枚举 | 日常/紧张/战斗/悲伤/浪漫/神秘/欢快/恐怖，用于选曲（6.9） |
@@ -133,6 +133,8 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 
 不做网格地图。地点是实体集合，用层级和连通两种关系组成节点图。
 
+实现时调整：`meta.location` 必须引用一个地点实体，所以 `places` 本身放在核心里（不可关闭）；「地图」模块只控制节点图特有的 `links` 与 `discovered`。关闭地图模块时仍然有地点和层级路径，只是没有连通关系与探索状态。
+
 | 键 | 名称 | 类型 | 说明 |
 | --- | --- | --- | --- |
 | `name` | 地点名 | 文字 | |
@@ -151,7 +153,7 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 | --- | --- | --- |
 | `name` | 名称 | 文字 |
 | `owner` | 产权人 | 引用 → `characters` 或 `factions` |
-| `place` | 位置 | 引用 → `places`（地图关闭时为文字） |
+| `place` | 位置 | 引用 → `places` |
 | `desc` / `truth` | 描述 / 真实描述 | 文字 |
 | `developments` | 建设 | 字典 `名称 → 文字` |
 
@@ -243,3 +245,69 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 ## 10. 决定记录
 
 - 2026-11-08 用户确认：官方结构面向玩家；键名英文；核心不可关闭（meta 与角色核心）；驱动力、社交为独立模块；角色扮演模块含属性、能力（特质/技能）、状态（量表/效果）；属性四种体系（DND/WOD/FATE/FU）互斥、玩家可随时切换；WOD 无上限并有超凡属性；FU 改为四档文字；属性下限 0、可空缺；座驾并入物品；不动产、势力、地图在根节点；只做节点地图，手机也用节点图；轮次读酒馆楼层；效果不计回合；单次变化上限按字段声明；清单上限由玩家设置并带压缩预警；投影声明式；NSFW 不加额外约束；年龄为文字；背景音乐由引擎负责，曲库可由卡作者附带或玩家添加；迁移指令泛化为所有互斥组的能力。
+
+## 11. 实现与用法（claude/dev，2026-11-08）
+
+### 11.1 代码位置
+
+| 内容 | 位置 |
+| --- | --- |
+| 结构描述格式与编译器 | `src/structure.ts`（`compileStructure`） |
+| 官方结构描述 | `src/official/structure.ts`（`officialStructure`） |
+| 引擎新能力 | `src/features.ts`，接入 `engine.ts`、`projection.ts`、`schema.ts`、`host/controller.ts` |
+| 背景音乐播放 | `src/host/bgm.ts`，全局接口 `SOLVE.bgm` |
+| 示例数据 | `examples/official/example.ts`（王都酒馆，第 42 轮，WOD 体系） |
+| 自动回归 | `tests/official.test.ts` |
+| 实机验收 | `scripts/live-official.mjs` |
+
+### 11.2 给角色卡启用官方结构
+
+作者脚本（每次页面加载运行一次）：
+
+```js
+await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characters: ['角色文件名.png'] });
+```
+
+角色描述或预设里放 `{{solve_SOP}}`、`{{solve_guide}}`、`{{solve_json}}`：迁移指令和清单整理提示由 `{{solve_guide}}` 输出，计算字段与声明式投影体现在 `{{solve_json}}` / `{{solve_toon}}` 里。
+
+### 11.3 结构描述格式
+
+结构描述是可 JSON 序列化的对象：`{ id, version, label?, fields, modules?, groups?, round?, projection?, guide?, guides?, initialData?, display?, bgm? }`。`fields` 中每个字段：
+
+| 属性 | 含义 |
+| --- | --- |
+| `type` | `object` / `record` / `array` / `string` / `int` / `number` / `bool` / `enum` / `ladder` / `ref` / `refs` |
+| `fields` / `of` | 对象的子字段；字典值、数组元素的结构 |
+| `entity` | 字典是实体集合，值为实体类型 |
+| `keys` | 字典的键是指向该类型实体的引用（目标删除时整条移除） |
+| `values` | 枚举值；`ladder` 是有序枚举（由低到高） |
+| `to` | `ref`/`refs` 的目标实体类型（可为数组），编译后自动校验类型 |
+| `min` `max` `maxDelta` | 数值约束；单次变化上限 |
+| `required` `optional` `nullable` `default` | 必填、可省略、可为空缺、默认值。未写时自动给默认值（文字 `''`、数值 0 或下限、枚举第一项、容器为空） |
+| `module` | 字段归属的模块（模块在 `modules` 中声明，可有 `parent`、`exclusive`） |
+| `list` | `{max, warn}` 清单上限与整理预警线 |
+| `computed` | `[{label, formula}]`，内置公式 `wodTranscend`、`dndModifier` |
+| `stamp` | 数组元素为 `{round, text}`，引擎自动填写轮次；模型可以直接写字符串 |
+| `label` `desc` `spoiler` `as` | 显示名、说明、剧透等级、控件覆写（只影响前端，不进入定义指纹） |
+| `readonly` `internal` | 沿用 SOLVE 原有的提示词可见性 |
+
+`display`（布局、渲染开关等）和 `bgm` 只影响前端与播放，不进入定义指纹：修改它们不会让旧聊天失配。
+
+### 11.4 新增的控制器与全局接口
+
+| 接口 | 作用 |
+| --- | --- |
+| `SOLVE.controller.setSettings({ lists?, maxDelta? })` | 玩家设置清单上限/预警线与单次变化上限；值为 `null` 恢复默认，`maxDelta` 为 0 表示不限。作为玩家动作保存，重放结果一致 |
+| `SOLVE.controller.getSettings()` | 当前设置与默认值 |
+| `SOLVE.controller.getComputed()` | 全部计算值（按 JSON 指针），给状态栏用 |
+| `SOLVE.controller.getDisplay()` | 显示名、剧透等级、控件、布局 |
+| `SOLVE.controller.getMigration()` | 待发送的迁移指令（没有时为 `undefined`） |
+| `SOLVE.bgm.status()` / `setEnabled()` / `setVolume()` / `addTracks()` / `removeTrack()` / `subscribe()` | 背景音乐状态与玩家曲库（存于本机浏览器） |
+
+### 11.5 行为细节
+
+- **轮次**：模型回复提交时，引擎把「该回复所在楼层号」与「上一提交轮次 + 1」取较大值，记入该动作（`authorInputs.solveRound`），因此重放、恢复结果一致。没有操作块的回复也会推进轮次。玩家手动操作不推进轮次，可以手动修正它。
+- **互斥组**：开启组内一个成员时自动关闭其他成员，数据保留。迁移指令记在引擎状态里，下一次模型动作执行后清除；连续切换保留最初的来源，切回来源则取消迁移。组可声明 `migrate: false` 关闭迁移指令。
+- **清单**：到上限时只拒绝「增加」，玩家把上限调低不会让已有状态报错，删除和整理照常可用。
+- **引用类型**：实体 ID 全局唯一（角色、物品、地点、势力之间也不能重名）；编译后的定义会校验每个引用指向声明的实体类型。
+- **存储**：楼层格式仍为 3。新增的玩家设置动作保存为 `{actionId, settings}`；引擎状态里的 `settings`、`migration` 只在使用时出现，旧状态的哈希不变。旧版引擎读不了含设置动作的聊天。

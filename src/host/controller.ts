@@ -21,7 +21,8 @@ import { readToken } from './storage-tokens.js';
 import { reconcileSwipeDeletion } from './storage-pointers.js';
 import { verifyDefinitionSnapshot } from '../definition-snapshot.js';
 import type { HostContext } from './sillytavern.js';
-import type { Action, Batch, Commit, Definition, Json } from '../types.js';
+import type { Action, Batch, Commit, Definition, Json, SettingsPatch } from '../types.js';
+import { computeAll, listLimit, nextRound } from '../features.js';
 
 export interface AttachOptions {
   mode?: 'in-band' | 'out-of-band';
@@ -329,8 +330,9 @@ export class SillyTavernController {
       let operations: Batch;
       let finalText = text!;
       if ((this.options.mode ?? 'in-band') === 'in-band') {
-        if (!raw.model) { await this.syncVariableViews(); return undefined; }
-        operations = parseOperations(raw.model);
+        // A reply without operations still advances the engine round.
+        if (!raw.model && !this.core.definition.round) { await this.syncVariableViews(); return undefined; }
+        operations = raw.model ? parseOperations(raw.model) : [];
       } else {
         const prompt = this.operatorPrompt(index);
         const output = await this.requestOperator(prompt);
@@ -340,7 +342,9 @@ export class SillyTavernController {
         finalText = stripBlocks(text!) + `\n<solve_operate>\n${JSON.stringify(operations)}\n</solve_operate>`;
       }
       const actionId = 'model:' + await hash({ messageId: binding.messageId, swipeId: binding.swipeId, parent, sourceText: text!, operations });
-      return this.persist(() => this.runtime.submit({ actionId, kind: 'operations', source: 'model', operations }, binding, finalText, { sourceText: text! }));
+      // The round is fixed in the action, so Replay and Restore reproduce it exactly.
+      const authorInputs = this.core.definition.round ? { solveRound: nextRound(this.core.definition, this.runtime.getState(), index) } : undefined;
+      return this.persist(() => this.runtime.submit({ actionId, kind: 'operations', source: 'model', operations, ...(authorInputs ? { authorInputs } : {}) }, binding, finalText, { sourceText: text! }));
     });
   }
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -397,6 +401,22 @@ export class SillyTavernController {
   async setModule(module: string, enabled: boolean, options: { actionId?: string; index?: number } = {}): Promise<Commit> {
     return this.submitUser({ actionId: options.actionId ?? id('action'), kind: 'module', source: 'user', module, enabled }, options.index);
   }
+  /** Player settings: list caps/warnings and per-change limits. `null` restores a default. */
+  async setSettings(settings: SettingsPatch, options: { actionId?: string; index?: number } = {}): Promise<Commit> {
+    return this.submitUser({ actionId: options.actionId ?? id('action'), kind: 'settings', source: 'user', settings: clone(settings) }, options.index);
+  }
+  getSettings() {
+    const state = this.getState(), def = this.core.definition;
+    return {
+      lists: Object.fromEntries(Object.entries(def.lists ?? {}).map(([pattern, rule]) => [pattern, { ...listLimit(def, state, pattern)!, default: { max: rule.max, warn: rule.warn }, ...(rule.label ? { label: rule.label } : {}) }])),
+      maxDelta: Object.fromEntries(Object.entries(def.numeric ?? {}).filter(([, rule]) => rule.maxDelta !== undefined).map(([pattern, rule]) => [pattern, { value: state.engineState.settings?.maxDelta?.[pattern] ?? rule.maxDelta!, default: rule.maxDelta! }])),
+    };
+  }
+  /** Derived values (e.g. WOD transcendence) keyed by JSON pointer, for status bars. */
+  getComputed() { return computeAll(this.core.definition, this.getState()); }
+  /** Presentation metadata (labels, spoiler levels, widgets, layout) declared by the structure. */
+  getDisplay() { return clone(this.core.definition.display ?? {}); }
+  getMigration() { return clone(this.getState().engineState.migration); }
   private lastAssistantIndex(): number { return this.context().chat.findLastIndex(m => !m.is_user && !m.is_system); }
   private async submitUser(action: Action, index = this.lastAssistantIndex(), expectedHead?: string): Promise<Commit> {
     this.assertReady();
@@ -432,9 +452,10 @@ export class SillyTavernController {
       const old = archive?.commits[message.extra?.solve?.headId];
       if (!old) fail('NO_SWIPE_STATE', '该回复没有可重放的归档');
       const raw = extractRawBlocks(originalText), actions: Action[] = [];
-      if (raw.model) {
-        const prior = old.actions.find(a => a.source === 'model');
-        actions.push({ actionId: prior?.actionId ?? id('model-replay'), kind: 'operations', source: 'model', operations: parseOperations(raw.model),
+      const prior = old.actions.find(a => a.source === 'model');
+      // An operation-free reply still carries its engine round and must be replayed with it.
+      if (raw.model || (this.core.definition.round && prior)) {
+        actions.push({ actionId: prior?.actionId ?? id('model-replay'), kind: 'operations', source: 'model', operations: raw.model ? parseOperations(raw.model) : [],
           ...(prior?.authorInputs !== undefined ? { authorInputs: prior.authorInputs } : {}) });
       }
       if (raw.mutual) {
@@ -442,9 +463,10 @@ export class SillyTavernController {
         if (!Array.isArray(values)) fail('MUTUAL_FORMAT', '玩家动作块必须为有序数组');
         for (let i = 0; i < values.length; i++) {
           const value: any = values[i];
-          if (value?.kind === 'operations' || value?.kind === 'module') {
+          if (value?.kind === 'operations' || value?.kind === 'module' || value?.kind === 'settings') {
             if (value.source !== 'user' || typeof value.actionId !== 'string') fail('MUTUAL_FORMAT', '玩家动作身份无效');
             if (value.kind === 'operations') parseOperations(JSON.stringify(value.operations));
+            else if (value.kind === 'settings') { if (!value.settings || typeof value.settings !== 'object' || Array.isArray(value.settings)) fail('MUTUAL_FORMAT', '设置动作无效'); }
             else if (typeof value.module !== 'string' || typeof value.enabled !== 'boolean') fail('MUTUAL_FORMAT', '模块动作无效');
             actions.push(value as Action);
           } else actions.push({ actionId: `replay:${old.id}:${i}`, kind: 'operations', source: 'user', operations: parseOperations(JSON.stringify(value)) });

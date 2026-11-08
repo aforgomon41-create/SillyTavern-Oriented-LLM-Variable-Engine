@@ -18,3 +18,8 @@ export * from './world-info.js';
 export * from './definition-snapshot.js';
 export { VERSION } from './version.js';
 export { z } from 'zod';
+export { compileStructure } from './structure.js';
+export type { FieldNode, FieldType, SpoilerLevel, StructureDescription, StructureModule } from './structure.js';
+export { officialStructure, OFFICIAL_LISTS } from './official/structure.js';
+export { computeAll, computedFor, selectBgm, nextRound, applyProjectionRules, migrationText, listWarnings, validateTracks } from './features.js';
+export type { BgmSelection } from './features.js';

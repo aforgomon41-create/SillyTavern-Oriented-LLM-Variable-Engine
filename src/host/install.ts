@@ -10,6 +10,8 @@ import { closeDebugger, installLauncher, openDebugger } from '../debug/launcher.
 import type { DebugTarget } from '../debug/launcher.js';
 import { engineRequest, nativeSaveBody } from './fetch-origin.js';
 import { guardUnboundNativeSave } from './native-save.js';
+import { BgmPlayer } from './bgm.js';
+import type { BgmTrack } from '../types.js';
 
 export type Carrier = 'native' | 'dynamic' | 'embedded';
 const registryKey = '__SOLVE_RUNTIME_V1__';
@@ -41,10 +43,36 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
   };
   let sessions: SolveSessionManager | undefined, target = initial.debugger, native = Boolean(initial.native);
   const providers = new Map<string, Carrier>();
+  let bgm: BgmPlayer | undefined, unwatchController: (() => void) | undefined, unwatchSessions: (() => void) | undefined;
+  // Music follows the bound chat: re-evaluated on every controller change, silent while unbound.
+  const watchMusic = (manager: SolveSessionManager) => {
+    bgm ??= new BgmPlayer(scope, () => {
+      const controller = sessions?.controller;
+      if (!controller) return undefined;
+      try { return { definition: controller.core.definition, state: controller.getState() }; } catch { return undefined; }
+    });
+    let bound: unknown;
+    const rebind = () => {
+      const controller = manager.controller;
+      if (controller !== bound) { unwatchController?.(); bound = controller; unwatchController = controller?.subscribe(() => bgm?.sync()); }
+      bgm?.sync();
+    };
+    unwatchSessions?.(); unwatchSessions = manager.subscribe(rebind); rebind();
+    return manager;
+  };
   const manager = () => {
     if (!scope.SillyTavern?.getContext) throw new Error('SOLVE需要在SillyTavern 1.19页面内运行');
-    return sessions ??= new SolveSessionManager(() => scope.SillyTavern.getContext(), scope.fetch.bind(scope));
+    return sessions ??= watchMusic(new SolveSessionManager(() => scope.SillyTavern.getContext(), scope.fetch.bind(scope)));
   };
+  const music = () => { manager(); return bgm!; };
+  const bgmApi = Object.freeze({
+    status: () => music().status(),
+    setEnabled: (enabled: boolean) => music().setEnabled(enabled),
+    setVolume: (volume: number) => music().setVolume(volume),
+    addTracks: (tracks: BgmTrack[]) => music().addTracks(tracks),
+    removeTrack: (id: string) => music().removeTrack(id),
+    subscribe: (listener: () => void) => music().subscribe(listener),
+  });
   const launch = () => { if (target) openDebugger(target, scope.document); };
   const getGuide = (tag?: string): string => {
     const controller = manager().controller;
@@ -54,6 +82,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
   const api = Object.freeze({ ...engine, version: engine.VERSION,
     openDebugger: launch, closeDebugger,
     getGuide,
+    bgm: bgmApi,
     attach(definition: Definition, options: AttachOptions = {}) { return manager().attach(definition, options); },
     register(definition: Definition, options: PublicRegistrationOptions = {}) { return manager().register(definition, { ...publicOptions(options), owner: 'native', priority: 0 }); },
     registerWorldInfo(definition: Definition, options: PublicWorldInfoRegistrationOptions = {}) { return manager().registerWorldInfo(definition, { ...publicOptions(options), owner: 'native', priority: 0 }); },
@@ -89,7 +118,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
         async dispose() {
           if (disposed) return; disposed = true; providers.delete(owner);
           if (sessions) await sessions.unregister(owner);
-          if (!native && !providers.size) { sessions?.dispose(); sessions = undefined; closeDebugger(); scope.document?.getElementById('solve-debug-launcher')?.remove(); }
+          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; sessions?.dispose(); sessions = undefined; closeDebugger(); scope.document?.getElementById('solve-debug-launcher')?.remove(); }
         }
       });
     }
