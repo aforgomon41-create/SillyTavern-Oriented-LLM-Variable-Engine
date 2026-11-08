@@ -13,7 +13,7 @@
 
 | 目的 | 入口 |
 | --- | --- |
-| 参与开发、分工和提交合并申请 | [协作指南](CONTRIBUTING.md) |
+| 两个 Agent 的固定分支、提交和合并方式 | [协作指南](CONTRIBUTING.md) |
 | 编写角色定义、世界书和条件指南 | [作者接入](docs/authoring.md) |
 | 查找设计、接口、验收和交付文档 | [文档目录](docs/README.md) |
 | 查看长聊天测量与剩余瓶颈 | [性能记录](docs/performance.md) |

@@ -6,7 +6,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
-| [协作指南](../CONTRIBUTING.md) | 安装、分工、分支、PR 和提交前检查 |
+| [协作指南](../CONTRIBUTING.md) | 安装、Agent 固定分支、提交、合并和检查 |
 | [当前实施状态](implementation-status.md) | 已完成能力、验证范围和下一步任务 |
 | [作者接入](authoring.md) | 内联定义、多文件、世界书、Facet 与条件指南 |
 | [调试与恢复 API](debug-api.md) | 状态查询、操作、历史恢复和诊断接口 |
