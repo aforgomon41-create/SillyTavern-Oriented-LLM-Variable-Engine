@@ -1,0 +1,14 @@
+/* SOLVE 独立皮肤（L3）：仪表盘气质——等宽数字、细刻度线、卡片顶部一条松绿细线。 */
+[data-k="card"][data-role="container"] { border-top: 2px solid var(--k-accent); }
+[data-k="card"] > [data-k-part="head"] > [data-k-part="title"] { letter-spacing: .04em; }
+[data-solve="stat"] > [data-solve-part="value"],
+[data-solve="meter"] [data-solve-part="value"],
+[data-solve="center-meter"] > [data-solve-part="value"],
+[data-solve="timeline"] [data-solve-part="round"],
+[data-solve="title"] small,
+[data-solve="scene"] > [data-solve-part="time"] { font-family: var(--k-font-mono); }
+[data-solve="scene"] { border-left: 3px solid var(--k-accent); }
+[data-solve="meter"] > [data-solve-part="track"] {
+  background-image: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--k-divider) calc(10% - 1px) 10%);
+}
+[data-solve="group"] > [data-solve-part="title"] { text-transform: none; letter-spacing: .06em; }

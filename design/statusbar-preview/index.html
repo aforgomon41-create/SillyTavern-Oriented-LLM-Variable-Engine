@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLVE 状态栏预览</title>
+<style>
+  :root { --bg: #f4f2ed; --fg: #1e2420; --muted: #5d665f; --line: #d6d2c8; --accent: #2f6b52; --card: #fbfaf7; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #141815; --fg: #e6ebe7; --muted: #9aa59d; --line: #2c342f; --accent: #8cc3a5; --card: #1b201d; } }
+  :root[data-theme="dark"] { --bg: #141815; --fg: #e6ebe7; --muted: #9aa59d; --line: #2c342f; --accent: #8cc3a5; --card: #1b201d; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.6 "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif; }
+  body.gallery { padding: 24px 16px 48px; }
+  #gallery { max-width: 1480px; margin: 0 auto; }
+  #gallery h1 { font-size: 22px; margin: 0 0 6px; }
+  #gallery .lead { color: var(--muted); margin: 0 0 16px; max-width: 72ch; }
+  #gallery nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+  #gallery nav button { font: inherit; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  #gallery nav button small { margin-left: 6px; color: var(--muted); font-size: 12px; }
+  #gallery nav button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  #gallery nav.tabs button { padding: 3px 12px; font-size: 13px; }
+  #gallery .note { color: var(--muted); margin: 0 0 12px; min-height: 1.6em; }
+  .frames { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .frames figure.mobile { max-width: 360px; justify-self: center; width: 100%; }
+  figure { margin: 0; }
+  figcaption { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .box { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .box iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; }
+  @media (max-width: 760px) { .frames { grid-template-columns: 1fr; } }
+
+  /* 单窗：模拟酒馆聊天页 */
+  body.single { min-height: 100vh; background: #2b2f36; }
+  html[data-scheme="light"] body.single { background: #cfd3d8; }
+  #tavern { position: fixed; inset: 0; display: flex; flex-direction: column; filter: saturate(.8); }
+  #tavern .topbar { height: 44px; background: rgba(0,0,0,.35); }
+  #tavern .chat { flex: 1; overflow: hidden; padding: 16px; max-width: 860px; width: 100%; margin: 0 auto; }
+  #tavern .mes { background: rgba(20,22,26,.55); color: #e9e9ea; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+  html[data-scheme="light"] #tavern .mes { background: rgba(255,255,255,.7); color: #23262a; }
+  #tavern .mes p { margin: 4px 0 0; }
+  #tavern .input { height: 56px; background: rgba(0,0,0,.35); }
+</style>
+</head>
+<body>
+<!--SCRIPT-->
+</body>
+</html>

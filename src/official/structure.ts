@@ -211,7 +211,7 @@ export const officialStructure: StructureDescription = {
     // The player's own character is never hidden behind spoilers.
     spoilerExempt: { collection: 'characters', field: 'role', equals: '用户角色' },
     layout: [
-      { tab: '概览', items: ['meta', { list: 'meta.present', as: 'cards' }] },
+      { tab: '概览', items: [{ path: 'meta', as: 'strip' }, { list: 'meta.present', as: 'cards', summary: ['role', 'condition', 'rp.gauges', 'relations.$user.affection'] }] },
       { tab: '角色', items: [{ list: 'characters', as: 'cards', detail: true }] },
       { tab: '地图', items: [{ map: 'places', current: 'meta.location' }] },
       { tab: '势力', module: 'factions', items: [{ list: 'factions', as: 'cards' }] },

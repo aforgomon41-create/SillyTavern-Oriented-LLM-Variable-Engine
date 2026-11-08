@@ -1,0 +1,48 @@
+{
+  "id": "solve",
+  "name": "SOLVE",
+  "version": "0.1.0",
+  "contract": "1.0",
+  "description": "SOLVE 独立皮肤：松绿与暖石灰，像一块精密的仪表盘——数字用等宽字，刻度清晰，装饰克制。",
+  "author": "SOLVE",
+  "credits": "无外部素材；只用系统字体。",
+  "defaultScheme": "light",
+  "schemes": {
+    "light": {
+      "seeds": {
+        "neutral": "#ece9e1",
+        "accent": "#2f6b52",
+        "radius": 10,
+        "elevation": "shadow",
+        "font": {
+          "heading": "\"PingFang SC\", \"HarmonyOS Sans SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", sans-serif",
+          "body": "\"PingFang SC\", \"HarmonyOS Sans SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", sans-serif",
+          "mono": "\"JetBrains Mono\", \"SF Mono\", ui-monospace, Menlo, Consolas, monospace"
+        },
+        "danger": "#b4473a",
+        "warning": "#a6761d",
+        "success": "#3f7d55",
+        "info": "#3f6d8c"
+      },
+      "components": { "badge": { "tone": "accent-soft" } }
+    },
+    "dark": {
+      "seeds": {
+        "neutral": "#171c19",
+        "accent": "#8cc3a5",
+        "radius": 10,
+        "elevation": "shadow",
+        "font": {
+          "heading": "\"PingFang SC\", \"HarmonyOS Sans SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", sans-serif",
+          "body": "\"PingFang SC\", \"HarmonyOS Sans SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", sans-serif",
+          "mono": "\"JetBrains Mono\", \"SF Mono\", ui-monospace, Menlo, Consolas, monospace"
+        },
+        "danger": "#e48b7c",
+        "warning": "#d8ad5e",
+        "success": "#8dc79e",
+        "info": "#8db4cf"
+      },
+      "components": { "badge": { "tone": "accent-soft" } }
+    }
+  }
+}

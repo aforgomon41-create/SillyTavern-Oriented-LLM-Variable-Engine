@@ -1,0 +1,105 @@
+/**
+ * 状态栏设计预览（审阅用，不是验证）。用卡密预设真实的运行库与皮肤引擎渲染 SOLVE 状态栏：
+ *   · 总览（无参数）：选一款皮肤，同时看电脑 1440 浅/深与手机 390 浅/深四个窗口（都是可操作的真页面）
+ *   · 单窗（?skin=<id>&scheme=light|dark[&tab=角色]）：模拟酒馆页面 + 打开的状态栏面板
+ * 数据：SOLVE 官方数据结构 + examples/official 示例（真引擎编译、计算值与投影）。
+ * 构建：node design/statusbar-preview/build.mjs（需要卡密预设仓库，KAMI_ROOT 指定位置）。
+ */
+import * as React from 'react';
+import { createRuntime } from 'kami/frontend/runtime/index';
+import { SkinManager, type SkinEntry, type StoredSettings } from 'kami/frontend/skin-engine/manager';
+import * as DS from 'kami/frontend/ds';
+import kamiSkins from 'kami-skins';
+import { compile, SolveCore, compileStructure, officialStructure } from '../../src/index';
+import { exampleState } from '../../examples/official/example';
+import { KitProvider, type Kit } from '../../src/ui/kit';
+import { StatusBar } from '../../src/ui/statusbar/views';
+import { StatusModel } from '../../src/ui/statusbar/model';
+import statusCss from '../../src/ui/statusbar/statusbar.css';
+import solveManifest from './solve-skin.json';
+import solveSkinCss from './solve-skin.css';
+
+const PICK = ['suiguang', 'quest', 'neon'];
+const entries: SkinEntry[] = [
+  ...(kamiSkins as unknown as SkinEntry[]).filter(e => PICK.includes(e.manifest.id)),
+  { manifest: solveManifest as unknown as SkinEntry['manifest'], css: solveSkinCss },
+];
+const NOTES: Record<string, string> = {
+  suiguang: '卡密预设默认皮肤：宣纸与青瓷，安静的阅读感。',
+  quest: '卡密「世界观」系列 · 西幻冒险：羊皮纸与金属。和示例的黑暗奇幻题材最贴。',
+  neon: '卡密「朋克」系列 · 赛博朋克：切角、霓虹、扫描线，风格跨度最大，用来压力测试。',
+  solve: 'SOLVE 独立皮肤：没有卡密预设时使用。松绿与暖石灰，像一块精密仪表盘。',
+};
+const q = new URLSearchParams(location.search);
+const skinId = q.get('skin');
+if (skinId) single(skinId, q.get('scheme') || 'light', q.get('tab') || undefined); else gallery();
+
+function gallery(): void {
+  document.body.classList.add('gallery');
+  const order = [...PICK, 'solve'];
+  const nameOf = (id: string) => entries.find(e => e.manifest.id === id)?.manifest.name ?? id;
+  const root = document.createElement('div');
+  root.id = 'gallery';
+  root.innerHTML = `<header><h1>SOLVE 状态栏 · 设计预览</h1>
+    <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。数据是官方数据结构的示例：王都酒馆、第 42 轮、WOD 属性体系。四个窗口都是可操作的真页面：点页签、点人物名跳转、地图可拖动缩放、带「剧透」的内容点一下才显示。</p>
+    <nav class="skins" aria-label="皮肤">${order.map(id => `<button type="button" data-id="${id}">${nameOf(id)}${id === 'solve' ? '<small>独立</small>' : '<small>卡密</small>'}</button>`).join('')}</nav>
+    <p class="note"></p>
+    <nav class="tabs" aria-label="页签">${['概览', '角色', '地图', '势力'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav></header>
+    <section class="frames">
+      <figure class="pc"><figcaption>电脑 1440 · 浅色</figcaption><div class="box"><iframe data-scheme="light" data-w="1440" data-h="900"></iframe></div></figure>
+      <figure class="pc"><figcaption>电脑 1440 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="1440" data-h="900"></iframe></div></figure>
+      <figure class="mobile"><figcaption>手机 390 · 浅色</figcaption><div class="box"><iframe data-scheme="light" data-w="390" data-h="844"></iframe></div></figure>
+      <figure class="mobile"><figcaption>手机 390 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="390" data-h="844"></iframe></div></figure>
+    </section>`;
+  document.body.appendChild(root);
+  let skin = order[0]!, tab = '概览';
+  const frames = Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe'));
+  const load = () => {
+    root.querySelectorAll<HTMLButtonElement>('.skins button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === skin)));
+    root.querySelectorAll<HTMLButtonElement>('.tabs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
+    root.querySelector('.note')!.textContent = NOTES[skin] ?? '';
+    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&tab=${encodeURIComponent(tab)}`;
+  };
+  root.querySelector('.skins')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.id) { skin = b.dataset.id; load(); } });
+  root.querySelector('.tabs')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.tab) { tab = b.dataset.tab; load(); } });
+  const fit = () => { for (const f of frames) { const w = Number(f.dataset.w), h = Number(f.dataset.h), box = f.parentElement!; const s = box.clientWidth / w; f.style.width = w + 'px'; f.style.height = h + 'px'; f.style.transform = `scale(${s})`; box.style.height = h * s + 'px'; } };
+  new ResizeObserver(fit).observe(root); fit(); load();
+}
+
+async function single(id: string, scheme: string, tab?: string): Promise<void> {
+  document.body.classList.add('single');
+  document.body.insertAdjacentHTML('afterbegin', `<div id="tavern" aria-hidden="true"><div class="topbar"></div><div class="chat">
+    <div class="mes"><b>旁白</b><p>夜雨中的王都，醉橡木酒馆的门被推开了。炉火噼啪作响，角落里的吟游诗人抬起头。</p></div>
+    <div class="mes user"><b>你</b><p>我抖掉斗篷上的雨水，在吧台边坐下。</p></div>
+    <div class="mes"><b>旁白</b><p>米拉拨了一下琴弦：“又是你啊，被逐出骑士团的那位。今晚想听什么？”门边那副锈蚀的板甲里，幽蓝的火微微跳动。</p></div>
+  </div><div class="input"></div></div>`);
+  const rt = createRuntime(window);
+  let saved: unknown = null;
+  const store = { load: (): unknown => saved, save: (s: StoredSettings): void => { saved = JSON.parse(JSON.stringify(s)); } };
+  const mgr = new SkinManager(store, rt, entries, window);
+  mgr.select(id); mgr.setScheme(scheme); mgr.apply();
+  document.documentElement.dataset.scheme = mgr.current.manifest.schemes[scheme] ? scheme : 'light';
+  const layer = rt.layer();
+  // Must come after Kami's sheets: a <style> element precedes adoptedStyleSheets and would declare
+  // k.components first, ranking it below k.reset. Restate the order too.
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync('@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;\n@layer k.components {\n' + statusCss + '\n}');
+  layer.shadow.adoptedStyleSheets = [...layer.shadow.adoptedStyleSheets, sheet];
+
+  const def = await compile(compileStructure(officialStructure));
+  const core = new SolveCore(def);
+  const model = new StatusModel(def, await exampleState(core));
+  const kit = DS as unknown as Kit;
+  function App() {
+    const [open, setOpen] = React.useState(true);
+    const [bgm, setBgm] = React.useState({ enabled: true, volume: 0.5 });
+    if (!open) return <div style={{ position: 'fixed', right: 16, top: 16, pointerEvents: 'auto' }}><DS.Button variant="primary" onClick={() => setOpen(true)}>打开状态栏</DS.Button></div>;
+    return (
+      <KitProvider value={kit}>
+        <StatusBar model={model} onClose={() => setOpen(false)} defaultTab={tab}
+          bgm={{ title: '雨夜酒馆（示例曲目）', source: '按场景情绪「日常」选曲', playing: bgm.enabled, enabled: bgm.enabled, volume: bgm.volume, onToggle: v => setBgm(b => ({ ...b, enabled: v })), onVolume: v => setBgm(b => ({ ...b, volume: v })) }} />
+      </KitProvider>
+    );
+  }
+  layer.open('solve-status', <App />);
+}
