@@ -20,6 +20,7 @@
 | [后端设计](backend-design.md) | 编译、执行、历史、保存与宿主接入 |
 | [存储格式](storage-format.md) | 聊天文件、楼层变量、修订和校验数据 |
 | [前端设计](frontend-design.md) | 已确认的视觉规则、布局和交互 |
+| [官方数据结构](official-structure.md) | 面向玩家的官方变量结构草案、渲染标准与所需引擎能力 |
 | [开发规划](development-plan.md) | 阶段目标与规划背景 |
 | [许可说明](licensing.md) | 当前授权及历史许可记录 |
 
