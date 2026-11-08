@@ -32,7 +32,7 @@ const NOTES: Record<string, string> = {
 };
 const q = new URLSearchParams(location.search);
 const skinId = q.get('skin');
-if (skinId) single(skinId, q.get('scheme') || 'light', q.get('tab') || undefined); else gallery();
+if (skinId) single(skinId, q.get('scheme') || 'light', q.get('view') || '横条'); else gallery();
 
 function gallery(): void {
   document.body.classList.add('gallery');
@@ -41,10 +41,10 @@ function gallery(): void {
   const root = document.createElement('div');
   root.id = 'gallery';
   root.innerHTML = `<header><h1>SOLVE 状态栏 · 设计预览</h1>
-    <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。数据是官方数据结构的示例：王都酒馆、第 42 轮、WOD 属性体系。四个窗口都是可操作的真页面：点页签、点人物名跳转、地图可拖动缩放、带「剧透」的内容点一下才显示。</p>
+    <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。数据是官方数据结构的示例：王都酒馆、第 42 轮、WOD 属性体系。有数据时浮着一条概览横条（电脑在上方、手机在输入框上方，可拖动，‹ 收成圆按钮），点一下展开面板，横条变成面板标题栏；× 收回横条。四个窗口都是可操作的真页面。</p>
     <nav class="skins" aria-label="皮肤">${order.map(id => `<button type="button" data-id="${id}">${nameOf(id)}${id === 'solve' ? '<small>独立</small>' : '<small>卡密</small>'}</button>`).join('')}</nav>
     <p class="note"></p>
-    <nav class="tabs" aria-label="页签">${['概览', '角色', '地图', '势力'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav></header>
+    <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '势力'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav></header>
     <section class="frames">
       <figure class="pc"><figcaption>电脑 1440 · 浅色</figcaption><div class="box"><iframe data-scheme="light" data-w="1440" data-h="900"></iframe></div></figure>
       <figure class="pc"><figcaption>电脑 1440 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="1440" data-h="900"></iframe></div></figure>
@@ -52,13 +52,13 @@ function gallery(): void {
       <figure class="mobile"><figcaption>手机 390 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="390" data-h="844"></iframe></div></figure>
     </section>`;
   document.body.appendChild(root);
-  let skin = order[0]!, tab = '概览';
+  let skin = order[0]!, tab = '横条';
   const frames = Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe'));
   const load = () => {
     root.querySelectorAll<HTMLButtonElement>('.skins button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === skin)));
     root.querySelectorAll<HTMLButtonElement>('.tabs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
     root.querySelector('.note')!.textContent = NOTES[skin] ?? '';
-    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&tab=${encodeURIComponent(tab)}`;
+    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&view=${encodeURIComponent(tab)}`;
   };
   root.querySelector('.skins')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.id) { skin = b.dataset.id; load(); } });
   root.querySelector('.tabs')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.tab) { tab = b.dataset.tab; load(); } });
@@ -66,7 +66,7 @@ function gallery(): void {
   new ResizeObserver(fit).observe(root); fit(); load();
 }
 
-async function single(id: string, scheme: string, tab?: string): Promise<void> {
+async function single(id: string, scheme: string, view: string): Promise<void> {
   document.body.classList.add('single');
   document.body.insertAdjacentHTML('afterbegin', `<div id="tavern" aria-hidden="true"><div class="topbar"></div><div class="chat">
     <div class="mes"><b>旁白</b><p>夜雨中的王都，醉橡木酒馆的门被推开了。炉火噼啪作响，角落里的吟游诗人抬起头。</p></div>
@@ -91,12 +91,11 @@ async function single(id: string, scheme: string, tab?: string): Promise<void> {
   const model = new StatusModel(def, await exampleState(core));
   const kit = DS as unknown as Kit;
   function App() {
-    const [open, setOpen] = React.useState(true);
     const [bgm, setBgm] = React.useState({ enabled: true, volume: 0.5 });
-    if (!open) return <div style={{ position: 'fixed', right: 16, top: 16, pointerEvents: 'auto' }}><DS.Button variant="primary" onClick={() => setOpen(true)}>打开状态栏</DS.Button></div>;
+    const mode = view === '横条' ? 'bar' : view === '按钮' ? 'dot' : 'panel';
     return (
       <KitProvider value={kit}>
-        <StatusBar model={model} onClose={() => setOpen(false)} defaultTab={tab}
+        <StatusBar model={model} defaultMode={mode} {...(mode === 'panel' ? { defaultTab: view } : {})}
           bgm={{ title: '雨夜酒馆（示例曲目）', source: '按场景情绪「日常」选曲', playing: bgm.enabled, enabled: bgm.enabled, volume: bgm.volume, onToggle: v => setBgm(b => ({ ...b, enabled: v })), onVolume: v => setBgm(b => ({ ...b, volume: v })) }} />
       </KitProvider>
     );

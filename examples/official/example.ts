@@ -49,7 +49,10 @@ export const exampleData: Record<string, Json> = {
       name: '米拉', role: '核心角色', age: '看不出', intro: '游走各地的吟游诗人，对王都的传闻无所不知。',
       tags: ['吟游诗人', '情报贩子'], appearance: '绿色斗篷，背着一把旧鲁特琴。', condition: '微醺',
       drive: { goals: { long: '找回失落的家族乐谱', short: '让艾琳欠她一个人情' }, thoughts: '如果艾琳知道我是灰烬教团的逃亡者……', plan: [] },
-      relations: { erin: { affection: 48, labels: ['旅伴', '在意的人'], impression: '固执的笨蛋', promises: [], keyEvents: [{ round: 12, text: '被艾琳从雾沼救出' }] } },
+      relations: {
+        erin: { affection: 48, labels: ['旅伴', '在意的人'], impression: '固执的笨蛋', promises: [], keyEvents: [{ round: 12, text: '被艾琳从雾沼救出' }] },
+        cassius: { affection: -35, labels: ['旧怨'], impression: '骑士团的走狗', promises: [], keyEvents: [] },
+      },
       rp: {
         rank: '铁阶',
         attributes: { wod: { str: 2, dex: 5, sta: 2, int: 4, wits: 6, res: 3, pre: 7, man: 6, com: 4 } },
@@ -64,7 +67,7 @@ export const exampleData: Record<string, Json> = {
       name: '灰烬', role: '次要配角', age: '死去多年', intro: '徘徊在酒馆地窖的亡灵骑士，只记得自己的誓言。',
       tags: ['亡灵', '旧骑士'], appearance: '锈蚀的板甲里只有一团幽蓝的火。', condition: '沉默地守在门边',
       drive: { goals: { long: '完成生前的誓言', short: '守住地窖的门' }, thoughts: '……', plan: [] },
-      relations: {},
+      relations: { mira: { affection: 20, labels: ['听众'], impression: '她的歌让火焰安静', promises: [], keyEvents: [] } },
       rp: {
         rank: '银阶',
         attributes: { wod: { str: 11, dex: 3, sta: null, int: 2, wits: 3, res: 9, pre: 1, man: null, com: 6 } },

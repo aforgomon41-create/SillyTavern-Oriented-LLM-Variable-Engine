@@ -210,12 +210,32 @@ export const officialStructure: StructureDescription = {
   display: {
     // The player's own character is never hidden behind spoilers.
     spoilerExempt: { collection: 'characters', field: 'role', equals: '用户角色' },
+    // Floating overview bar (also the panel title once expanded).
+    bar: ['meta.location', 'meta.time', 'meta.weather', 'meta.mood', { path: 'characters.$user.rp.gauges', limit: 2 }, 'meta.present'],
     layout: [
-      { tab: '概览', items: [{ path: 'meta', as: 'strip' }, { list: 'meta.present', as: 'cards', summary: ['role', 'condition', 'rp.gauges', 'relations.$user.affection'] }] },
-      { tab: '角色', items: [{ list: 'characters', as: 'cards', detail: true }] },
+      { tab: '角色', items: [{
+        sheet: 'characters', id: '$user', subtitle: 'alias', badges: ['rp.rank', 'role'], tags: 'tags',
+        vitals: 'rp.gauges', status: 'condition', effects: 'rp.effects', currency: 'funds',
+        pages: [
+          { label: '属性', paths: ['rp.attributes', 'rp.special', 'rp.traits'] },
+          { label: '技能', paths: ['rp.skills'] },
+          { label: '背包', paths: ['items'], as: 'inventory' },
+          { label: '任务', paths: ['drive'], as: 'quests' },
+          { label: '档案', paths: ['age', 'intro', 'appearance', 'nsfw'] },
+        ],
+      }] },
+      { tab: '社交', items: [
+        { graph: 'characters', module: 'social', title: '关系图', edges: 'relations', weight: 'affection', label: 'labels', present: 'meta.present', size: 'role', badges: ['role'],
+          legend: { positive: '友好', neutral: '一般', negative: '敌意' } },
+        { list: 'characters', title: '人物', exclude: '$user', present: 'meta.present', order: 'role', badges: ['role'], score: 'relations.$user.affection', scoreLabel: '♥' },
+      ] },
       { tab: '地图', items: [{ map: 'places', current: 'meta.location' }] },
-      { tab: '势力', module: 'factions', items: [{ list: 'factions', as: 'cards' }] },
-      { tab: '不动产', module: 'estates', items: [{ list: 'estates', as: 'cards' }] },
+      { tab: '势力', module: 'factions', items: [
+        { graph: 'factions', title: '势力关系图', edges: 'diplomacy', tone: 'stance', label: 'stance', size: 'tier', badges: ['tier'],
+          tones: { 盟友: 'positive', 敌对: 'negative', 冷淡中立: 'neutral', 臣服依附: 'info' }, legend: { positive: '盟友', negative: '敌对', neutral: '中立', info: '依附' } },
+        { list: 'factions', title: '势力', order: 'tier', badges: ['tier'], score: 'reputation.$user.value', scoreLabel: '声望' },
+      ] },
+      { tab: '不动产', module: 'estates', items: [{ list: 'estates', title: '不动产' }] },
     ],
   },
   initialData: {},

@@ -1,153 +1,334 @@
-/** Status bar: panel, tabs from the declared layout, scene strip, entity master-detail, node map. */
+/**
+ * Status bar: a floating launcher that shows a one-line overview bar while there is data (a round
+ * button otherwise); clicking it expands the panel, and the overview bar becomes the panel title.
+ * Panel tabs come from the declared layout: player sheet, collapsible entity lists with a
+ * relationship graph, and a force-directed map.
+ */
 import * as React from 'react';
 import { useKit } from '../kit.js';
 import { isEmpty, StatusModel, type Path } from './model.js';
-import { EntityCard, Field, ModelContext, NavigateContext, RefChip, Section, useModel, Value } from './fields.js';
+import { Field, ModelContext, NavigateContext, RefChip, Section, useModel } from './fields.js';
+import { GraphView, type GraphEdge, type GraphNode, type Tone } from './graph.js';
+import { PlayerSheet, type SheetItem } from './sheet.js';
 import { part, solve } from './widgets.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
-export interface StatusBarProps { model: StatusModel; onClose: () => void; bgm?: BgmView; title?: string; defaultTab?: string }
-
-function useWidth(ref: React.RefObject<HTMLElement | null>): number {
-  const [w, setW] = React.useState(800);
-  React.useLayoutEffect(() => {
-    const el = ref.current; if (!el) return undefined;
-    setW(el.clientWidth);
-    const ro = new ResizeObserver(() => setW(el.clientWidth)); ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
-  return w;
+export interface StatusBarProps {
+  model: StatusModel; bgm?: BgmView; defaultTab?: string;
+  /** Starting state of the launcher (the host restores the last one). */
+  defaultMode?: Mode; onModeChange?: (mode: Mode) => void;
+  /** Saved launcher position; the host persists it. */
+  position?: { x: number; y: number }; onPositionChange?: (p: { x: number; y: number }) => void;
 }
+export type Mode = 'bar' | 'dot' | 'panel';
+const rel = (s: string): Path => s.split('.');
 
-export function StatusBar({ model, onClose, bgm, title = '状态', defaultTab }: StatusBarProps) {
+export function StatusBar({ model, bgm, defaultTab, defaultMode = 'bar', onModeChange, position, onPositionChange }: StatusBarProps) {
   const K = useKit();
   const tabs = model.layout.filter((t: any) => model.moduleOn(t.module));
   const [tab, setTab] = React.useState<string>(defaultTab ?? tabs[0]?.tab ?? '');
-  const [focus, setFocus] = React.useState<Path | undefined>();
+  const [focus, setFocus] = React.useState<{ path: Path; at: number } | undefined>();
+  const hasData = barItems(model).length > 0;
+  const [mode, setModeState] = React.useState<Mode>(defaultMode);
+  const [rest, setRest] = React.useState<'bar' | 'dot'>(defaultMode === 'dot' ? 'dot' : 'bar');
+  const setMode = (next: Mode) => { setModeState(next); if (next !== 'panel') setRest(next); onModeChange?.(next); };
+  const anchor = React.useRef<DOMRect | null>(null);
   const navigate = React.useCallback((path: Path) => {
-    const target = tabs.find((t: any) => t.items.some((item: any) => (item.list ?? item.map) && path.join('.').startsWith((item.list ?? item.map) + '.') && (item.detail || item.map)));
-    if (target) { setTab(target.tab); setFocus(path); }
-  }, [tabs]);
-  const round = model.def.round ? model.value(model.def.round.split('.')) : undefined;
+    const key = path.join('.');
+    const hit = (item: any) => {
+      if (item.sheet) return key === [item.sheet, item.id === '$user' ? model.userId : item.id].join('.');
+      const base = item.list ?? item.map ?? item.graph;
+      return typeof base === 'string' && key.startsWith(base + '.') && !(item.exclude === '$user' && path[rel(base).length] === model.userId) && !item.graph;
+    };
+    const target = tabs.find((t: any) => t.items.some(hit));
+    if (target) { setTab(target.tab); setFocus({ path, at: Date.now() }); setModeState('panel'); }
+  }, [tabs, model]);
+
+  const content = (
+    <K.TooltipProvider>
+      {mode === 'panel' ? (
+        <K.Panel title={<Overview model={model} where="title" />} onClose={() => setMode(rest)} closeLabel="收起"
+          geometry={panelGeometry(anchor.current)} defaultSize={{ w: 780, h: 720 }} actions={bgm ? <BgmButton bgm={bgm} /> : undefined}>
+          <K.Tabs label="状态栏" mode="scroll" sticky swipe value={tab} onValueChange={setTab}
+            items={tabs.map((t: any) => ({ value: t.tab, label: t.tab, content: <div {...solve('tab')}>{t.items.filter((i: any) => typeof i === 'string' || model.moduleOn(i.module)).map((item: any, i: number) => <LayoutItem key={i} item={item} focus={focus} />)}</div> }))} />
+        </K.Panel>
+      ) : (
+        <Launcher mode={hasData ? rest : 'dot'} canBar={hasData} position={position} onPositionChange={onPositionChange}
+          onOpen={rect => { anchor.current = rect; setMode('panel'); }} onMode={setMode} />
+      )}
+    </K.TooltipProvider>
+  );
+  return <ModelContext.Provider value={model}><NavigateContext.Provider value={navigate}>{content}</NavigateContext.Provider></ModelContext.Provider>;
+}
+/** Desktop: the panel opens where the bar was, so the bar visibly turns into the title. */
+function panelGeometry(r: DOMRect | null): { x: number; y: number; w: number; h: number } | undefined {
+  if (!r || typeof window === 'undefined' || window.innerWidth <= 1000) return undefined;
+  const w = Math.max(780, Math.min(r.width, 960)), x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+  const y = Math.max(8, Math.min(r.top, window.innerHeight - 480));
+  return { x, y, w, h: Math.min(760, window.innerHeight - y - 16) };
+}
+
+/* ───────── launcher (floating bar / round button) ───────── */
+function Launcher({ mode, canBar, position, onPositionChange, onOpen, onMode }: {
+  mode: 'bar' | 'dot'; canBar: boolean; position?: { x: number; y: number }; onPositionChange?: (p: { x: number; y: number }) => void;
+  onOpen: (rect: DOMRect) => void; onMode: (m: Mode) => void;
+}) {
+  const m = useModel();
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [pos, setPos] = React.useState(position);
+  const drag = React.useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
+  const down = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('[data-solve-part="shrink"]')) return;
+    const r = ref.current!.getBoundingClientRect();
+    drag.current = { x: e.clientX, y: e.clientY, left: r.left, top: r.top, moved: false };
+    ref.current!.setPointerCapture?.(e.pointerId);
+  };
+  const move = (e: React.PointerEvent) => {
+    const d = drag.current; if (!d) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 6) return;
+    d.moved = true;
+    const r = ref.current!.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
+    setPos({ x: Math.min(Math.max(4, d.left + dx), vw - r.width - 4), y: Math.min(Math.max(4, d.top + dy), vh - r.height - 4) });
+  };
+  const up = () => {
+    const d = drag.current; drag.current = null;
+    if (!d) return;
+    if (d.moved) { if (pos) onPositionChange?.(pos); return; }
+    onOpen(ref.current!.getBoundingClientRect());
+  };
+  const style = pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto', transform: 'none' } as React.CSSProperties : undefined;
   return (
-    <ModelContext.Provider value={model}>
-      <NavigateContext.Provider value={navigate}>
-        <K.TooltipProvider>
-          <K.Panel title={<span {...solve('title')}>{title}{typeof round === 'number' ? <small>第 {round} 轮</small> : null}</span>} onClose={onClose}
-            defaultSize={{ w: 760, h: 720 }} actions={bgm ? <BgmButton bgm={bgm} /> : undefined}>
-            <K.Tabs label="状态栏" mode="scroll" sticky swipe value={tab} onValueChange={setTab}
-              items={tabs.map((t: any) => ({ value: t.tab, label: t.tab, content: <div {...solve('tab')}>{t.items.map((item: any, i: number) => <LayoutItem key={i} item={item} focus={focus} />)}</div> }))} />
-          </K.Panel>
-        </K.TooltipProvider>
-      </NavigateContext.Provider>
-    </ModelContext.Provider>
+    <div ref={ref} {...solve('launcher', { mode, placed: pos ? '' : undefined })} style={style}
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { drag.current = null; }}>
+      {mode === 'bar' ? (
+        <div {...solve('bar')} data-k-level="surface-1" role="button" tabIndex={0} aria-label="展开状态栏"
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(ref.current!.getBoundingClientRect()); } }}>
+          <Overview model={m} where="bar" />
+          <button type="button" {...part('shrink')} aria-label="收起为按钮" title="收起为按钮" onClick={e => { e.stopPropagation(); onMode('dot'); }}>‹</button>
+        </div>
+      ) : (
+        <>
+          <button type="button" {...solve('dot')} aria-label="展开状态栏"
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(ref.current!.getBoundingClientRect()); } }}>
+            <span aria-hidden="true">◈</span>
+          </button>
+          {canBar ? <button type="button" {...part('shrink')} data-dir="expand" aria-label="展开为概览横条" title="展开为概览横条" onClick={e => { e.stopPropagation(); onMode('bar'); }}>›</button> : null}
+        </>
+      )}
+    </div>
   );
 }
 
-function LayoutItem({ item, focus }: { item: any; focus?: Path }) {
-  const m = useModel();
-  if (typeof item === 'string') return <Section path={item.split('.')} />;
-  if (item.path && item.as === 'strip') return <SceneStrip path={item.path.split('.')} />;
-  if (item.map) return <NodeMap path={item.map.split('.')} current={item.current?.split('.')} focus={focus} />;
-  if (item.list) {
-    const path = item.list.split('.') as Path, meta = m.meta(path);
-    if (meta?.type === 'refs') {
-      const ids: string[] = m.value(path) ?? [];
-      return <EntityStrip title={item.title ?? m.label(path)} paths={ids.map(id => m.locate(id)).filter((p): p is Path => !!p)} summary={item.summary} />;
-    }
-    if (item.detail) return <MasterDetail path={path} focus={focus} />;
-    return <EntityList path={path} />;
+/* ───────── overview (bar content and panel title) ───────── */
+interface BarItem { path: string; as?: string; limit?: number; label?: string }
+function barItems(m: StatusModel): BarItem[] {
+  const raw = ((m.def.display as any)?.bar ?? []) as (string | BarItem)[];
+  return raw.map(i => typeof i === 'string' ? { path: i } : i).filter(i => {
+    const p = resolve(m, i.path);
+    return p && m.meta(p) && !m.dormant(p) && !isEmpty(m.value(p));
+  });
+}
+function resolve(m: StatusModel, s: string): Path | undefined {
+  const out = rel(s).map(k => k === '$user' ? m.userId ?? '' : k);
+  return out.includes('') ? undefined : out;
+}
+function Overview({ model: m, where }: { model: StatusModel; where: 'bar' | 'title' }) {
+  const round = m.def.round ? m.value(rel(m.def.round)) : undefined;
+  return (
+    <span {...solve('overview', { where })}>
+      {barItems(m).map(item => <BarPiece key={item.path} item={item} path={resolve(m, item.path)!} />)}
+      {typeof round === 'number' ? <span {...part('round')}>第 {round} 轮</span> : null}
+    </span>
+  );
+}
+function BarPiece({ item, path }: { item: BarItem; path: Path }) {
+  const m = useModel(), value = m.value(path), meta = m.meta(path);
+  if (meta?.type === 'ref') {
+    const chain: string[] = [];
+    for (let c: any = value, n = 0; typeof c === 'string' && n < 8; n++) { chain.unshift(m.entityName(c)); const p = m.locate(c); c = p ? m.value(p)?.parent : undefined; }
+    return <span {...part('place')}>{chain.slice(-2).join(' › ')}</span>;
   }
+  if (m.widget(path) === 'datetime' || item.as === 'datetime') return <span {...part('time')}>{formatTime(value, true)}</span>;
+  if (meta?.type === 'record' && Object.values(value).every((g: any) => typeof g?.value === 'number' && typeof g?.max === 'number')) {
+    return <span {...part('vitals')}>{Object.entries(value).slice(0, item.limit ?? 3).map(([k, g]: any, i) => (
+      <span key={k} {...part('vital')} data-slot={i % 4} title={`${k} ${g.value}/${g.max}`}>
+        <span {...part('label')}>{k}</span><span {...part('track')}><i style={{ width: `${Math.max(0, Math.min(1, g.value / g.max)) * 100}%` }} /></span><span {...part('value')}>{g.value}</span>
+      </span>))}</span>;
+  }
+  if (meta?.type === 'refs') return <span {...part('people')} title={(value as string[]).map(id => m.entityName(id)).join('、')}>{(value as string[]).slice(0, 4).map(id => <i key={id}>{[...m.entityName(id)][0]}</i>)}{value.length > 4 ? <small>+{value.length - 4}</small> : null}</span>;
+  return <span {...part('chip')} title={m.label(path)}>{String(value)}</span>;
+}
+function formatTime(t: any, short = false): string {
+  if (!t || typeof t !== 'object') return '';
+  const date = [!short && t.year !== undefined ? `${t.year}年` : '', t.month !== undefined ? `${t.month}月` : '', t.day !== undefined ? `${t.day}日` : ''].join('');
+  return [short ? '' : t.era, date, t.clock].filter(Boolean).join(' ');
+}
+
+/* ───────── layout items ───────── */
+type Focus = { path: Path; at: number } | undefined;
+function LayoutItem({ item, focus }: { item: any; focus: Focus }) {
+  if (typeof item === 'string') return <Section path={rel(item)} />;
+  if (item.sheet) return <PlayerSheet item={item as SheetItem} />;
+  if (item.map) return <MapItem item={item} focus={focus} />;
+  if (item.graph) return <RelationGraph item={item} />;
+  if (item.list) return <CollapseList item={item} focus={focus} />;
+  if (item.path) return <Section path={rel(item.path)} />;
   return null;
 }
 
-/* ───────── scene strip (meta) ───────── */
-function SceneStrip({ path }: { path: Path }) {
-  const m = useModel(), K = useKit(), value = m.value(path) ?? {};
-  const keys = m.children(path).filter(k => !m.dormant([...path, k]) && !(m.def.round && [...path, k].join('.') === m.def.round));
-  const time = keys.find(k => m.widget([...path, k]) === 'datetime');
-  const location = keys.find(k => m.meta([...path, k])?.type === 'ref');
-  const chips = keys.filter(k => m.meta([...path, k])?.type === 'enum');
-  const rest = keys.filter(k => k !== time && k !== location && !chips.includes(k) && m.meta([...path, k])?.type !== 'refs');
+/** Entities as collapsed cards; present ones first, then by the declared order of `order` (an enum). */
+function CollapseList({ item, focus }: { item: any; focus: Focus }) {
+  const m = useModel(), K = useKit();
+  const path = rel(item.list), value: Record<string, any> = m.value(path) ?? {};
+  const present = new Set<string>(item.present ? m.value(rel(item.present)) ?? [] : []);
+  const orderMeta = item.order ? m.meta([...path, '*', item.order]) : undefined;
+  const rank = (id: string) => orderMeta?.values ? orderMeta.values.indexOf(value[id]?.[item.order]) : 0;
+  const ids = Object.keys(value).filter(id => !(item.exclude === '$user' && id === m.userId))
+    .sort((a, b) => Number(present.has(b)) - Number(present.has(a)) || rank(a) - rank(b));
+  const [open, setOpen] = React.useState<Set<string>>(new Set());
+  const refs = React.useRef(new Map<string, HTMLDivElement>());
+  React.useEffect(() => {
+    if (!focus || focus.path.slice(0, path.length).join('.') !== path.join('.')) return;
+    const id = focus.path[path.length]; if (!id || !value[id]) return;
+    setOpen(s => new Set(s).add(id));
+    requestAnimationFrame(() => refs.current.get(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!ids.length) return <K.Empty title={`还没有${item.title ?? m.label(path)}`} />;
   return (
-    <section {...solve('scene')} data-k-level="surface-1">
-      {location ? <div {...part('place')}><PlacePath id={value[location]} /></div> : null}
-      {time ? <div {...part('time')}>{formatTime(value[time])}</div> : null}
-      <div {...part('chips')}>
-        {chips.map(k => isEmpty(value[k]) ? null : <span key={k} {...solve('fact')}><span {...part('label')}>{m.label([...path, k])}</span><K.Badge tone="accent">{value[k]}</K.Badge></span>)}
-        {rest.map(k => isEmpty(value[k]) ? null : <span key={k} {...solve('fact')}><span {...part('label')}>{m.label([...path, k])}</span><Value path={[...path, k]} value={value[k]} /></span>)}
+    <section {...solve('group')}>
+      <h4 {...part('title')}>{item.title ?? m.label(path)}<small>{ids.length}</small></h4>
+      <div {...solve('stack')}>
+        {ids.map(id => {
+          const v = value[id] ?? {}, score = item.score ? resolve(m, item.score) : undefined;
+          const s = score ? m.value([...path, id, ...score]) : undefined, sMeta = score ? m.meta([...path, id, ...score]) : undefined;
+          return (
+            <div key={id} ref={el => { if (el) refs.current.set(id, el); else refs.current.delete(id); }} {...solve('entity-row', { present: present.has(id) ? '' : undefined })}>
+              <K.CollapseCard open={open.has(id)} onOpenChange={o => setOpen(prev => { const n = new Set(prev); if (o) n.add(id); else n.delete(id); return n; })}
+                title={<span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true">{[...(v.name ?? id)][0]}</span><span {...part('name')}>{v.name ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>}
+                meta={<span {...solve('entity-meta')}>
+                  {present.has(id) ? <K.Badge tone="success">在场</K.Badge> : null}
+                  {(item.badges ?? []).map((b: string) => v[b] ? <K.Badge key={b} tone="neutral">{String(v[b])}</K.Badge> : null)}
+                  {typeof s === 'number' ? <span {...part('score')} data-sign={s > 0 ? 'positive' : s < 0 ? 'negative' : 'zero'} title={`${item.scoreLabel ?? sMeta?.desc ?? ''}`}>{item.scoreLabel ?? ''} {s > 0 ? '+' : ''}{s}</span> : null}
+                </span>}>
+                {open.has(id) ? <EntityBody path={[...path, id]} skip={item.badges} /> : null}
+              </K.CollapseCard>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
 }
-function formatTime(t: any): string {
-  if (!t || typeof t !== 'object') return '';
-  const date = [t.year !== undefined ? `${t.year}年` : '', t.month !== undefined ? `${t.month}月` : '', t.day !== undefined ? `${t.day}日` : ''].join('');
-  return [t.era, date, t.clock].filter(Boolean).join(' · ');
-}
-function PlacePath({ id }: { id: string | null }) {
-  const m = useModel();
-  if (!id) return <span {...solve('none')}>位置未知</span>;
-  const chain: string[] = [];
-  for (let cursor: any = id, n = 0; typeof cursor === 'string' && n < 16; n++) { chain.unshift(cursor); const p = m.locate(cursor); cursor = p ? m.value(p)?.parent : undefined; }
-  return <span {...solve('place-path')}>{chain.map((c, i) => <React.Fragment key={c}>{i ? <span {...part('sep')}>›</span> : null}<RefChip id={c} /></React.Fragment>)}</span>;
-}
 
-/* ───────── entities ───────── */
-function EntityStrip({ title, paths, summary }: { title: string; paths: Path[]; summary?: string[] }) {
-  const go = React.useContext(NavigateContext);
+/** Relationship / diplomacy graph between the entities of one collection, collapsed by default. */
+function RelationGraph({ item }: { item: any }) {
+  const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
+  const path = rel(item.graph), value: Record<string, any> = m.value(path) ?? {};
+  const [sel, setSel] = React.useState<string | undefined>();
+  const present = new Set<string>(item.present ? m.value(rel(item.present)) ?? [] : []);
+  const sizeMeta = item.size ? m.meta([...path, '*', item.size]) : undefined;
+  const nodes: GraphNode[] = Object.keys(value).map(id => {
+    const tier = sizeMeta?.values ? sizeMeta.values.indexOf(value[id]?.[item.size]) : -1;
+    const r = id === m.userId ? 24 : tier >= 0 ? Math.round(22 - tier * 2.5) : 18;
+    return { id, label: value[id]?.name ?? id, r, mark: [...(value[id]?.name ?? id)][0], kind: id === m.userId ? 'user' : present.has(id) ? 'present' : 'entity' };
+  });
+  const pairs = new Map<string, { a: string; b: string; weights: number[]; labels: string[]; tones: string[] }>();
+  for (const a of Object.keys(value)) for (const [b, r] of Object.entries(value[a]?.[item.edges] ?? {}) as [string, any][]) {
+    if (!value[b]) continue;
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    const p = pairs.get(key) ?? { a, b, weights: [], labels: [], tones: [] };
+    if (item.weight && typeof r?.[item.weight] === 'number') p.weights.push(r[item.weight]);
+    const lab = item.label ? r?.[item.label] : undefined;
+    const text = Array.isArray(lab) ? lab[0] : lab;
+    if (typeof text === 'string' && text && !p.labels.includes(text)) p.labels.push(text);
+    if (item.tone && typeof r?.[item.tone] === 'string') p.tones.push(r[item.tone]);
+    pairs.set(key, p);
+  }
+  const edges: GraphEdge[] = [...pairs.values()].map(p => {
+    const avg = p.weights.length ? p.weights.reduce((s, w) => s + w, 0) / p.weights.length : 0;
+    const mapped = p.tones.map(t => item.tones?.[t] as Tone | undefined).find(Boolean);
+    const tone: Tone = mapped ?? (avg > 15 ? 'positive' : avg < -15 ? 'negative' : 'neutral');
+    return { a: p.a, b: p.b, kind: 'relation', tone, label: p.labels.slice(0, 2).join(' / ') || p.tones[0], width: 1.5 + Math.min(1, Math.abs(avg) / 100) * 3, length: 210 };
+  });
+  const s = sel ? value[sel] : undefined;
   return (
-    <section {...solve('group')}>
-      <h4 {...part('title')}>{title}<small>{paths.length}</small></h4>
-      <div {...solve('cards')}>{paths.map(p => <EntityCard key={p.join('.')} path={p} summary={summary} onOpen={() => go(p)} />)}</div>
-    </section>
+    <K.CollapseCard title={item.title ?? '关系图'} meta={`${nodes.length} · ${edges.length}`} defaultOpen={!!item.open}>
+      {nodes.length < 2 ? <span {...solve('none')}>暂无可显示的关系</span> : (
+        <div {...solve('relation-graph')}>
+          <GraphView nodes={nodes} edges={edges} selected={sel} onSelect={setSel} label={item.title ?? '关系图'} start={m.userId && value[m.userId] ? m.userId : undefined} height="sm" />
+          <div {...part('legend')}>
+            {item.legend ? Object.entries(item.legend as Record<string, string>).map(([tone, text]) => <span key={tone} data-tone={tone}><i />{text}</span>) : null}
+            <span {...part('hint')}>点节点高亮关系，拖动节点可调整位置</span>
+          </div>
+          {s ? (
+            <div {...part('selected')}>
+              <b>{s.name ?? sel}</b>
+              {(item.badges ?? []).map((b: string) => s[b] ? <K.Badge key={b} tone="neutral">{String(s[b])}</K.Badge> : null)}
+              <K.Button size="sm" variant="ghost" onClick={() => go([...path, sel!])}>{sel === m.userId ? '查看角色' : '查看卡片'}</K.Button>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </K.CollapseCard>
   );
 }
-function EntityList({ path }: { path: Path }) {
-  const m = useModel(), K = useKit(), value = m.value(path) ?? {};
-  const ids = Object.keys(value);
-  if (!ids.length) return <K.Empty title={`还没有${m.label(path)}`} />;
-  return <div {...solve('stack')}>{ids.map(id => <K.CollapseCard key={id} title={value[id]?.name ?? id} defaultOpen={ids.length <= 2}><EntityBody path={[...path, id]} /></K.CollapseCard>)}</div>;
-}
-function MasterDetail({ path, focus }: { path: Path; focus?: Path }) {
-  const m = useModel(), K = useKit(), ref = React.useRef<HTMLDivElement>(null), width = useWidth(ref);
-  const value = m.value(path) ?? {}, ids = Object.keys(value);
-  const present = new Set<string>((m.value(['meta', 'present']) as string[] | undefined) ?? []);
-  const focused = focus && focus.slice(0, path.length).join('.') === path.join('.') ? focus[path.length] : undefined;
-  const [current, setCurrent] = React.useState<string>(focused ?? m.userId ?? ids[0] ?? '');
-  React.useEffect(() => { if (focused) setCurrent(focused); }, [focused]);
-  if (!ids.length) return <K.Empty title={`还没有${m.label(path)}`} />;
-  const wide = width >= 640;
-  const items = ids.map(id => ({ id, label: value[id]?.name ?? id, meta: present.has(id) ? '在场' : undefined }));
+
+/** Force-directed map: hierarchy (parent) and adjacency (links); detail card for the selected place. */
+function MapItem({ item, focus }: { item: any; focus: Focus }) {
+  const m = useModel(), K = useKit();
+  const path = rel(item.map), places: Record<string, any> = m.value(path) ?? {};
+  const here: string | undefined = item.current ? m.value(rel(item.current)) ?? undefined : undefined;
+  const parent = item.parent ?? 'parent', links = item.links ?? 'links', hidden = item.discovered ?? 'discovered';
+  // The detail card follows the current place until the player picks a node; only a pick highlights.
+  const [picked, setPicked] = React.useState<string | undefined>();
+  React.useEffect(() => {
+    if (focus && focus.path.slice(0, path.length).join('.') === path.join('.') && focus.path[path.length]) setPicked(focus.path[path.length]);
+  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sel = picked ?? here;
+  const known = (id: string) => places[id]?.[hidden] !== false;
+  const nodes: GraphNode[] = Object.keys(places).map(id => {
+    const region = Object.values(places).some(p => p?.[parent] === id);
+    return { id, label: known(id) ? places[id]?.name ?? id : '？？？', r: region ? 24 : 14, kind: region ? 'region' : 'place', current: id === here, muted: !known(id) };
+  });
+  const edges: GraphEdge[] = [];
+  const seen = new Set<string>();
+  for (const id of Object.keys(places)) {
+    const p = places[id]?.[parent];
+    if (typeof p === 'string' && places[p]) edges.push({ a: id, b: p, kind: 'hierarchy', length: 120 });
+    for (const l of (places[id]?.[links] ?? []) as string[]) {
+      const key = id < l ? `${id}|${l}` : `${l}|${id}`;
+      if (places[l] && !seen.has(key)) { seen.add(key); edges.push({ a: id, b: l, kind: 'link', length: 180 }); }
+    }
+  }
+  const s = sel ? places[sel] : undefined;
   return (
-    <div ref={ref} {...solve('master-detail', { layout: wide ? 'wide' : 'narrow' })}>
-      {wide ? <div {...part('nav')}><K.NavList items={items} current={current} onSelect={setCurrent} layout="sidebar" label={m.label(path)} /></div>
-        : <div {...part('picker')} role="tablist" aria-label={m.label(path)}>{items.map(it => <button key={it.id} type="button" role="tab" aria-selected={it.id === current} onClick={() => setCurrent(it.id)}>{it.label}{it.meta ? <i aria-label="在场" /> : null}</button>)}</div>}
-      <div {...part('detail')}>{value[current] ? <EntityBody path={[...path, current]} header /> : null}</div>
+    <div {...solve('map')}>
+      <GraphView nodes={nodes} edges={edges} selected={picked} onSelect={setPicked} label={`${m.label(path)}地图`} {...(here ? { start: here } : {})} />
+      <div {...part('legend')}><span data-kind="link"><i />相连</span><span data-kind="hierarchy"><i />隶属</span><span {...part('hint')}>拖动画布平移，滚轮或双指缩放</span></div>
+      {s ? (
+        <K.Card title={known(sel!) ? s.name ?? sel : '未发现的地点'} meta={<>{s.kind ? <K.Badge tone="neutral">{s.kind}</K.Badge> : null}{sel === here ? <K.Badge tone="accent">当前位置</K.Badge> : null}</>}>
+          {known(sel!) ? <EntityBody path={[...path, sel!]} skip={['name', 'kind', hidden]} /> : <p {...solve('paragraph')}>这里还没有被探索。</p>}
+        </K.Card>
+      ) : null}
     </div>
   );
 }
-/** Full entity: header facts, then sections; composite groups (e.g. roleplay) are flattened one level. */
-export function EntityBody({ path, header = false }: { path: Path; header?: boolean }) {
-  const m = useModel(), K = useKit(), v = m.value(path) ?? {};
-  const keys = m.children(path).filter(k => !m.dormant([...path, k]) && m.spoiler([...path, k]) !== 'hidden');
+
+/** Full entity: facts, paragraphs, then sections; composite groups (e.g. roleplay) are flattened one level. */
+export function EntityBody({ path, skip = [] }: { path: Path; skip?: string[] }) {
+  const m = useModel(), v = m.value(path) ?? {};
+  const keys = m.children(path).filter(k => !skip.includes(k) && !m.dormant([...path, k]) && m.spoiler([...path, k]) !== 'hidden' && !isEmpty(v[k]));
   const type = (k: string) => m.meta([...path, k])?.type ?? '';
   const isStringList = (k: string) => type(k) === 'array' && !m.meta([...path, k])?.stamp && (v[k] ?? []).every((x: unknown) => typeof x === 'string');
   const scalar = keys.filter(k => ['string', 'enum', 'int', 'number', 'bool', 'ref', 'refs', 'ladder'].includes(type(k)) || isStringList(k));
   const composite = keys.filter(k => !scalar.includes(k));
-  const badges = scalar.filter(k => type(k) === 'enum' && !isEmpty(v[k]));
-  const paragraphs = scalar.filter(k => m.widget([...path, k]) === 'paragraph' && !isEmpty(v[k]));
-  const facts = scalar.filter(k => !badges.includes(k) && !paragraphs.includes(k) && k !== 'name' && k !== 'alias');
+  const paragraphs = scalar.filter(k => m.widget([...path, k]) === 'paragraph');
+  const facts = scalar.filter(k => !paragraphs.includes(k) && k !== 'name' && k !== 'alias');
   const flatten = (k: string) => type(k) === 'object' && m.children([...path, k]).some(c => ['object', 'record'].includes(m.meta([...path, k, c])?.type ?? '') && m.children([...path, k, c]).length > 1 || m.meta([...path, k, c])?.type === 'record');
   return (
     <div {...solve('entity')}>
-      {header ? (
-        <header {...part('head')}>
-          <h3 {...part('name')}>{v.name ?? path.at(-1)}{v.alias ? <small>「{v.alias}」</small> : null}</h3>
-          <span {...part('badges')}>{badges.map(k => <K.Badge key={k} tone="accent">{v[k]}</K.Badge>)}</span>
-        </header>
-      ) : null}
-      <div {...solve('fields')}>{facts.map(k => <Field key={k} path={[...path, k]} compact />)}</div>
+      {facts.length ? <div {...solve('fields')}>{facts.map(k => <Field key={k} path={[...path, k]} compact />)}</div> : null}
       {paragraphs.map(k => <Field key={k} path={[...path, k]} compact />)}
       {composite.map(k => flatten(k) ? <Group key={k} path={[...path, k]} />
         : ['object', 'record'].includes(type(k)) ? <Section key={k} path={[...path, k]} /> : <Field key={k} path={[...path, k]} />)}
@@ -168,135 +349,6 @@ function Group({ path }: { path: Path }) {
   );
 }
 
-/* ───────── node map ───────── */
-interface MapNode { id: string; name: string; kind?: string; parent?: string; links: string[]; discovered: boolean; x: number; y: number }
-function layoutMap(places: Record<string, any>): MapNode[] {
-  const ids = Object.keys(places);
-  const nodes: MapNode[] = ids.map(id => ({ id, name: places[id]?.name ?? id, kind: places[id]?.kind, parent: places[id]?.parent ?? undefined, links: (places[id]?.links ?? []).filter((l: string) => places[l]), discovered: places[id]?.discovered !== false, x: 0, y: 0 }));
-  const byId = new Map(nodes.map(n => [n.id, n]));
-  const roots = nodes.filter(n => !n.parent || !byId.has(n.parent));
-  const childrenOf = (id: string) => nodes.filter(n => n.parent === id);
-  const place = (n: MapNode, cx: number, cy: number, radius: number, depth: number) => {
-    n.x = cx; n.y = cy;
-    const kids = childrenOf(n.id);
-    kids.forEach((kid, i) => { const a = (i / Math.max(1, kids.length)) * Math.PI * 2 + depth; place(kid, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, radius * 0.55, depth + 1); });
-  };
-  roots.forEach((r, i) => place(r, i * 420, (i % 2) * 120, 170, i));
-  // relax: repel all, pull along links and parent edges (deterministic)
-  const edges: [MapNode, MapNode, number][] = [];
-  for (const n of nodes) { for (const l of n.links) if (n.id < l) edges.push([n, byId.get(l)!, 150]); if (n.parent && byId.has(n.parent)) edges.push([n, byId.get(n.parent)!, 120]); }
-  for (let step = 0; step < 240; step++) {
-    const t = 1 - step / 240;
-    for (const a of nodes) for (const b of nodes) {
-      if (a === b) continue;
-      const dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy) || 0.01;
-      if (d < 130) { const f = (130 - d) * 0.06 * t; a.x += dx / d * f; a.y += dy / d * f; }
-    }
-    for (const [a, b, len] of edges) {
-      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 0.01, f = (d - len) * 0.02 * t;
-      a.x += dx / d * f; a.y += dy / d * f; b.x -= dx / d * f; b.y -= dy / d * f;
-    }
-  }
-  return nodes;
-}
-function NodeMap({ path, current, focus }: { path: Path; current?: Path; focus?: Path }) {
-  const m = useModel(), K = useKit(), places = m.value(path) ?? {};
-  const here: string | undefined = current ? m.value(current) ?? undefined : undefined;
-  const nodes = React.useMemo(() => layoutMap(places), [places]);
-  const byId = new Map(nodes.map(n => [n.id, n]));
-  const focused = focus && focus.slice(0, path.length).join('.') === path.join('.') ? focus[path.length] : undefined;
-  const [selected, setSelected] = React.useState<string | undefined>(focused ?? here);
-  React.useEffect(() => { if (focused) setSelected(focused); }, [focused]);
-  const box = React.useMemo(() => {
-    const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
-    const minX = Math.min(...xs) - 90, minY = Math.min(...ys) - 70, w = Math.max(...xs) - minX + 90, h = Math.max(...ys) - minY + 80;
-    return { minX, minY, w, h };
-  }, [nodes]);
-  const [view, setView] = React.useState(box);
-  // Narrow screens open zoomed around the current place; the whole map is one tap (⤢) away.
-  const narrow = React.useRef<boolean | undefined>(undefined);
-  const initial = React.useCallback(() => {
-    const n = here ? byId.get(here) : undefined;
-    return narrow.current && n ? { minX: n.x - box.w * 0.3, minY: n.y - box.h * 0.3, w: box.w * 0.6, h: box.h * 0.6 } : box;
-  }, [box, here]); // eslint-disable-line react-hooks/exhaustive-deps
-  React.useEffect(() => setView(initial()), [initial]);
-  const svgRef = React.useRef<SVGSVGElement>(null);
-  // Labels keep a constant on-screen size: scale them by world units per screen pixel.
-  const [px, setPx] = React.useState({ w: 0, h: 0 });
-  React.useEffect(() => {
-    const el = svgRef.current; if (!el) return undefined;
-    const ro = new ResizeObserver(() => {
-      setPx({ w: el.clientWidth, h: el.clientHeight });
-      if (narrow.current === undefined && el.clientWidth > 0) { narrow.current = el.clientWidth < 480; if (narrow.current) setView(initial()); }
-    });
-    ro.observe(el); return () => ro.disconnect();
-  }, []);
-  const ts = px.w && px.h ? Math.min(3, Math.max(0.4, Math.max(view.w / px.w, view.h / px.h))) : 1;
-  const pointers = React.useRef(new Map<number, { x: number; y: number }>());
-  const zoom = (factor: number, cx = view.minX + view.w / 2, cy = view.minY + view.h / 2) => setView(v => {
-    const w = Math.min(box.w * 3, Math.max(box.w / 4, v.w * factor)), h = w * (v.h / v.w);
-    return { minX: cx - (cx - v.minX) * (w / v.w), minY: cy - (cy - v.minY) * (h / v.h), w, h };
-  });
-  const toWorld = (clientX: number, clientY: number) => {
-    const r = svgRef.current!.getBoundingClientRect();
-    return { x: view.minX + (clientX - r.left) / r.width * view.w, y: view.minY + (clientY - r.top) / r.height * view.h };
-  };
-  const onPointerDown = (e: React.PointerEvent) => { pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); };
-  const onPointerMove = (e: React.PointerEvent) => {
-    const prev = pointers.current.get(e.pointerId); if (!prev) return;
-    const r = svgRef.current!.getBoundingClientRect();
-    if (pointers.current.size === 1) {
-      const dx = (e.clientX - prev.x) / r.width * view.w, dy = (e.clientY - prev.y) / r.height * view.h;
-      setView(v => ({ ...v, minX: v.minX - dx, minY: v.minY - dy }));
-    } else if (pointers.current.size === 2) {
-      const [a, b] = [...pointers.current.entries()].map(([id, p]) => id === e.pointerId ? { x: e.clientX, y: e.clientY } : p);
-      const [pa, pb] = [...pointers.current.values()];
-      const before = Math.hypot(pa!.x - pb!.x, pa!.y - pb!.y), after = Math.hypot(a!.x - b!.x, a!.y - b!.y);
-      if (before > 0 && after > 0) { const c = toWorld((a!.x + b!.x) / 2, (a!.y + b!.y) / 2); zoom(before / after, c.x, c.y); }
-    }
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  };
-  const onPointerUp = (e: React.PointerEvent) => { pointers.current.delete(e.pointerId); };
-  const onWheel = (e: React.WheelEvent) => { const c = toWorld(e.clientX, e.clientY); zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15, c.x, c.y); };
-  const center = () => { const n = here ? byId.get(here) : undefined; setView(n ? { minX: n.x - box.w / 4, minY: n.y - box.h / 4, w: box.w / 2, h: box.h / 2 } : box); };
-  const edges: { a: MapNode; b: MapNode; kind: 'link' | 'parent' }[] = [];
-  for (const n of nodes) { for (const l of n.links) if (n.id < l || !byId.get(l)!.links.includes(n.id)) edges.push({ a: n, b: byId.get(l)!, kind: 'link' }); if (n.parent && byId.has(n.parent)) edges.push({ a: n, b: byId.get(n.parent)!, kind: 'parent' }); }
-  const sel = selected ? byId.get(selected) : undefined;
-  return (
-    <div {...solve('map')}>
-      <div {...part('canvas')} data-k-level="sunken">
-        <svg ref={svgRef} viewBox={`${view.minX} ${view.minY} ${view.w} ${view.h}`} role="img" aria-label={`${m.label(path)}地图`}
-          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
-          {edges.map((e, i) => <line key={i} data-solve-part={e.kind === 'link' ? 'link' : 'hierarchy'} x1={e.a.x} y1={e.a.y} x2={e.b.x} y2={e.b.y} />)}
-          {nodes.map(n => (
-            <g key={n.id} data-solve-part="node" data-kind={n.kind === '区域' ? 'region' : 'place'} data-current={n.id === here ? '' : undefined} data-selected={n.id === selected ? '' : undefined} data-undiscovered={n.discovered ? undefined : ''}
-              transform={`translate(${n.x} ${n.y})`} tabIndex={0} role="button" aria-label={n.discovered ? n.name : '未发现的地点'}
-              onClick={() => setSelected(n.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setSelected(n.id); }}>
-              {n.id === here ? <circle data-solve-part="halo" r={n.kind === '区域' ? 40 : 30} /> : null}
-              <circle data-solve-part="dot" r={n.kind === '区域' ? 26 : 16} />
-              <g transform={`translate(0 ${n.kind === '区域' ? 26 : 16}) scale(${ts})`}><text data-solve-part="name" y={20}>{n.discovered ? n.name : '？？？'}</text></g>
-              {n.id === here ? <g transform={`translate(0 ${n.kind === '区域' ? -40 : -30}) scale(${ts})`}><text data-solve-part="here" y={-4}>当前</text></g> : null}
-            </g>
-          ))}
-        </svg>
-        <div {...part('tools')}>
-          <K.IconButton label="放大" size="sm" variant="default" onClick={() => zoom(1 / 1.3)}>＋</K.IconButton>
-          <K.IconButton label="缩小" size="sm" variant="default" onClick={() => zoom(1.3)}>－</K.IconButton>
-          <K.IconButton label="回到当前位置" size="sm" variant="default" onClick={center}>◎</K.IconButton>
-          <K.IconButton label="查看全图" size="sm" variant="default" onClick={() => setView(box)}>⤢</K.IconButton>
-        </div>
-      </div>
-      {sel ? (
-        <div {...part('detail')}>
-          <K.Card title={sel.discovered ? sel.name : '未发现的地点'} meta={<>{sel.kind ? <K.Badge tone="neutral">{sel.kind}</K.Badge> : null}{sel.id === here ? <K.Badge tone="accent">当前位置</K.Badge> : null}</>}>
-            {sel.discovered ? <EntityBody path={[...path, sel.id]} /> : <p {...solve('paragraph')}>这里还没有被探索。</p>}
-          </K.Card>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 /* ───────── background music ───────── */
 function BgmButton({ bgm }: { bgm: BgmView }) {
   const K = useKit();
@@ -310,4 +362,4 @@ function BgmButton({ bgm }: { bgm: BgmView }) {
     </K.InfoPopover>
   );
 }
-export { StatusModel };
+export { StatusModel, RefChip };

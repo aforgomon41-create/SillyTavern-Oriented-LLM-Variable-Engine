@@ -5,10 +5,14 @@
 [data-solve="meter"] [data-solve-part="value"],
 [data-solve="center-meter"] > [data-solve-part="value"],
 [data-solve="timeline"] [data-solve-part="round"],
-[data-solve="title"] small,
-[data-solve="scene"] > [data-solve-part="time"] { font-family: var(--k-font-mono); }
-[data-solve="scene"] { border-left: 3px solid var(--k-accent); }
+[data-solve="overview"] > [data-solve-part="time"],
+[data-solve="overview"] > [data-solve-part="round"],
+[data-solve="overview"] [data-solve-part="vital"] > [data-solve-part="value"],
+[data-solve="entity-meta"] > [data-solve-part="score"],
+[data-solve="hero"] > [data-solve-part="currency"] b { font-family: var(--k-font-mono); }
+[data-solve="bar"] { border-left: 3px solid var(--k-accent); }
 [data-solve="meter"] > [data-solve-part="track"] {
   background-image: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--k-divider) calc(10% - 1px) 10%);
 }
+[data-solve="hero"] [data-solve-part="portrait"] { border-radius: 50%; }
 [data-solve="group"] > [data-solve-part="title"] { text-transform: none; letter-spacing: .06em; }
