@@ -134,6 +134,22 @@ test('Greeting变体有独立初始状态与根提交', async () => {
   assert.equal((await restore(archive, variant)).data.characters && ((await restore(archive, variant)).data.characters as any).alice.hp, 30);
   assert.equal((await restore(archive, headId)).data.characters && ((await restore(archive, headId)).data.characters as any).alice.hp, 100);
 });
+test('复用相邻状态摘要后仍逐项拒绝链中间的基线/动作/结果损坏，恢复不改原归档', async () => {
+  const { runtime, headId } = await setup();
+  const first = await runtime.submit(action('chain-1'), { ...binding, messageId: 'chain-1' }, '一');
+  const second = await runtime.submit(action('chain-2'), { ...binding, messageId: 'chain-2' }, '二');
+  const last = await runtime.submit(action('chain-3'), { ...binding, messageId: 'chain-3' }, '三');
+  const original = runtime.archive, serialized = serializeArchive(original);
+  for (const id of [headId, first.id, second.id, last.id]) {
+    for (const [field, code] of [['baseHash', 'BASE_HASH_MISMATCH'], ['opsDigest', 'OPS_DIGEST_MISMATCH'], ['stateHash', 'STATE_HASH_MISMATCH']]) {
+      const broken = structuredClone(original); (broken.commits[id] as any)[field!] = 'sha256:broken';
+      await assert.rejects(restore(broken, last.id), (error: any) => error.code === code);
+    }
+  }
+  const state = await restore(original, last.id); (state.data.characters as any).alice.hp = 1;
+  assert.equal(serializeArchive(original), serialized);
+  assert.equal(((await restore(original, last.id)).data.characters as any).alice.hp, 70);
+});
 test('IndexedDB可以全清，恢复哈希仍相同', async () => {
   const { runtime } = await setup();
   const commit = await runtime.submit(action('model'), binding, '正文');

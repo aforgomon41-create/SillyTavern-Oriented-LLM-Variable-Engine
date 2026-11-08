@@ -1,7 +1,10 @@
 import * as engine from '../index.js';
 import { SolveSessionManager } from './sessions.js';
 import type { AttachOptions } from './controller.js';
-import type { RegistrationOptions } from './sessions.js';
+import type { PublicRegistrationOptions, PublicWorldInfoRegistrationOptions } from './sessions.js';
+import { fail } from '../json.js';
+import { readWorldInfoSelection } from './world-info.js';
+import type { WorldInfoSelection } from './world-info.js';
 import type { Definition } from '../types.js';
 import { closeDebugger, installLauncher, openDebugger } from '../debug/launcher.js';
 import type { DebugTarget } from '../debug/launcher.js';
@@ -32,6 +35,10 @@ export function installRuntime(options: { scope?: any; debugger?: DebugTarget; n
   return runtime.api;
 }
 function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: boolean }) {
+  const publicOptions = <T extends object>(options: T): T => {
+    if (Object.hasOwn(options, 'owner') || Object.hasOwn(options, 'priority')) fail('REGISTRATION_OPTIONS', 'owner 和 priority 由载体管理，不能通过此注册入口指定');
+    return options;
+  };
   let sessions: SolveSessionManager | undefined, target = initial.debugger, native = Boolean(initial.native);
   const providers = new Map<string, Carrier>();
   const manager = () => {
@@ -39,10 +46,18 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     return sessions ??= new SolveSessionManager(() => scope.SillyTavern.getContext(), scope.fetch.bind(scope));
   };
   const launch = () => { if (target) openDebugger(target, scope.document); };
+  const getGuide = (tag?: string): string => {
+    const controller = manager().controller;
+    if (!controller) fail('NOT_BOUND', '当前聊天尚未绑定SOLVE定义');
+    return controller.getGuide(tag);
+  };
   const api = Object.freeze({ ...engine, version: engine.VERSION,
     openDebugger: launch, closeDebugger,
+    getGuide,
     attach(definition: Definition, options: AttachOptions = {}) { return manager().attach(definition, options); },
-    register(definition: Definition, options: RegistrationOptions = {}) { return manager().register(definition, { ...options, owner: 'native', priority: 0 }); },
+    register(definition: Definition, options: PublicRegistrationOptions = {}) { return manager().register(definition, { ...publicOptions(options), owner: 'native', priority: 0 }); },
+    registerWorldInfo(definition: Definition, options: PublicWorldInfoRegistrationOptions = {}) { return manager().registerWorldInfo(definition, { ...publicOptions(options), owner: 'native', priority: 0 }); },
+    readWorldInfo(options: WorldInfoSelection = {}) { return readWorldInfoSelection(() => scope.SillyTavern.getContext(), options, scope.fetch.bind(scope)); },
     detach() { sessions?.detach(); },
     get controller() { return sessions?.controller; },
     get sessions() { return manager(); },
@@ -53,12 +68,23 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
       if (scope.document?.body) installLauncher(launch, scope.document);
       let disposed = false;
       return Object.freeze({ ...engine, version: engine.VERSION, openDebugger: launch, closeDebugger,
+        getGuide(tag?: string) { if (disposed) throw new Error('该脚本入口已停用'); return getGuide(tag); },
         get controller() { return sessions?.controller; }, get sessions() { return manager(); },
-        async register(definition: Definition, registration: RegistrationOptions = {}) {
+        async register(definition: Definition, registration: PublicRegistrationOptions = {}) {
           if (disposed) throw new Error('该脚本入口已停用');
-          const result = await manager().register(definition, { ...registration, owner, priority: 10 });
+          const result = await manager().register(definition, { ...publicOptions(registration), owner, priority: 10 });
           if (disposed) await manager().unregister(owner);
           return result;
+        },
+        async registerWorldInfo(definition: Definition, registration: PublicWorldInfoRegistrationOptions = {}) {
+          if (disposed) throw new Error('该脚本入口已停用');
+          const result = await manager().registerWorldInfo(definition, { ...publicOptions(registration), owner, priority: 10 });
+          if (disposed) await manager().unregister(owner);
+          return result;
+        },
+        readWorldInfo(options: WorldInfoSelection = {}) {
+          if (disposed) throw new Error('该脚本入口已停用');
+          return readWorldInfoSelection(() => scope.SillyTavern.getContext(), options, scope.fetch.bind(scope));
         },
         async dispose() {
           if (disposed) return; disposed = true; providers.delete(owner);

@@ -1,8 +1,8 @@
 import { clone } from '../json.js';
 import type { Archive, Commit, LogicalState } from '../types.js';
 import type { HostMessage, SwipeArchive } from './sillytavern.js';
-import { compactStorage, storeFloor } from './storage.js';
-import { headKey } from '../history.js';
+import { compactStorage, createFloorWriter } from './storage.js';
+import { commitsByOwner, headKey } from '../history.js';
 import type { CompactStorage } from './storage.js';
 
 /** Tavern Helper reads message.variables[swipe_id] and chat_metadata.variables. */
@@ -29,6 +29,7 @@ function variableSlots(message: HostMessage): Record<string, any>[] {
 /** Store each revision once, in the corresponding standard message variable slot. */
 export function writeMessageVariableViews(messages: HostMessage[], archive: Archive): CompactStorage {
   const storage = compactStorage(Object.values(archive.commits));
+  const grouped = commitsByOwner(archive), writeFloor = createFloorWriter(storage);
   const owners = new Set(messages.flatMap(message => [message.extra?.solve,
     ...(message.swipe_info ?? []).map(info => info.extra?.solve)]).filter(Boolean).map(saved => headKey(saved)));
   const orphans = Object.values(archive.commits).filter(record => !owners.has(headKey(record.binding)));
@@ -40,9 +41,9 @@ export function writeMessageVariableViews(messages: HostMessage[], archive: Arch
       const saved: SwipeArchive | undefined = index === selected ? message.extra?.solve : message.swipe_info?.[index]?.extra?.solve;
       const record = saved?.headId ? archive.commits[saved.headId] : undefined;
       if (record && saved?.messageId === record.binding.messageId && saved?.swipeId === record.binding.swipeId && saved?.nativeIndex === index) {
-        const records = Object.values(archive.commits).filter(item => headKey(item.binding) === headKey(record.binding));
+        const records = [...grouped.get(headKey(record.binding)) ?? []];
         if (!carriedOrphans) { records.push(...orphans); carriedOrphans = true; }
-        slots[index]!.solve = storeFloor(record, records, storage);
+        slots[index]!.solve = writeFloor(record, records);
       } else delete slots[index]!.solve;
     }
     message.variables = slots;

@@ -1,11 +1,22 @@
 import jsonpatch from 'fast-json-patch';
-import { assertJson, canonical, clone, fail, hash, id, segments } from './json.js';
+import { assertJson, canonical, clone, fail, hash, id } from './json.js';
 import type { Action, Archive, Binding, Commit, ExecutionResult, Genesis, LogicalState } from './types.js';
 import { SolveCore } from './engine.js';
+import { verifyDefinitionSnapshot } from './definition-snapshot.js';
+import { captureRestorePath, materializePath } from './history-restore.js';
 
-const { compare, applyPatch } = jsonpatch;
+const { compare } = jsonpatch;
 export const SEMANTICS = '0.5.0';
 export const headKey = (binding: Pick<Binding, 'messageId' | 'swipeId'>): string => JSON.stringify([binding.messageId, binding.swipeId]);
+/** Transient index for one synchronous packing pass; never a source of history authority. */
+export function commitsByOwner(archive: Archive): Map<string, Commit[]> {
+  const owners = new Map<string, Commit[]>();
+  for (const commit of Object.values(archive.commits)) {
+    const key = headKey(commit.binding), records = owners.get(key);
+    if (records) records.push(commit); else owners.set(key, [commit]);
+  }
+  return owners;
+}
 // Heads are scoped by the Archive/session, not the host filename: copied branch files
 // intentionally retain immutable ancestor message/swipe identities.
 export async function archiveProof(archive: Archive, targetId: string): Promise<string> {
@@ -20,13 +31,15 @@ export async function archiveProof(archive: Archive, targetId: string): Promise<
   }
   const genesis = archive.geneses[chain.at(-1)?.genesisId ?? ''];
   if (!genesis) fail('GENESIS_CORRUPT', '归档缺少开局');
-  return hash({ version: archive.version, sessionId: archive.sessionId, definitionHash: archive.definitionHash, genesis, chain });
+  return hash({ version: archive.version, sessionId: archive.sessionId, definitionHash: archive.definitionHash, genesis, chain,
+    ...(archive.authoring ? { authoring: archive.authoring } : {}) });
 }
 export async function createArchive(core: SolveCore, binding: Binding, initial?: unknown): Promise<{ archive: Archive; headId: string }> {
+  const authoring = core.definition.authoringSnapshot ? await verifyDefinitionSnapshot(core.definition.authoringSnapshot, core.definition.fingerprint) : undefined;
   const state = await core.initialize(initial);
   const genesis: Genesis = { id: id('genesis'), definitionHash: core.definition.fingerprint, state, stateHash: await hash(state) };
   const archive: Archive = { version: '0.5', sessionId: id('session'), definitionHash: core.definition.fingerprint,
-    geneses: { [genesis.id]: genesis }, commits: {}, heads: {} };
+    geneses: { [genesis.id]: genesis }, commits: {}, heads: {}, ...(authoring ? { authoring } : {}) };
   const root = await buildCommit(archive, null, genesis.id, state, state, binding, [], [], {}, '');
   archive.commits[root.id] = root; archive.heads[headKey(binding)] = root.id;
   return { archive, headId: root.id };
@@ -51,36 +64,9 @@ export async function buildCommit(archive: Archive, parentId: string | null, gen
     actions: clone(actions), opsDigest: await hash(actions), feedback: clone(feedback), aliases: clone(aliases), textDigest: await hash(text) };
 }
 export async function restore(archive: Archive, targetId: string): Promise<LogicalState> {
-  if (archive.version !== '0.5') fail('ARCHIVE_VERSION', '不支持此归档格式');
-  const chain: Commit[] = [], seen = new Set<string>();
-  let current: string | null = targetId;
-  while (current) {
-    if (seen.has(current)) fail('HISTORY_CYCLE', '历史父链出现循环');
-    seen.add(current);
-    const commit: Commit | undefined = archive.commits[current];
-    if (!commit || commit.id !== current) fail('BROKEN_HISTORY', `缺少提交：${current}`);
-    chain.push(commit); current = commit.parentId;
-  }
-  const root = chain.at(-1);
-  if (!root) fail('BROKEN_HISTORY', '没有可恢复的历史');
-  const genesis = archive.geneses[root.genesisId];
-  if (!genesis || genesis.definitionHash !== archive.definitionHash || await hash(genesis.state) !== genesis.stateHash) fail('GENESIS_CORRUPT', '开局状态损坏或定义不符');
-  let state = clone(genesis.state);
-  for (const commit of chain.reverse()) {
-    if (commit.genesisId !== genesis.id || commit.baseHash !== await hash(state)) fail('BASE_HASH_MISMATCH', `提交基线不符：${commit.id}`);
-    if (commit.opsDigest !== await hash(commit.actions)) fail('OPS_DIGEST_MISMATCH', `操作记录被修改：${commit.id}`);
-    try {
-      for (const patch of [...commit.dataPatch, ...commit.enginePatch]) {
-        segments(patch.path);
-        if ('from' in patch) segments(patch.from);
-      }
-      state = { data: applyPatch(clone(state.data), clone(commit.dataPatch), true, true, true).newDocument,
-        engineState: applyPatch(clone(state.engineState), clone(commit.enginePatch), true, true, true).newDocument };
-      assertJson(state);
-    } catch { fail('PATCH_CORRUPT', `状态补丁无效：${commit.id}`); }
-    if (await hash(state) !== commit.stateHash) fail('STATE_HASH_MISMATCH', `提交结果不符：${commit.id}`);
-  }
-  return state;
+  // Public recovery always checks the complete chain. Shared certificates live
+  // in VerifiedHistory and never turn this entry point into a cache lookup.
+  return materializePath(captureRestorePath(archive, targetId));
 }
 export function serializeArchive(archive: Archive): string { assertJson(archive); return JSON.stringify(archive); }
 export function parseArchive(text: string): Archive {

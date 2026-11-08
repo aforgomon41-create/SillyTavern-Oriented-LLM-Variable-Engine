@@ -9,7 +9,12 @@ const hash = data => createHash('sha256').update(data).digest('hex');
 assert.equal(manifest.version, version); assert.equal(manifest.license, 'AGPL-3.0-only');
 const source = await readFile(directory + '/' + manifest.sourceArchive); assert.equal(hash(source), manifest.sourceSha256);
 const sourceEntries = readZip(source), sourceRoot = `SOLVE-source-${version}/`;
-for (const path of ['package.json', 'package-lock.json', 'scripts/build.mjs', 'scripts/check-portable.mjs', 'src/index.ts', 'tests/acceptance.test.ts', 'LICENSE', 'docs/verification.md', '.github/workflows/check.yml']) assert.ok(sourceEntries.has(sourceRoot + path), path);
+for (const path of ['CONTRIBUTING.md', 'docs/README.md', '.github/pull_request_template.md']) assert.ok(sourceEntries.has(sourceRoot + path), path);
+for (const path of ['src/history-restore.ts', 'src/verified-history.ts', 'src/performance.ts', 'tests/verified-history.test.ts', 'scripts/benchmark-commit-pipeline.ts', 'scripts/run-commit-pipeline-benchmark.mjs', 'scripts/compare-commit-pipeline.mjs']) assert.ok(sourceEntries.has(sourceRoot + path), path);
+for (const path of ['scripts/benchmark-long-chat.ts', 'scripts/run-long-chat-benchmark.mjs', 'scripts/compare-long-chat.mjs', 'tests/performance-integrity.test.ts']) assert.ok(sourceEntries.has(sourceRoot + path), path);
+for (const path of ['src/inline.ts', 'src/facets.ts', 'tests/inline.test.ts', 'tests/facets.test.ts', 'examples/inline-authoring.ts', 'examples/authoring-workflow/index.ts', 'examples/authoring-workflow/structure.ts', 'examples/authoring-workflow/facets.ts', 'examples/authoring-workflow/world-info.ts']) assert.ok(sourceEntries.has(sourceRoot + path), path);
+for (const path of ['src/cache.ts', 'tests/cache.test.ts', 'tests/greeting-save.test.ts', 'src/guides.ts', 'tests/guides.test.ts', 'examples/conditional-guides.ts', 'scripts/prepare-world-info-browser.mjs', 'scripts/browser-world-info.js', 'scripts/browser-cache-benchmark.js', 'docs/images/png-upload-dev3.png']) assert.ok(sourceEntries.has(sourceRoot + path), path);
+for (const path of ['package.json', 'package-lock.json', 'scripts/build.mjs', 'scripts/check-portable.mjs', 'scripts/run-benchmark.mjs', 'scripts/test-world-info-host.ts', 'src/index.ts', 'src/authoring.ts', 'src/world-info.ts', 'src/definition-snapshot.ts', 'src/host/world-info.ts', 'docs/authoring.md', 'docs/performance.md', 'examples/modular/index.ts', 'tests/authoring.test.ts', 'tests/world-info-host.test.ts', 'tests/acceptance.test.ts', 'LICENSE', 'docs/verification.md', '.github/workflows/check.yml']) assert.ok(sourceEntries.has(sourceRoot + path), path);
 for (const name of sourceEntries.keys()) assert.equal(/(?:^|\/)(?:node_modules|test-results|artifacts|\.git|\.env(?:\..*)?)(?:\/|$)/u.test(name), false, name);
 for (const item of manifest.artifacts) {
   const buffer = await readFile(directory + '/' + item.file); assert.equal(buffer.length, item.bytes); assert.equal(hash(buffer), item.sha256);
@@ -40,10 +45,11 @@ for (const item of manifest.artifacts) {
     parent.SOLVE.detach();
   } else {
     assert.equal(JSON.parse(entries.get(root + 'manifest.json')).version, version);
-    for (const name of ['index.js', 'runtime.js', 'dynamic.js', 'debug.html', 'debug-inline.html', 'debug.js', 'debug.css']) assert.ok(entries.has(root + name), name);
+    for (const name of ['index.js', 'runtime.js', 'dynamic.js', 'debug.html', 'debug-inline.html', 'debug.js', 'debug.css', 'author-examples.js', 'CONTRIBUTING.md', 'CHANGELOG.md', 'docs/README.md', 'docs/development-plan.md', 'docs/authoring.md', 'docs/performance.md', 'docs/images/png-upload-dev3.png']) assert.ok(entries.has(root + name), name);
   }
   for (const [name, content] of entries) if (name.endsWith('.js')) {
     assert.equal(content.includes(Buffer.from('solve-live-acceptance')), false, 'Local HUD leaked into ' + name);
+    assert.equal(content.includes(Buffer.from('solve-world-acceptance')), false, 'World-info acceptance HUD leaked into ' + name);
     assert.equal(content.includes(Buffer.from('44a45a8a')), false, 'Local test identity leaked into ' + name);
   }
   for (const [name, content] of entries) if (name.endsWith('.map')) {

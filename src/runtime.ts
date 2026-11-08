@@ -2,6 +2,10 @@ import { applyAction, buildCommit, headKey, restore } from './history.js';
 import { assertJson, canonical, clone, fail, hash } from './json.js';
 import { SolveCore } from './engine.js';
 import type { Action, Archive, ArchiveAdapter, Binding, Commit, LogicalState, SaveDraft } from './types.js';
+import { notifyCommitted } from './facets.js';
+import { PerformanceTrace, measure } from './performance.js';
+import { VerifiedHistory } from './verified-history.js';
+import type { FacetDispatch } from './facets.js';
 
 export class SolveRuntime {
   private queue: Promise<unknown> = Promise.resolve();
@@ -10,34 +14,44 @@ export class SolveRuntime {
   private currentHead: string;
   private epoch = 0;
   private queued = 0;
+  private hookQueue: Promise<void> = Promise.resolve();
+  private hookErrors: string[] = [];
+  private hookQueued = 0;
   constructor(public readonly core: SolveCore, private currentArchive: Archive, headId: string, private adapter: ArchiveAdapter,
-    private restoreState: typeof restore = restore) {
+    private restoreState: typeof restore | undefined = undefined, private facetDispatch: FacetDispatch = {}, readonly performance = new PerformanceTrace(),
+    readonly history = new VerifiedHistory({}, performance)) {
     this.currentHead = headId;
     if (core.definition.fingerprint !== currentArchive.definitionHash) fail('DEFINITION_MISMATCH', '会话绑定的定义已变化');
+    this.currentArchive = clone(currentArchive);
   }
   get archive(): Archive { return clone(this.currentArchive); }
   get headId(): string { return this.currentHead; }
   get busy(): boolean { return this.queued > 0; }
   get pendingCount(): number { return this.pending.size; }
   get sessionId(): string { return this.currentArchive.sessionId; }
+  getHookErrors(): string[] { return [...this.hookErrors]; }
+  get pendingHookCount(): number { return this.hookQueued; }
+  async settledHooks(): Promise<void> { let current: Promise<void>; do { current = this.hookQueue; await current; } while (current !== this.hookQueue); }
   getCommit(commitId = this.currentHead): Commit | undefined { const value = this.currentArchive.commits[commitId]; return value ? clone(value) : undefined; }
+  /** Alignment only needs IDs/parents. Never copy or expose entire Commit bodies. */
+  historyLinks(): Map<string, string | null> { return new Map(Object.values(this.currentArchive.commits).map(commit => [commit.id, commit.parentId])); }
   getState(): LogicalState {
     if (!this.currentState) fail('STATE_NOT_READY', 'SOLVE 状态尚未恢复');
     return clone(this.currentState);
   }
   async ready(): Promise<void> {
     const epoch = this.epoch, head = this.currentHead;
-    const state = await this.restoreState(this.currentArchive, head);
+    const state = await (this.restoreState ? this.restoreState(this.currentArchive, head) : VerifiedHistory.recover(this.history, this.currentArchive, head));
     if (epoch !== this.epoch || head !== this.currentHead) fail('STALE_ACTION', '恢复期间选中历史已改变');
     this.currentState = state;
   }
   async select(headId: string): Promise<void> {
     const epoch = ++this.epoch;
-    const state = await this.restoreState(this.currentArchive, headId);
+    const state = await (this.restoreState ? this.restoreState(this.currentArchive, headId) : VerifiedHistory.recover(this.history, this.currentArchive, headId));
     if (epoch !== this.epoch) fail('STALE_SELECTION', '选中历史已经改变');
     this.currentHead = headId; this.currentState = state;
   }
-  invalidate(): void { this.epoch++; this.currentState = undefined; }
+  invalidate(clearHistory = true): void { this.epoch++; this.currentState = undefined; if (clearHistory) this.history.clear(); }
   submit(action: Action, binding: Binding, text: string, options: { expectedHead?: string; sourceText?: string } = {}): Promise<Commit> {
     const epoch = this.epoch;
     const expectedHead = options.expectedHead, sourceText = options.sourceText;
@@ -46,6 +60,7 @@ export class SolveRuntime {
     assertJson(input);
     if (!input.actionId) return Promise.reject(new Error('动作必须有 actionId'));
     this.queued++;
+    let committed: { commit: Commit; state: LogicalState } | undefined;
     const task = this.queue.then(async () => {
       if (epoch !== this.epoch) fail('STALE_ACTION', '聊天或回复版本已经改变');
       await this.adapter.assertCurrent(identity);
@@ -78,13 +93,15 @@ export class SolveRuntime {
         const current = this.currentArchive.commits[this.currentHead]!;
         const revising = sameSwipeId === this.currentHead && current.binding.messageId === identity.messageId && current.binding.swipeId === identity.swipeId && current.actions.length > 0;
         const parentId = revising ? current.parentId : this.currentHead;
-        const base = parentId ? await restore(this.currentArchive, parentId) : clone(this.currentArchive.geneses[current.genesisId]!.state);
-        const result = await applyAction(this.core, input, this.currentState!);
+        // Same-Swipe revisions reuse their verified original parent. A certificate
+        // is content-bound, so an old ID cannot hide edits to any ancestor.
+        const base = !revising ? clone(this.currentState!) : parentId ? await measure(this.performance, 'runtime.base', () => VerifiedHistory.recover(this.history, this.currentArchive, parentId)) : clone(this.currentArchive.geneses[current.genesisId]!.state);
+        const result = await measure(this.performance, 'runtime.action', () => applyAction(this.core, input, this.currentState!));
         if (epoch !== this.epoch) fail('STALE_ACTION', '计算期间聊天或回复版本已改变');
         const actions = revising ? [...current.actions, input] : [input];
         const feedback = revising ? [...current.feedback, ...result.feedback] : result.feedback;
         const aliases = revising ? { ...current.aliases, ...result.aliases } : result.aliases;
-        const commit = await buildCommit(this.currentArchive, parentId, current.genesisId, base, result.state, identity, actions, feedback, aliases, text);
+        const commit = await measure(this.performance, 'runtime.build', () => buildCommit(this.currentArchive, parentId, current.genesisId, base, result.state, identity, actions, feedback, aliases, text));
         if (epoch !== this.epoch) fail('STALE_ACTION', '归档准备期间选中历史已改变');
         const archive = clone(this.currentArchive);
         archive.commits[commit.id] = commit; archive.heads[headKey(identity)] = commit.id;
@@ -94,19 +111,33 @@ export class SolveRuntime {
       }
       await this.adapter.assertCurrent(identity);
       if (epoch !== this.epoch) fail('STALE_ACTION', '保存前选中历史已改变');
-      await this.adapter.save(clone(draft));
+      await measure(this.performance, 'runtime.save', () => this.adapter.save(clone(draft!)));
       if (epoch !== this.epoch) fail('STALE_ACTION', '保存期间聊天或回复版本已改变；已写结果保留在原归属');
       await this.adapter.assertCurrent(identity);
       if (epoch !== this.epoch) fail('STALE_ACTION', '保存确认期间选中历史已改变');
-      const confirmedState = await restore(draft.archive, draft.commit.id);
+      const confirmedState = await measure(this.performance, 'runtime.confirm', () => VerifiedHistory.recover(this.history, draft!.archive, draft!.commit.id));
       if (epoch !== this.epoch) fail('STALE_ACTION', '保存恢复期间选中历史已改变');
       this.currentArchive = clone(draft.archive); this.currentHead = draft.commit.id;
       this.currentState = confirmedState;
       this.pending.delete(key);
+      if (this.core.definition.facets?.some(facet => facet.runtimeHooks?.onStateCommitted)) committed = { commit: clone(draft.commit), state: clone(confirmedState) };
       return clone(draft.commit);
     });
     this.queue = task.catch(() => undefined);
-    return task.finally(() => { this.queued--; });
+    return task.finally(() => { this.queued--; }).then(result => {
+      if (committed) {
+        const event = committed;
+        this.hookQueued++;
+        this.hookQueue = this.hookQueue.then(async () => {
+          if (epoch !== this.epoch) return;
+          await notifyCommitted(this.core.definition, event.commit, event.state, this.sessionId, { ...this.facetDispatch, onError: error => {
+            this.hookErrors.push(error instanceof Error ? error.message : String(error)); if (this.hookErrors.length > 100) this.hookErrors.shift();
+            this.facetDispatch.onError?.(error);
+          } });
+        }).catch(error => { this.hookErrors.push(String(error)); }).finally(() => { this.hookQueued--; });
+      }
+      return result;
+    });
   }
   discardPending(): void {
     if (this.busy) fail('RUNTIME_BUSY', '写入运行中不能撤回草稿');
@@ -124,7 +155,7 @@ export class SolveRuntime {
       if (this.pending.size && !this.pending.has(key)) fail('PENDING_SAVE', '请先处理已有草稿');
       // Reuse the same structural checks as refresh recovery, before accepting a candidate.
       this.acceptPending([draft]);
-      const state = await restore(draft.archive, draft.commit.id);
+      const state = await VerifiedHistory.recover(this.history, draft.archive, draft.commit.id);
       await this.adapter.assertCurrent(draft.binding);
       if (epoch !== this.epoch) fail('STALE_ACTION', '保存前历史已改变');
       await this.adapter.save(clone(draft));

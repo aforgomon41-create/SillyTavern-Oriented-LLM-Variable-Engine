@@ -29,10 +29,30 @@ export function assertJson(value: unknown, depth = 0, seen = new Set<object>()):
 }
 export function clone<T>(value: T): T { return structuredClone(value); }
 export function canonical(value: unknown): string {
-  assertJson(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value !== null && typeof value === 'object') return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
-  return JSON.stringify(value);
+  // Validate and encode in the same walk. Re-validating every subtree at every
+  // recursion level makes a state hash needlessly traverse the same data again.
+  const seen = new Set<object>();
+  function encode(item: unknown, depth: number): string {
+    if (depth > 128) fail('DEPTH_LIMIT', 'JSON 嵌套超过限制');
+    if (item === null || typeof item === 'string' || typeof item === 'boolean') return JSON.stringify(item);
+    if (typeof item === 'number' && Number.isFinite(item)) return JSON.stringify(item);
+    if (typeof item !== 'object' || item === null) fail('NOT_JSON', '状态必须是有限、可序列化 JSON');
+    if (seen.has(item)) fail('NOT_JSON', '不允许循环引用');
+    const prototype = Object.getPrototypeOf(item);
+    if (!Array.isArray(item) && prototype !== null && Object.getPrototypeOf(prototype) !== null) fail('NOT_JSON', '状态不允许 Date/Map/类实例');
+    seen.add(item);
+    let result: string;
+    if (Array.isArray(item)) {
+      const values: string[] = [];
+      for (let i = 0; i < item.length; i++) {
+        if (!Object.hasOwn(item, i)) fail('NOT_JSON', '不允许稀疏数组');
+        values.push(encode(item[i], depth + 1));
+      }
+      result = '[' + values.join(',') + ']';
+    } else result = '{' + Object.keys(item).sort().map(key => { safeKey(key); return JSON.stringify(key) + ':' + encode((item as Record<string, unknown>)[key], depth + 1); }).join(',') + '}';
+    seen.delete(item); return result;
+  }
+  return encode(value, 0);
 }
 export async function hash(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(canonical(value));
