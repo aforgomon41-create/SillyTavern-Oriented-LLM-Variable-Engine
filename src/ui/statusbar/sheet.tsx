@@ -10,7 +10,7 @@ import { type Path } from './model.js';
 import { Mixed, useModel } from './fields.js';
 import { Pages, visible } from './body.js';
 import { CurrencyList } from './currency.js';
-import { part, solve } from './widgets.js';
+import { Mono, part, solve } from './widgets.js';
 
 export interface SheetItem {
   sheet: string; id: string; subtitle?: string; badges?: string[]; tags?: string; vitals?: string; status?: string;
@@ -44,7 +44,7 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
   return (
     <section {...solve('hero')} data-k-level="surface-1">
       <div {...part('top')}>
-        <div {...part('portrait')} aria-hidden="true"><span>{[...name][0]}</span></div>
+        <div {...part('portrait')} aria-hidden="true"><span><Mono name={name} src={v.avatar} /></span></div>
         <div {...part('ident')}>
           <h3 {...part('name')}>{name}{item.subtitle && at(item.subtitle) ? <small>「{at(item.subtitle)}」</small> : null}</h3>
           <div {...part('badges')}>{(item.badges ?? []).filter(on).map((b, i) => <K.Badge key={b} tone={i === 0 ? 'accent' : 'neutral'}>{String(at(b))}</K.Badge>)}</div>

@@ -87,3 +87,13 @@ export function Checklist({ items }: { items: { text: string; done?: boolean }[]
 export function Facts({ items }: { items: { label: React.ReactNode; value: React.ReactNode }[] }) {
   return <dl {...solve('facts')}>{items.map((item, i) => <div key={i}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>;
 }
+
+/** Picture or monogram: an image when the entity has one (and it loads), else its first character. */
+export function Mono({ name, src }: { name: string; src?: unknown }) {
+  const [bad, setBad] = React.useState(false);
+  React.useEffect(() => setBad(false), [src]);
+  return typeof src === 'string' && src && !bad
+    ? <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} onError={() => setBad(true)} />
+    : <>{[...name][0]}</>;
+}
+

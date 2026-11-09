@@ -14,6 +14,8 @@ const wod = (label: string): FieldNode => attribute(label, { min: 0, computed: [
 const dnd = (label: string): FieldNode => attribute(label, { min: 0, max: 30, computed: [{ label: '调整', formula: 'dndModifier' }] });
 const fate = (label: string): FieldNode => ladder(label, FATE);
 const fu = (label: string): FieldNode => ladder(label, FU);
+/** Media link (image / music): shown by the status bar, kept out of both model views (it is not the model's to write). */
+const media = (label: string, as: 'image' | 'bgm'): FieldNode => ({ type: 'string', label, optional: true, as, readonly: true, internal: true });
 /** A numeric gauge; wherever it is used, a natural-language description is accepted too. */
 const gauge = (): FieldNode => ({ type: 'object', fields: { value: { type: 'number', label: '当前' }, max: { type: 'number', label: '上限', min: 0, default: 100 } } });
 
@@ -26,6 +28,7 @@ const character: FieldNode = {
   fields: {
     name: text('姓名', { required: true }),
     alias: text('别称', { optional: true }),
+    avatar: media('头像', 'image'),
     role: { type: 'enum', label: '定位', values: ['用户角色', '核心角色', '主要配角', '次要配角', '一次性敌人'], default: '次要配角' },
     // Which prefab / template this character was spawned from (by $from); the codex lists them under it.
     origin: text('原型', { optional: true }),
@@ -131,8 +134,8 @@ export const officialStructure: StructureDescription = {
         desc: text('描述'),
         truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
         discovered: { type: 'bool', label: '已发现', default: true, module: 'map' },
-        image: text('背景图', { optional: true }),
-        bgm: text('背景音乐', { optional: true }),
+        image: media('背景图', 'image'),
+        bgm: media('背景音乐', 'bgm'),
       } },
     },
     items: {
@@ -141,6 +144,7 @@ export const officialStructure: StructureDescription = {
         name: text('物品名', { required: true }),
         type: { type: 'enum', label: '类型', values: ['装备', '道具', '消耗', '关键', '杂物', '座驾'], default: '杂物' },
         unique: { type: 'bool', label: '独一无二' },
+        image: media('图片', 'image'),
         desc: text('描述'),
         truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
         condition: text('状态', { optional: true }),

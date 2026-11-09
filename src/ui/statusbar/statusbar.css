@@ -612,3 +612,27 @@
   background: var(--k-sunken); color: var(--k-link); border: 1px solid var(--k-divider);
 }
 [data-solve="map"] [data-solve-part="member"][data-current] { border-color: var(--k-accent); font-weight: var(--k-fw-strong); }
+
+/* Pictures: portraits, avatars and item glyphs fill their monogram slot; faces sit high in the frame. */
+[data-solve-part="avatar"], [data-solve-part="glyph"], [data-solve-part="portrait"] > span, [data-solve-part="people"] > button, [data-solve-part="people"] > i { overflow: hidden; }
+[data-solve-part="avatar"] > img, [data-solve-part="glyph"] > img, [data-solve-part="portrait"] > span > img,
+[data-solve-part="people"] > button > img, [data-solve-part="people"] > i > img {
+  display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; border-radius: inherit; user-select: none;
+}
+[data-solve="slot"] > [data-solve-part="glyph"] > img, [data-solve="codex-entry"]:not([data-state]) > [data-solve-part="glyph"] > img,
+[data-solve="inventory"] [data-solve-part="detail"] [data-solve-part="glyph"] > img { object-position: 50% 50%; }
+[data-solve-part="portrait"] > span:has(> img) { width: 100%; height: 100%; }
+[data-solve="graph"] [data-solve-part="photo"] { pointer-events: none; }
+[data-solve="graph"] [data-solve-part="node"]:has([data-solve-part="photo"]) > [data-solve-part="dot"] { fill: var(--k-sunken); }
+
+/* Map: the place's scene picture and its music. */
+[data-solve="scene"] { margin: 0 0 var(--k-space-3); border-radius: var(--k-r-md); overflow: hidden; aspect-ratio: 16 / 7; background: var(--k-sunken); box-shadow: inset 0 0 0 1px var(--k-divider); }
+[data-solve="scene"] > img { display: block; width: 100%; height: 100%; object-fit: cover; transition: opacity var(--k-dur-base, .2s) var(--k-ease); }
+[data-solve="scene"][data-state="loading"] > img { opacity: 0; }
+[data-solve="place-music"] { display: flex; align-items: baseline; gap: var(--k-space-2); margin-bottom: var(--k-space-2); font-size: var(--k-fs-sm); color: var(--k-on-muted); }
+[data-solve="place-music"] > span:first-child { color: var(--k-accent); }
+[data-solve="place-music"] small { font-size: var(--k-fs-xs); color: var(--k-on-sunken-subtle, var(--k-on-subtle)); }
+/* Item pictures read better a little larger than monograms. */
+[data-solve="slot"] > [data-solve-part="glyph"]:has(> img) { width: 52px; height: 52px; }
+[data-solve="inventory"] > [data-solve-part="detail"] > [data-solve-part="head"] > [data-solve-part="glyph"]:has(> img) { width: 72px; height: 72px; }
+[data-solve="codex-detail"] > [data-solve-part="head"] [data-solve-part="glyph"]:has(> img) { width: 84px; height: 84px; }

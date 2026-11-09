@@ -12,8 +12,9 @@ import { createRuntime } from 'kami/frontend/runtime/index';
 import { SkinManager, type SkinEntry, type StoredSettings } from 'kami/frontend/skin-engine/manager';
 import * as DS from 'kami/frontend/ds';
 import kamiSkins from 'kami-skins';
-import { compile, SolveCore, compileStructure } from '../../src/index';
+import { compile, SolveCore, compileStructure, selectBgm } from '../../src/index';
 import { exampleState, exampleStructure } from '../../examples/official/example';
+import { IMAGES, MUSIC, MUSIC_CREDIT } from '../../examples/official/media';
 import { KitProvider, type Kit } from '../../src/ui/kit';
 import { StatusBar } from '../../src/ui/statusbar/views';
 import { StatusModel } from '../../src/ui/statusbar/model';
@@ -48,6 +49,12 @@ function gallery(): void {
     <nav class="skins" aria-label="皮肤">${order.map(id => `<button type="button" data-id="${id}">${nameOf(id)}${id === 'solve' ? '<small>独立</small>' : '<small>卡密</small>'}</button>`).join('')}</nav>
     <p class="note"></p>
     <div class="coins" aria-label="货币图标"></div>
+    <details class="credits"><summary>图片与音乐来源（都是外链的网络资源）</summary>
+      <p>图片：Wikimedia Commons，公有领域画作与 CC0 博物馆藏品照片（大都会艺术博物馆开放获取）。音乐：${MUSIC_CREDIT}。</p>
+      <ul>${Object.entries(IMAGES).map(([k, v]) => `<li><code>${k}</code> <a href="${v.source}" target="_blank" rel="noopener">${v.title}</a> · ${v.artist} · ${v.license}</li>`).join('')}
+      ${MUSIC.map(t => `<li><code>${t.id}</code> 「${t.title}」 · CC BY 4.0${t.moods.length ? ' · 情绪：' + t.moods.join('、') : ''}</li>`).join('')}</ul>
+    </details>
+    <p class="note audio-note">四个窗口默认静音；点窗口右上角 ♪ 打开播放，或 <a class="solo" target="_blank" rel="noopener">在新窗口单独打开</a>（点一下页面就开始播放当前场景的配乐）。</p>
     <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '图鉴', '势力'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav></header>
     <section class="frames">
       <figure class="pc"><figcaption>电脑 1440 · 浅色</figcaption><div class="box"><iframe data-scheme="light" data-w="1440" data-h="900"></iframe></div></figure>
@@ -64,7 +71,8 @@ function gallery(): void {
     root.querySelectorAll<HTMLButtonElement>('.skins button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === skin)));
     root.querySelectorAll<HTMLButtonElement>('.tabs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
     root.querySelector('.note')!.textContent = NOTES[skin] ?? '';
-    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&view=${encodeURIComponent(tab)}`;
+    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&view=${encodeURIComponent(tab)}&embed=1`;
+    root.querySelector<HTMLAnchorElement>('.solo')!.href = `${location.pathname}?skin=${skin}&scheme=light&view=${encodeURIComponent(tab)}`;
   };
   root.querySelector('.skins')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.id) { skin = b.dataset.id; load(); } });
   root.querySelector('.tabs')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.tab) { tab = b.dataset.tab; load(); } });
@@ -95,6 +103,15 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
   const def = await compile(compileStructure(exampleStructure));
   const core = new SolveCore(def);
   const model = new StatusModel(def, await exampleState(core));
+  // Background music, chosen by the engine's rules (place → region → mood). Browsers only start audio after a user gesture.
+  const embed = q.get('embed') === '1';
+  const pick = selectBgm(def, model.state);
+  const audio = new Audio();
+  audio.loop = true; audio.preload = 'none';
+  if (pick.url) audio.src = pick.url;
+  const placeName = (id?: string) => (id && (model.data.places?.[id]?.name as string)) || id || '';
+  const source = pick.source === 'place' ? `当前地点「${placeName(pick.place)}」的配乐` : pick.source === 'region' ? `沿用区域「${placeName(pick.place)}」的配乐`
+    : pick.source === 'mood' ? `按场景情绪「${pick.mood}」选曲` : '没有可用的曲目';
   const kit = DS as unknown as Kit;
   // Launcher position, remembered per device class (the host does this in the tavern too).
   const key = 'solve.launcher.v1.' + (window.innerWidth > 1000 ? 'desktop' : 'mobile');
@@ -102,13 +119,28 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
   try { launcher = JSON.parse(localStorage.getItem(key) ?? '{}') ?? {}; } catch { launcher = {}; }
   const remember = (patch: object) => { try { launcher = { ...launcher, ...patch }; localStorage.setItem(key, JSON.stringify(launcher)); } catch { /* storage unavailable */ } };
   function App() {
-    const [bgm, setBgm] = React.useState({ enabled: true, volume: 0.5 });
+    const [bgm, setBgm] = React.useState({ enabled: !embed, volume: 0.5 });
+    const [playing, setPlaying] = React.useState(false);
+    React.useEffect(() => {
+      const on = () => setPlaying(true), off = () => setPlaying(false);
+      audio.addEventListener('playing', on); audio.addEventListener('pause', off);
+      return () => { audio.removeEventListener('playing', on); audio.removeEventListener('pause', off); };
+    }, []);
+    React.useEffect(() => {
+      audio.volume = bgm.volume;
+      if (!bgm.enabled || !pick.url) { audio.pause(); return undefined; }
+      const start = () => { void audio.play().catch(() => undefined); };
+      start();
+      // Autoplay is blocked until the first gesture: retry on it.
+      window.addEventListener('pointerdown', start, { once: true });
+      return () => window.removeEventListener('pointerdown', start);
+    }, [bgm.enabled, bgm.volume]);
     const mode = view === '横条' ? 'bar' : view === '按钮' ? 'dot' : 'panel';
     return (
       <KitProvider value={kit}>
         <StatusBar model={model} defaultMode={mode} {...(mode === 'panel' ? { defaultTab: view } : launcher.tab ? { defaultTab: launcher.tab } : {})} onTabChange={tab => remember({ tab })}
           {...(launcher.pos ? { position: launcher.pos } : {})} onPositionChange={pos => remember({ pos })}
-          bgm={{ title: '雨夜酒馆（示例曲目）', source: '按场景情绪「日常」选曲', playing: bgm.enabled, enabled: bgm.enabled, volume: bgm.volume, onToggle: v => setBgm(b => ({ ...b, enabled: v })), onVolume: v => setBgm(b => ({ ...b, volume: v })) }} />
+          bgm={{ title: pick.track?.title ?? (pick.url ? decodeURIComponent(pick.url.split('/').pop() ?? '') : ''), source, playing, enabled: bgm.enabled, volume: bgm.volume, onToggle: v => setBgm(b => ({ ...b, enabled: v })), onVolume: v => setBgm(b => ({ ...b, volume: v })) }} />
       </KitProvider>
     );
   }

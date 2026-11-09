@@ -85,6 +85,12 @@ export class StatusModel {
     }
     return undefined;
   }
+  /** An entity's picture (characters: avatar, places / items: image). */
+  picture(id: string): string | undefined {
+    const path = this.locate(id), v = path ? this.value(path) : undefined;
+    const src = v?.avatar ?? v?.image;
+    return typeof src === 'string' && src ? src : undefined;
+  }
   entityName(id: string): string {
     const path = this.locate(id);
     const entity = path ? this.value(path) : undefined;

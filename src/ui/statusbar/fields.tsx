@@ -51,6 +51,8 @@ export function Field({ path, compact = false }: { path: Path; compact?: boolean
   const value = m.value(path), meta = m.meta(path), as = m.widget(path), label = m.label(path);
   if (value === undefined || m.dormant(path) || m.spoiler(path) === 'hidden') return null;
   if (compact && isEmpty(value)) return null;
+  // Media links are shown where they belong (portraits, scene banners, the music button), never as text.
+  if (as === 'image' || as === 'bgm') return null;
   let body: React.ReactNode;
   if (typeof value === 'number' || (value === null && (meta?.type === 'int' || meta?.type === 'number'))) {
     const computed = m.computed(path, value);

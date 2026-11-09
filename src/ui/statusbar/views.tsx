@@ -12,7 +12,7 @@ import { EntityBody, Pages, type PageSpec } from './body.js';
 import { GraphView, type GraphEdge, type GraphGroup, type GraphNode, type Tone } from './graph.js';
 import { PlayerSheet, type SheetItem } from './sheet.js';
 import { Codex, type CodexCategory } from './codex.js';
-import { part, solve } from './widgets.js';
+import { Mono, part, solve } from './widgets.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
 export interface StatusBarProps {
@@ -189,8 +189,8 @@ function People({ ids, label, where }: { ids: string[]; label: string; where: 'b
   return (
     <span {...part('people')} title={`${label}：${names.join('、')}`} aria-label={`${label}：${names.join('、')}`}>
       {shown.map(id => where === 'title'
-        ? <button key={id} type="button" onClick={() => { const p = m.locate(id); if (p) go(p); }} aria-label={`查看${m.entityName(id)}`} title={m.entityName(id)}>{[...m.entityName(id)][0]}</button>
-        : <i key={id}>{[...m.entityName(id)][0]}</i>)}
+        ? <button key={id} type="button" onClick={() => { const p = m.locate(id); if (p) go(p); }} aria-label={`查看${m.entityName(id)}`} title={m.entityName(id)}><Mono name={m.entityName(id)} src={m.picture(id)} /></button>
+        : <i key={id}><Mono name={m.entityName(id)} src={m.picture(id)} /></i>)}
       {ids.length > shown.length ? <small>+{ids.length - shown.length}</small> : null}
     </span>
   );
@@ -249,7 +249,7 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
           return (
             <div key={id} ref={el => { if (el) refs.current.set(id, el); else refs.current.delete(id); }} {...solve('entity-row', { present: present.has(id) ? '' : undefined })}>
               <K.CollapseCard open={open.has(id)} onOpenChange={o => setOpen(prev => { const n = new Set(prev); if (o) n.add(id); else n.delete(id); return n; })}
-                title={<span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true">{[...(v.name ?? id)][0]}</span><span {...part('name')}>{v.name ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>}
+                title={<span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true"><Mono name={v.name ?? id} src={v.avatar} /></span><span {...part('name')}>{v.name ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>}
                 meta={<span {...solve('entity-meta')}>
                   {present.has(id) ? <K.Badge tone="success">在场</K.Badge> : null}
                   {(item.badges ?? []).map((b: string) => v[b] ? <K.Badge key={b} tone="neutral">{String(v[b])}</K.Badge> : null)}
@@ -276,7 +276,7 @@ function RelationGraph({ item }: { item: any }) {
   const nodes: GraphNode[] = Object.keys(value).map(id => {
     const tier = sizeMeta?.values ? sizeMeta.values.indexOf(value[id]?.[item.size]) : -1;
     const r = id === m.userId ? 24 : tier >= 0 ? Math.round(22 - tier * 2.5) : 18;
-    return { id, label: value[id]?.name ?? id, r, mark: [...(value[id]?.name ?? id)][0], kind: id === m.userId ? 'user' : present.has(id) ? 'present' : 'entity' };
+    return { id, label: value[id]?.name ?? id, r, mark: [...(value[id]?.name ?? id)][0], ...(typeof value[id]?.avatar === 'string' && value[id].avatar ? { image: value[id].avatar } : {}), kind: id === m.userId ? 'user' : present.has(id) ? 'present' : 'entity' };
   });
   const pairs = new Map<string, { a: string; b: string; weights: number[]; labels: string[]; tones: string[] }>();
   for (const a of Object.keys(value)) for (const [b, r] of Object.entries(value[a]?.[item.edges] ?? {}) as [string, any][]) {
@@ -349,7 +349,8 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
   })).filter(g => g.members.length);
   const nodes: GraphNode[] = Object.keys(places).map(id => {
     const area = groups.some(g => g.id === id);
-    return { id, label: area ? '' : nameOf(id), r: area ? 4 : 14, kind: regions.includes(id) ? 'region' : 'place', current: id === here, muted: !known(id), ...(area ? { hidden: true } : {}) };
+    const img = !area && known(id) && typeof places[id]?.image === 'string' && places[id].image ? { image: places[id].image as string } : {};
+    return { id, label: area ? '' : nameOf(id), r: area ? 4 : img.image ? 17 : 14, kind: regions.includes(id) ? 'region' : 'place', current: id === here, muted: !known(id), ...img, ...(area ? { hidden: true } : {}) };
   });
   const edges: GraphEdge[] = [];
   const seen = new Set<string>();
@@ -372,6 +373,8 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
       <div {...part('legend')}><span data-kind="link"><i />相连</span>{groups.length ? <span data-kind="region"><i />区域</span> : null}<span {...part('hint')}>点区域名选中整个区域，拖动区域名可整体移动</span></div>
       {s ? (
         <K.Card title={known(sel!) ? s.name ?? sel : '未发现的地点'} meta={<>{s.kind ? <K.Badge tone="neutral">{s.kind}</K.Badge> : null}{sel === here ? <K.Badge tone="accent">当前位置</K.Badge> : null}</>}>
+          {known(sel!) && typeof s.image === 'string' && s.image ? <SceneImage key={s.image} src={s.image} alt={s.name ?? sel!} /> : null}
+          {known(sel!) ? <PlaceMusic places={places} id={sel!} parentKey={parent} /> : null}
           {known(sel!) ? <EntityBody path={[...path, sel!]} skip={['name', 'kind', hidden]} /> : <p {...solve('paragraph')}>这里还没有被探索。</p>}
           {pickedRegion ? (
             <div {...part('members')}><span {...part('label')}>区域内</span>
@@ -382,6 +385,32 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
       ) : null}
     </div>
   );
+}
+
+/** A place's scene picture; disappears if it fails to load. */
+function SceneImage({ src, alt }: { src: string; alt: string }) {
+  const [state, setState] = React.useState<'loading' | 'ok' | 'bad'>('loading');
+  if (state === 'bad') return null;
+  return (
+    <figure {...solve('scene', { state })}>
+      <img src={src} alt={alt} loading="lazy" decoding="async" referrerPolicy="no-referrer" onLoad={() => setState('ok')} onError={() => setState('bad')} />
+    </figure>
+  );
+}
+/** Which music plays at this place: its own track, or the nearest region's. */
+function PlaceMusic({ places, id, parentKey }: { places: Record<string, any>; id: string; parentKey: string }) {
+  const m = useModel();
+  const library = (m.def.bgm?.library ?? []) as { id: string; title?: string }[];
+  const field = m.def.bgm?.field ?? 'bgm';
+  const seen = new Set<string>();
+  for (let cursor: string | undefined = id; cursor && places[cursor] && !seen.has(cursor); cursor = places[cursor]?.[parentKey]) {
+    seen.add(cursor);
+    const ref = places[cursor]?.[field];
+    if (typeof ref !== 'string' || !ref) continue;
+    const title = library.find(t => t.id === ref)?.title ?? decodeURIComponent(ref.split('/').pop() ?? ref).replace(/\.[a-z0-9]+$/iu, '');
+    return <div {...solve('place-music')}><span aria-hidden="true">♪</span><span>{title}</span>{cursor !== id ? <small>沿用{places[cursor]?.name ?? cursor}的配乐</small> : null}</div>;
+  }
+  return null;
 }
 
 /* ───────── background music ───────── */

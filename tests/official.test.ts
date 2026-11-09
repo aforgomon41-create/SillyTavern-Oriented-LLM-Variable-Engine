@@ -131,7 +131,12 @@ test('引用类型：地点字段不能指向角色；删除角色时在场名�
 });
 
 test('背景音乐：地点优先，其次上级区域，最后按场景情绪选曲', async () => {
-  const { core, state, def } = await official();
+  const { core, state: example, def: exampleDef } = await official();
+  assert.equal(selectBgm(exampleDef, example).track?.id, 'minstrel_guild', '示例：酒馆有自己的配乐');
+  // The rules themselves, on the plain official structure with the example's place music removed.
+  const def = await compile(compileStructure(officialStructure));
+  const state = structuredClone(example);
+  for (const p of Object.values(data(state).places) as any[]) delete p.bgm;
   const library = [{ id: 'calm', url: 'https://example.com/calm.mp3', moods: ['日常'] }, { id: 'rain', url: 'https://example.com/rain.mp3', moods: ['悲伤'] }];
   assert.equal(selectBgm(def, state, library).source, 'mood');
   assert.equal(selectBgm(def, state, library).track?.id, 'calm');

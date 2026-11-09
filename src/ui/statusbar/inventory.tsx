@@ -6,7 +6,7 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { isEmpty, type Path, type StatusModel } from './model.js';
 import { Field, NavigateContext, RefChip, useModel } from './fields.js';
-import { part, solve } from './widgets.js';
+import { Mono, part, solve } from './widgets.js';
 import { LevelNow, LevelPips, steps } from './levels.js';
 
 interface Held { id: string; at?: Path; data: Record<string, any> }
@@ -36,12 +36,12 @@ export function Inventory({ path }: { path: Path }) {
   const it = list.find(h => h.id === sel);
   const tile = (h: Held) => (
     <button key={h.id} type="button" {...solve('slot', { kind: h.data.type, equipped: h.data.equipped ? '' : undefined })} aria-pressed={h.id === sel} onClick={() => setSel(h.id)} title={nameOf(h)}>
-      <span {...part('glyph')} aria-hidden="true">{[...nameOf(h)][0]}</span>
+      <span {...part('glyph')} aria-hidden="true"><Mono name={nameOf(h)} src={h.data.image} /></span>
       <span {...part('name')}>{nameOf(h)}</span>
       {typeof h.data.count === 'number' && h.data.count !== 1 ? <span {...part('count')}>×{h.data.count}</span> : null}
     </button>
   );
-  const fixed = ['name', 'type', 'count', 'equipped', 'desc', 'unique'];
+  const fixed = ['name', 'type', 'count', 'equipped', 'desc', 'unique', 'image'];
   const detail = it?.at ? m.children(it.at).filter(k => !fixed.includes(k) && !isEmpty(it.data[k]) && m.spoiler([...it.at!, k]) !== 'hidden') : [];
   return (
     <div {...solve('inventory')}>
@@ -51,7 +51,7 @@ export function Inventory({ path }: { path: Path }) {
       {it ? (
         <div {...part('detail')} aria-live="polite">
           <div {...part('head')}>
-            <span {...part('glyph')} aria-hidden="true">{[...nameOf(it)][0]}</span>
+            <span {...part('glyph')} aria-hidden="true"><Mono name={nameOf(it)} src={it.data.image} /></span>
             <b>{nameOf(it)}</b>
             {it.data.type ? <K.Badge tone="neutral">{it.data.type}</K.Badge> : null}
             {it.data.unique ? <K.Badge tone="warning">独一无二</K.Badge> : null}

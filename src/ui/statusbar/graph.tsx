@@ -11,7 +11,7 @@ import { part, solve } from './widgets.js';
 
 export type Tone = 'positive' | 'negative' | 'neutral' | 'info';
 /** `hidden`: takes part in the layout (e.g. a region pulling its places together) but is not drawn. */
-export interface GraphNode { id: string; label: string; r?: number; kind?: string; current?: boolean; muted?: boolean; mark?: string; tone?: Tone; hidden?: boolean }
+export interface GraphNode { id: string; label: string; r?: number; kind?: string; current?: boolean; muted?: boolean; mark?: string; tone?: Tone; hidden?: boolean; image?: string }
 export interface GraphEdge { a: string; b: string; kind?: 'link' | 'hierarchy' | 'relation'; tone?: Tone; label?: string; width?: number; length?: number; strength?: number; opacity?: number; hidden?: boolean }
 /** An area drawn around `members` (ids of drawn nodes); `level` 0 is innermost, outer areas get more padding. */
 export interface GraphGroup { id: string; label: string; members: string[]; level?: number; current?: boolean }
@@ -33,7 +33,8 @@ export function GraphView({ nodes, edges, groups = [], selected, onSelect, label
   /** Narrow screens open zoomed around this node. */
   start?: string; height?: 'sm' | 'md';
 }) {
-  const K = useKit();
+  const K = useKit(), uid = React.useId().replace(/[^a-zA-Z0-9_-]/gu, '');
+  const [broken, setBroken] = React.useState<Set<string>>(() => new Set());
   const key = JSON.stringify([nodes.map(n => [n.id, n.label, n.r]), edges.map(e => [e.a, e.b, e.length])]);
   const layout = React.useMemo(() => forceLayout(nodes.map(n => ({ id: n.id, r: n.r ?? 16, label: n.label })), edges.map(e => ({ a: e.a, b: e.b, ...(e.length ? { length: e.length } : {}), strength: e.strength ?? (e.kind === 'hierarchy' ? 0.9 : 0.6) }))), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const [moved, setMoved] = React.useState<Record<string, Point>>({});
@@ -193,7 +194,11 @@ export function GraphView({ nodes, edges, groups = [], selected, onSelect, label
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(n.id === selected ? undefined : n.id); } }}>
                 {n.current ? <circle {...part('halo')} r={r + 12} /> : null}
                 <circle {...part('dot')} r={r} />
-                {n.mark ? <g transform={`scale(${Math.min(ts, r / 12)})`}><text {...part('mark')} y={5}>{n.mark}</text></g> : null}
+                {n.image && !broken.has(n.id) ? <>
+                  <clipPath id={`${uid}-c-${n.id}`}><circle r={r - 1.5} /></clipPath>
+                  <image {...part('photo')} href={n.image} x={-r} y={-r} width={r * 2} height={r * 2} preserveAspectRatio={n.kind === "place" ? "xMidYMid slice" : "xMidYMin slice"} clipPath={`url(#${uid}-c-${n.id})`}
+                    onError={() => setBroken(b => new Set(b).add(n.id))} />
+                </> : n.mark ? <g transform={`scale(${Math.min(ts, r / 12)})`}><text {...part('mark')} y={5}>{n.mark}</text></g> : null}
                 <g transform={`translate(0 ${r + 4}) scale(${ts})`}><text {...part('name')} y={15}>{n.label}</text></g>
                 {n.current ? <g transform={`translate(0 ${-r - 14}) scale(${ts})`}><text {...part('here')} y={-2}>当前</text></g> : null}
               </g>

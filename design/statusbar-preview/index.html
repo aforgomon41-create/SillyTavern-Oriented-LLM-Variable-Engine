@@ -24,6 +24,12 @@
   #gallery .coins { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 14px; font-size: 13px; color: var(--muted); }
   #gallery .coins span { display: inline-flex; align-items: center; gap: 6px; }
   #gallery .note { color: var(--muted); margin: 0 0 12px; min-height: 1.6em; }
+  #gallery .credits { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+  #gallery .credits summary { cursor: pointer; }
+  #gallery .credits ul { margin: 6px 0 0; padding-left: 18px; columns: 2; column-gap: 24px; }
+  #gallery .credits li { break-inside: avoid; margin-bottom: 2px; }
+  #gallery .credits a, #gallery .audio-note a { color: inherit; }
+  @media (max-width: 720px) { #gallery .credits ul { columns: 1; } }
   .frames { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .frames figure.mobile { max-width: 360px; justify-self: center; width: 100%; }
   figure { margin: 0; }

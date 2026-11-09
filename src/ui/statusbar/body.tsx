@@ -120,7 +120,7 @@ function SpoilerBlock({ children }: { children: React.ReactNode }) {
 /** Full entity: facts, paragraphs, then sections; composite groups (e.g. roleplay) are flattened one level. Empty values are skipped. */
 export function EntityBody({ path, skip = [] }: { path: Path; skip?: string[] }) {
   const m = useModel(), v = m.value(path) ?? {};
-  const keys = m.children(path).filter(k => !skip.includes(k) && !m.dormant([...path, k]) && m.spoiler([...path, k]) !== 'hidden' && !isEmpty(v[k]) && v[k] !== null);
+  const keys = m.children(path).filter(k => !skip.includes(k) && !['image', 'bgm'].includes(m.widget([...path, k]) ?? '') && !m.dormant([...path, k]) && m.spoiler([...path, k]) !== 'hidden' && !isEmpty(v[k]) && v[k] !== null);
   const type = (k: string) => m.meta([...path, k])?.type ?? '';
   const isStringList = (k: string) => type(k) === 'array' && !m.meta([...path, k])?.stamp && (v[k] ?? []).every((x: unknown) => typeof x === 'string');
   const scalar = keys.filter(k => ['string', 'enum', 'int', 'number', 'bool', 'ref', 'refs', 'ladder'].includes(type(k)) || isStringList(k));
