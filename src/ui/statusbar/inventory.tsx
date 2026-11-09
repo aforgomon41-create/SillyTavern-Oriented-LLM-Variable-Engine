@@ -5,7 +5,7 @@
 import * as React from 'react';
 import { useKit } from '../kit.js';
 import { isEmpty, type Path, type StatusModel } from './model.js';
-import { Field, RefChip, useModel } from './fields.js';
+import { Field, NavigateContext, RefChip, useModel } from './fields.js';
 import { part, solve } from './widgets.js';
 
 interface Held { id: string; at?: Path; data: Record<string, any> }
@@ -28,7 +28,7 @@ function others(m: StatusModel, path: Path, id: string): string[] {
 const nameOf = (h: Held) => h.data.name ?? h.id;
 
 export function Inventory({ path }: { path: Path }) {
-  const m = useModel(), K = useKit();
+  const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
   const list = held(m, path);
   const equipped = list.filter(h => h.data.equipped), bag = list.filter(h => !h.data.equipped);
   const [sel, setSel] = React.useState<string | undefined>(list[0]?.id);
@@ -58,7 +58,7 @@ export function Inventory({ path }: { path: Path }) {
           </div>
           {it.data.desc ? <p {...part('desc')}>{it.data.desc}</p> : null}
           {detail.map(k => <Field key={k} path={[...it.at!, k]} compact />)}
-          {!it.at ? <span {...solve('none')}>这件物品的资料缺失</span> : null}
+          {!it.at ? <span {...solve('none')}>这件物品的资料缺失</span> : <div {...part('more')}><K.Button size="sm" variant="ghost" onClick={() => go(it.at!)}>在图鉴中查看</K.Button></div>}
         </div>
       ) : null}
     </div>
@@ -67,7 +67,7 @@ export function Inventory({ path }: { path: Path }) {
 
 /** Abilities grouped by kind (traits, skills …): name, own level, description, who else has it. */
 export function Abilities({ path }: { path: Path }) {
-  const m = useModel(), K = useKit();
+  const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
   const list = held(m, path);
   const kindOf = (h: Held) => (typeof h.data.kind === 'string' && h.data.kind) || '能力';
   const kinds = [...new Set(list.map(kindOf))];
@@ -84,7 +84,7 @@ export function Abilities({ path }: { path: Path }) {
               return (
                 <li key={h.id} {...solve('ability')}>
                   <div {...part('head')}>
-                    <b {...part('name')}>{nameOf(h)}</b>
+                    {h.at ? <button type="button" {...part('name')} onClick={() => go(h.at!)} title="在图鉴中查看">{nameOf(h)}</button> : <b {...part('name')}>{nameOf(h)}</b>}
                     {typeof h.data.level === 'number' ? <K.Badge tone="accent">Lv.{h.data.level}</K.Badge> : null}
                   </div>
                   {h.data.desc ? <p {...part('desc')}>{h.data.desc}</p> : null}

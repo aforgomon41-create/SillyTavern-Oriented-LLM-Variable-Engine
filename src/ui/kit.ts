@@ -24,6 +24,8 @@ export interface Kit {
   NavList(props: { items: NavItem[]; current?: string; onSelect: (id: string) => void; layout: 'sidebar' | 'list'; label: string }): React.JSX.Element;
   /** Optional: a single-choice segmented control (falls back to plain buttons). */
   Segmented?(props: { options: { value: string; label: Node }[]; value: string; onValueChange: (v: string) => void; label: string; size?: 'sm' | 'md' }): React.JSX.Element;
+  /** Optional: single-line text input (falls back to a plain input). */
+  TextField?(props: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> & { size?: 'sm' | 'md' }): React.JSX.Element;
   Empty(props: { title: Node; description?: Node; actions?: Node; icon?: Node }): React.JSX.Element;
 }
 const KitContext = React.createContext<Kit | null>(null);

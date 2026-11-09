@@ -11,6 +11,7 @@ import { ModelContext, NavigateContext, RefChip, Section, useModel } from './fie
 import { EntityBody, Pages, type PageSpec } from './body.js';
 import { GraphView, type GraphEdge, type GraphNode, type Tone } from './graph.js';
 import { PlayerSheet, type SheetItem } from './sheet.js';
+import { Codex, type CodexCategory } from './codex.js';
 import { part, solve } from './widgets.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
@@ -43,6 +44,7 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
     const key = path.join('.');
     const hit = (item: any) => {
       if (item.sheet) return key === [item.sheet, item.id === '$user' ? model.userId : item.id].join('.');
+      if (item.codex) return (item.codex as CodexCategory[]).some(c => key.startsWith(c.collection + '.'));
       const base = item.list ?? item.map ?? item.graph;
       return typeof base === 'string' && key.startsWith(base + '.') && !(item.exclude === '$user' && path[rel(base).length] === model.userId) && !item.graph;
     };
@@ -204,6 +206,7 @@ type Focus = { path: Path; at: number } | undefined;
 function LayoutItem({ item, focus }: { item: any; focus: Focus }) {
   if (typeof item === 'string') return <Section path={rel(item)} />;
   if (item.sheet) return <PlayerSheet item={item as SheetItem} />;
+  if (item.codex) return <Codex categories={item.codex as CodexCategory[]} {...(focus ? { focus } : {})} />;
   if (item.map) return <MapItem item={item} focus={focus} />;
   if (item.graph) return <RelationGraph item={item} />;
   if (item.list) return <CollapseList item={item} focus={focus} />;

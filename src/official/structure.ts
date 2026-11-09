@@ -251,6 +251,11 @@ export const officialStructure: StructureDescription = {
           ] },
       ] },
       { tab: '地图', items: [{ map: 'places', current: 'meta.location' }] },
+      // Codex: every item and ability instance in one place, with who holds it.
+      { tab: '图鉴', items: [{ codex: [
+        { collection: 'items', label: '物品', group: 'type', holders: ['characters.*.items'] },
+        { collection: 'abilities', label: '能力', group: 'kind', holders: ['characters.*.rp.abilities'] },
+      ] }] },
       { tab: '势力', module: 'factions', items: [
         { graph: 'factions', title: '势力关系图', edges: 'diplomacy', tone: 'stance', label: 'stance', size: 'tier', badges: ['tier'],
           tones: { 盟友: 'positive', 敌对: 'negative', 冷淡中立: 'neutral', 臣服依附: 'info' }, legend: { positive: '盟友', negative: '敌对', neutral: '中立', info: '依附' } },

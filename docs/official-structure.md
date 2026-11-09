@@ -174,6 +174,8 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 | `items.<itemId>` | 物品 | 实体集合 | `name`、`type`（装备/道具/消耗/关键/杂物/座驾）、`desc`、`truth?`（默认隐藏）、`condition?`（主要给座驾用） |
 | `abilities.<abilityId>` | 能力 | 实体集合 | `name`、`kind`（特质/技能）、`desc`、`truth?` |
 
+状态栏的「图鉴」页签按物品 / 能力分类浏览这些实例，可搜索、按类型筛选，详情里列出所有持有者。
+
 投影：只有在场角色持有或掌握的物品、能力完整交给模型，其余只留名称与类别（规则 `kind: 'referenced'`），模型仍知道已有哪些 ID，不会重复建。
 
 ## 6. 需要新增的引擎能力
@@ -302,7 +304,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | 键 | 含义 |
 | --- | --- |
 | `bar` | 悬浮概览横条显示的字段路径（也是展开后面板的标题栏），可用 `$user` 指玩家角色。官方结构为 地点 · 时间 · 天气 · 场景情绪 · 在场角色；手机上只保留地点、时间、天气。横条的位置由宿主按设备（电脑 / 手机）记住，收起、展开、刷新后都不变 |
-| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`；`pages` 把展开后的卡片分成小页签，`relations.$user` 这类「以玩家为键」的条目显示为醒目的「对你」块，`as: 'quests'` 显示为任务日志，`as: 'inventory'` 显示为背包）；`{ map }` 力导向地图（`current/parent/links/discovered`） |
+| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`；`pages` 把展开后的卡片分成小页签，`relations.$user` 这类「以玩家为键」的条目显示为醒目的「对你」块，`as: 'quests'` 显示为任务日志，`as: 'inventory'` 显示为背包）；`{ map }` 力导向地图（`current/parent/links/discovered`）；`{ codex: [{ collection, label, group?, holders }] }` 图鉴：按分类浏览根节点实例（搜索、按 `group` 字段筛选），详情列出所有持有者及其本人状态（`holders` 为 `characters.*.items` 这类路径模式），背包与能力页可一键跳到图鉴 |
 | `spoilerExempt` | 不受剧透遮挡的实体（官方结构：玩家角色） |
 
 
