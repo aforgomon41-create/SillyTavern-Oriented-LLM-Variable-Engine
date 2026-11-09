@@ -44,7 +44,7 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
     const key = path.join('.');
     const hit = (item: any) => {
       if (item.sheet) return key === [item.sheet, item.id === '$user' ? model.userId : item.id].join('.');
-      if (item.codex) return (item.codex as CodexCategory[]).some(c => key.startsWith(c.collection + '.'));
+      if (item.codex) return (item.codex as CodexCategory[]).some(c => c.collection && key.startsWith(c.collection + '.'));
       const base = item.list ?? item.map ?? item.graph;
       return typeof base === 'string' && key.startsWith(base + '.') && !(item.exclude === '$user' && path[rel(base).length] === model.userId) && !item.graph;
     };

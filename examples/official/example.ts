@@ -4,6 +4,8 @@
  */
 import type { Json, LogicalState } from '../../src/types.js';
 import type { SolveCore } from '../../src/engine.js';
+import type { StructureDescription } from '../../src/structure.js';
+import { officialStructure } from '../../src/official/structure.js';
 
 /** Modules switched on for this example (others keep their defaults). */
 export const exampleModules: Record<string, boolean> = { attr_dnd: false, attr_wod: true, factions: true, estates: true };
@@ -94,9 +96,14 @@ export const exampleData: Record<string, Json> = {
     indomitable: { name: '不屈', kind: '特质', desc: '濒死时仍能行动一回合' },
     perfect_pitch: { name: '过耳不忘', kind: '特质', desc: '听过一次的旋律与对话都能复述' },
     undying: { name: '不死', kind: '特质', desc: '不需要进食与睡眠' },
-    shield_bash: { name: '盾击', kind: '技能', desc: '以盾牌冲撞，使目标失衡' },
-    echo_slash: { name: '残响斩', kind: '技能', desc: '借契约之力挥出带回声的斩击' },
-    lullaby: { name: '安眠曲', kind: '技能', desc: '用歌声让周围的人昏昏欲睡' },
+    shield_bash: { name: '盾击', kind: '技能', desc: '以盾牌冲撞，使目标失衡', levels: {
+      1: '推开一名近身的敌人一步', 2: '目标失衡，下一次攻击检定 −1', 3: '可以把目标撞倒在地',
+      4: '撞倒的同时打断对方正在进行的施法或蓄力', 5: '一次冲撞波及身前两名敌人' } },
+    echo_slash: { name: '残响斩', kind: '技能', desc: '借契约之力挥出带回声的斩击', truth: '每次使用都会让契约者离现世更近一步', levels: {
+      1: '斩击后一回合，同一位置再响起一次较弱的斩击', 3: '回声与本体同样锋利，并能穿过薄墙', 5: '回声会追着目标走，直到命中或天亮' } },
+    lullaby: { name: '安眠曲', kind: '技能', desc: '用歌声让周围的人昏昏欲睡', levels: {
+      1: '让一个本就疲惫的人睡着', 2: '让一屋子的普通人犯困，警觉的人不受影响', 3: '让一名有防备的人入睡，歌声停下前不会醒',
+      4: '亡灵与野兽也会安静下来' } },
   },
   places: {
     capital: { name: '王都', kind: '区域', parent: null, links: ['fog_marsh'], desc: '灰烬纪元的王国首都，终日笼罩在细雨中。', discovered: true },
@@ -125,9 +132,56 @@ export const exampleData: Record<string, Json> = {
   },
 };
 
+/**
+ * Ready-made entities for the example world (in a real chat they come from [SOLVE:PREFABS] / [SOLVE:TEMPLATES]).
+ * cassius is already on stage, the rat king came and went, the hound and the bishop have not appeared yet;
+ * the zealot template has produced one independent NPC.
+ */
+export const examplePresets: { prefabs: Record<string, { type: string; data: Record<string, Json> }>; templates: Record<string, { type: string; data: Record<string, Json> }> } = {
+  prefabs: {
+    cassius: { type: 'character', data: { name: '卡修斯', role: '主要配角', intro: '银枝骑士团团长，亲手将艾琳逐出骑士团。', tags: ['骑士团长'] } },
+    grave_hound: { type: 'character', data: {
+      name: '墓园猎犬', role: '一次性敌人', age: '不详', tags: ['亡灵', '野兽'],
+      intro: '在王都旧墓园游荡的腐朽猎犬，闻到活人的气味就会扑上来。', appearance: '皮毛脱落，肋骨间燃着暗绿色的火。', condition: '在墓园深处游荡',
+      rp: { rank: '铁阶', attributes: { wod: { str: 5, dex: 6, sta: null, int: 1, wits: 4, res: 3, pre: 0, man: 0, com: 2 } },
+        abilities: { night_vision: {}, undying: {} }, gauges: { 生命: { value: 30, max: 30 } } } } },
+    ember_bishop: { type: 'character', data: {
+      name: '余烬主教', role: '主要配角', age: '看不出年纪', tags: ['灰烬教团', '神职'],
+      intro: '灰烬教团的主教，总在别人替他做完脏活之后才出现。', appearance: '灰袍下露出一截烧焦的手指，声音温和得过分。', condition: '藏身于码头仓库',
+      drive: { goals: { long: '唤醒沉睡的灰烬之王', short: '找回逃亡的米拉' }, thoughts: '骑士团替我们做了一半的事。' },
+      rp: { rank: '金阶', attributes: { wod: { str: 3, dex: 4, sta: 5, int: 9, wits: 7, res: 8, pre: 7, man: 9, com: 6 } },
+        special: { 信徒: '下城区约有三十人' }, abilities: { undying: {}, echo_slash: { level: 3 } } } } },
+    rat_king: { type: 'character', data: {
+      name: '下水道鼠王', role: '一次性敌人', tags: ['野兽', '群体'], intro: '几十只尾巴缠在一起的老鼠，像一个会思考的东西。',
+      appearance: '一团湿漉漉的、蠕动的灰毛。', rp: { abilities: { night_vision: {} }, gauges: { 群体: '还剩二十来只' } } } },
+  },
+  templates: {
+    cult_zealot: { type: 'character', data: {
+      name: '教团狂信徒', role: '一次性敌人', origin: 'cult_zealot', tags: ['灰烬教团'],
+      intro: '被主教的布道点燃的下城区居民，为教团做跑腿和打手。', appearance: '灰色头巾，袖口有烧灼的痕迹。',
+      rp: { rank: '铁阶', attributes: { wod: { str: 3, dex: 3, sta: 3, int: 2, wits: 2, res: 4, pre: 2, man: 2, com: 2 } }, gauges: { 生命: { value: 20, max: 20 } } } } },
+  },
+};
+
 /** Genesis state of the example: the official defaults plus the example's module choices. */
 export async function exampleState(core: SolveCore): Promise<LogicalState> {
-  const state = await core.initialize(exampleData);
-  Object.assign(state.engineState.activeModules, exampleModules);
+  const initial = await core.initialize(exampleData);
+  Object.assign(initial.engineState.activeModules, exampleModules);
+  if (!core.definition.prefabs?.rat_king) return initial;
+  // History of the example's presets: the rat king appeared and was killed; one zealot was spawned from the template.
+  const steps: unknown[] = [
+    { $createEntity: { 'characters.@rat_king': {} } },
+    { $deleteEntity: ['@rat_king'] },
+    { $createEntity: { 'characters.@one_eye': { $from: '@cult_zealot', name: '独眼狂信徒', condition: '在酒馆外的雨里盯着门口' } } },
+  ];
+  let state = initial;
+  for (const step of steps) {
+    const result = await core.execute(step as never, state);
+    if (result.feedback.some(f => f.level === 'L3')) throw new Error('示例预制步骤失败：' + JSON.stringify(result.feedback));
+    state = result.state;
+  }
   return state;
 }
+
+/** The official structure with the example world's prefabs and templates attached. */
+export const exampleStructure: StructureDescription = { ...officialStructure, ...examplePresets };

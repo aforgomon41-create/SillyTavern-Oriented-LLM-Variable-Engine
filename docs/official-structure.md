@@ -42,7 +42,8 @@
 | --- | --- | --- | --- |
 | `name` | 姓名 | 文字 | |
 | `alias` | 别称 | 文字，可选 | |
-| `role` | 定位 | 枚举 | 用户角色/核心角色/主要配角/次要配角。路人、龙套不建立角色实体（写进指南） |
+| `role` | 定位 | 枚举 | 用户角色/核心角色/主要配角/次要配角/一次性敌人。「一次性敌人」给只出场一次的敌人（拦路强盗、一场战斗的怪物），事件结束后删除；会反复出场的反派按分量归入配角。路人、龙套不建立角色实体（写进指南） |
+| `origin` | 原型 | 文字，可选 | 用 `$from` 以模板或预制人物为基础生成时，写来源的 ID（模板数据里可以直接带上）。图鉴据此列出「由此生成」 |
 | `age` | 年龄 | 文字 | 例如「外表十八，实际千岁」 |
 | `intro` | 简介 | 文字 | 背景与人设概括 |
 | `tags` | 身份 | 文字数组 | 清单上限，见 6.4 |
@@ -172,9 +173,27 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 | 键 | 名称 | 类型 | 说明 |
 | --- | --- | --- | --- |
 | `items.<itemId>` | 物品 | 实体集合 | `name`、`type`（装备/道具/消耗/关键/杂物/座驾）、`desc`、`truth?`（默认隐藏）、`condition?`（主要给座驾用） |
-| `abilities.<abilityId>` | 能力 | 实体集合 | `name`、`kind`（特质/技能）、`desc`、`truth?` |
+| `abilities.<abilityId>` | 能力 | 实体集合 | `name`、`kind`（特质/技能）、`desc`、`truth?`、`levels`（等级效果） |
+
+`levels` 以等级数字为键写每一级的效果，例如 `{ "1": "推开一名敌人", "3": "可以把目标撞倒", "5": "波及两名敌人" }`。可以跳级：持有者按不超过自身 `level` 的最高一级生效。能力页显示本级效果与下一级（变淡）；图鉴显示完整的等级表，并在每一级上标出处于这一级的角色。
 
 状态栏的「图鉴」页签按物品 / 能力分类浏览这些实例，可搜索、按类型筛选，详情里列出所有持有者。
+
+### 5.5 预制人物与模板
+
+SOLVE 引擎本来就有两种现成实体，由世界书 `[SOLVE:PREFABS]` / `[SOLVE:TEMPLATES]`（或结构描述的 `prefabs` / `templates`）提供，格式都是 `ID → { type, data }`：
+
+| | 预制实体 prefab | 模板 template |
+| --- | --- | --- |
+| 用途 | 设计好的具体人物：一次性敌人（墓园猎犬），或会反复出场、提前写好的反派（余烬主教） | 一类人物的底稿（教团狂信徒），可以生成任意多个 |
+| 登场 | `$createEntity: { "characters.@grave_hound": {} }`，以它自己的 ID 登场，数据自动带入 | `$createEntity: { "characters.@one_eye": { "$from": "@cult_zealot", "name": "独眼狂信徒" } }` |
+| 次数 | 只能登场一次（未登场 → 已登场 → 已退场，删除后不能复活） | 不限 |
+
+另外，`$from` 也可以指向预制实体：以它为基础生成一个不同 ID 的独立角色，预制本身的状态不变。
+
+给模型的指南里，引擎自动列出尚未登场的预制实体和全部模板（ID 与名称），已登场、已退场的不再列出。
+
+状态栏「图鉴 → 人物」收录类型为 `character` 的预制与模板：按「已登场 / 未登场 / 已退场 / 模板」筛选；已登场的显示此刻状态并可跳到角色卡；未登场的资料默认收起（点一下查看）；详情列出 `origin` 指向它的角色（由此生成）。
 
 投影：只有在场角色持有或掌握的物品、能力完整交给模型，其余只留名称与类别（规则 `kind: 'referenced'`），模型仍知道已有哪些 ID，不会重复建。
 
@@ -250,6 +269,7 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 ## 10. 决定记录
 
 - 2026-11-08 用户确认：官方结构面向玩家；键名英文；核心不可关闭（meta 与角色核心）；驱动力、社交为独立模块；角色扮演模块含属性、能力（特质/技能）、状态（量表/效果）；属性四种体系（DND/WOD/FATE/FU）互斥、玩家可随时切换；WOD 无上限并有超凡属性；FU 改为四档文字；属性下限 0、可空缺；座驾并入物品；不动产、势力、地图在根节点；只做节点地图，手机也用节点图；轮次读酒馆楼层；效果不计回合；单次变化上限按字段声明；清单上限由玩家设置并带压缩预警；投影声明式；NSFW 不加额外约束；年龄为文字；背景音乐由引擎负责，曲库可由卡作者附带或玩家添加；迁移指令泛化为所有互斥组的能力。
+- 2026-11-08 用户要求：能力每级效果不同并要展示（`abilities.*.levels`）；角色定位增加「一次性敌人」，反复出场的反派属于配角；图鉴可查看预制人物，也可以预制人物为基础生成独立人物（`$from` 可指向预制实体）。
 
 ## 11. 实现与用法（claude/dev，2026-11-08）
 
@@ -277,7 +297,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 
 ### 11.3 结构描述格式
 
-结构描述是可 JSON 序列化的对象：`{ id, version, label?, fields, modules?, groups?, round?, projection?, guide?, guides?, initialData?, display?, bgm? }`。`fields` 中每个字段：
+结构描述是可 JSON 序列化的对象：`{ id, version, label?, fields, modules?, groups?, round?, projection?, guide?, guides?, initialData?, prefabs?, templates?, display?, bgm? }`。`prefabs` / `templates` 原样进入定义（与世界书 `[SOLVE:PREFABS]` / `[SOLVE:TEMPLATES]` 相同）。`fields` 中每个字段：
 
 | 属性 | 含义 |
 | --- | --- |
@@ -304,7 +324,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | 键 | 含义 |
 | --- | --- |
 | `bar` | 悬浮概览横条显示的字段路径（也是展开后面板的标题栏），可用 `$user` 指玩家角色。官方结构为 地点 · 时间 · 天气 · 场景情绪 · 在场角色；手机上只保留地点、时间、天气。横条的位置由宿主按设备（电脑 / 手机）记住，收起、展开、刷新后都不变 |
-| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`；`pages` 把展开后的卡片分成小页签，`relations.$user` 这类「以玩家为键」的条目显示为醒目的「对你」块，`as: 'quests'` 显示为任务日志，`as: 'inventory'` 显示为背包）；`{ map }` 力导向地图（`current/parent/links/discovered`）；`{ codex: [{ collection, label, group?, holders }] }` 图鉴：按分类浏览根节点实例（搜索、按 `group` 字段筛选），详情列出所有持有者及其本人状态（`holders` 为 `characters.*.items` 这类路径模式），背包与能力页可一键跳到图鉴 |
+| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`；`pages` 把展开后的卡片分成小页签，`relations.$user` 这类「以玩家为键」的条目显示为醒目的「对你」块，`as: 'quests'` 显示为任务日志，`as: 'inventory'` 显示为背包）；`{ map }` 力导向地图（`current/parent/links/discovered`）；`{ codex: [...] }` 图鉴，两种分类：`{ collection, label, group?, holders }` 浏览根节点实例（搜索、按 `group` 字段筛选），详情列出所有持有者及其本人状态（`holders` 为 `characters.*.items` 这类路径模式），能力详情附等级表，背包与能力页可一键跳到图鉴；`{ prefabs: 'character', into: 'characters', label, origin?, badges?, pages? }` 浏览该类型的预制实体与模板，按登场状态筛选，`pages` 同 `list` |
 | `spoilerExempt` | 不受剧透遮挡的实体（官方结构：玩家角色） |
 
 

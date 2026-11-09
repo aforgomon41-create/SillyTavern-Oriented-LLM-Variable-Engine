@@ -59,6 +59,9 @@ export interface StructureDescription {
   guide?: string;
   guides?: (Omit<GuideRule, 'when'> & { when?: string })[];
   initialData?: Json;
+  /** Ready-made entities: a prefab appears once under its own ID; a template is a base for any number of new entities. */
+  prefabs?: Definition['prefabs'];
+  templates?: Definition['templates'];
   /** Presentation only: layout, render switch, spoiler exemptions, etc. */
   display?: Omit<DisplaySpec, 'labels' | 'spoiler' | 'as' | 'fields'>;
   bgm?: BgmSpec;
@@ -265,6 +268,8 @@ export function compileStructure(description: StructureDescription): Definition 
     ...(description.projection?.length ? { projection: clone(description.projection) } : {}),
     ...(description.groups ? { groups: clone(description.groups) } : {}),
     ...(description.bgm ? { bgm: clone(description.bgm) } : {}),
+    ...(description.prefabs && Object.keys(description.prefabs).length ? { prefabs: clone(description.prefabs) } : {}),
+    ...(description.templates && Object.keys(description.templates).length ? { templates: clone(description.templates) } : {}),
     display: { ...(clone(description.display ?? {}) as DisplaySpec), labels: out.labels, spoiler: out.spoiler, as: out.as, fields: out.fields,
       ...(description.label ? { title: description.label } : {}) },
     runtimeBindings: { build: `structure:${description.id}@${description.version}`, dependencies: { typedRefs: typedRefs.length ? 'v1' : 'none' } },

@@ -527,3 +527,47 @@
 [data-solve="ability"] button[data-solve-part="name"] { font: inherit; font-family: var(--k-font-heading); font-weight: var(--k-fw-strong); background: none; border: 0; padding: 0; cursor: pointer; color: inherit; text-align: start; }
 [data-solve="ability"] button[data-solve-part="name"]:hover { color: var(--k-link); text-decoration: underline; text-underline-offset: 3px; }
 [data-solve="inventory"] [data-solve-part="more"] { display: flex; justify-content: flex-end; }
+
+/* Per-level ability effects: compact (holder: now + next) and full ladder (codex). */
+[data-solve="ability"] > [data-solve-part="head"] { justify-content: flex-start; flex-wrap: wrap; }
+[data-solve="ability"] > [data-solve-part="head"] > [data-solve-part="name"] { margin-inline-end: auto; }
+[data-solve="level-pips"] { display: inline-flex; gap: 3px; align-items: center; }
+[data-solve="level-pips"] > i { width: 6px; height: 6px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--k-accent); }
+[data-solve="level-pips"] > i[data-on] { background: var(--k-accent); }
+[data-solve="levels"] { display: flex; flex-direction: column; gap: 4px; }
+[data-solve="levels"] > [data-solve-part="title"] { margin: 0 0 var(--k-space-1); font-size: var(--k-fs-sm); color: var(--k-on-muted); display: flex; gap: var(--k-space-2); }
+[data-solve="levels"] > [data-solve-part="title"] small { font-weight: var(--k-fw); }
+[data-solve="levels"] ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+[data-solve="levels"] [data-solve-part="row"] {
+  display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: var(--k-space-2); align-items: baseline;
+  padding: 4px var(--k-space-2); border-radius: var(--k-r-sm); font-size: var(--k-fs-sm); line-height: var(--k-lh);
+}
+[data-solve="levels"] [data-solve-part="lv"] { font-family: var(--k-font-mono, inherit); font-size: var(--k-fs-xs); font-weight: var(--k-fw-strong); color: var(--k-on-muted); font-variant-numeric: tabular-nums; }
+[data-solve="levels"] [data-solve-part="row"][data-state="current"], [data-solve="levels"] [data-solve-part="row"][data-state="held"] {
+  background: color-mix(in srgb, var(--k-accent) 10%, transparent); box-shadow: inset 2px 0 0 var(--k-accent);
+}
+[data-solve="levels"] [data-solve-part="row"][data-state="current"] [data-solve-part="lv"], [data-solve="levels"] [data-solve-part="row"][data-state="held"] [data-solve-part="lv"] { color: var(--k-accent); }
+[data-solve="levels"] [data-solve-part="row"][data-state="next"], [data-solve="levels"] [data-solve-part="row"][data-state="locked"] { color: var(--k-on-sunken-subtle, var(--k-on-subtle)); }
+[data-solve="levels"] [data-solve-part="row"] small { font-size: inherit; opacity: .8; }
+[data-solve="levels"][data-compact] [data-solve-part="row"] { padding: 2px var(--k-space-2); }
+[data-solve="levels"] [data-solve-part="who"] { grid-column: 2; display: flex; flex-wrap: wrap; gap: var(--k-space-1) var(--k-space-3); }
+[data-solve="levels"] [data-solve-part="mark"] {
+  display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: var(--k-fs-xs); background: none; border: 0; padding: 0; cursor: pointer; color: var(--k-link);
+}
+[data-solve="levels"] [data-solve-part="mark"] [data-solve-part="avatar"] {
+  width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: var(--k-fw-strong);
+  background: var(--k-accent-soft); color: var(--k-on-accent-soft);
+}
+[data-solve="codex-detail"] > [data-solve="levels"] { padding-top: var(--k-space-2); border-top: 1px dashed var(--k-divider); }
+
+/* Prefab people in the codex: lifecycle shown on the tile and in the detail. */
+[data-solve="codex-detail"] [data-solve-part="badges"] { display: flex; flex-wrap: wrap; gap: var(--k-space-1); }
+[data-solve="codex-detail"] > [data-solve-part="note"] { margin: 0; font-size: var(--k-fs-sm); color: var(--k-on-muted); }
+[data-solve="codex-detail"] > [data-solve-part="more"] { display: flex; }
+[data-solve="codex-detail"] > [data-solve="spoiler"] { align-self: flex-start; }
+[data-solve="codex-detail"] > [data-solve="pages"] { padding-top: var(--k-space-2); border-top: 1px dashed var(--k-divider); }
+[data-solve="codex-entry"][data-state="dormant"] > [data-solve-part="glyph"] { background: transparent; box-shadow: none; border: 1px dashed var(--k-on-muted); }
+[data-solve="codex-entry"][data-state="destroyed"] > [data-solve-part="glyph"] { opacity: .45; }
+[data-solve="codex-entry"][data-state="destroyed"] > [data-solve-part="name"] { text-decoration: line-through; text-decoration-color: var(--k-on-muted); }
+[data-solve="codex-entry"][data-state] > [data-solve-part="glyph"] { border-radius: 50%; }
+[data-solve="codex-entry"][data-state="template"] > [data-solve-part="glyph"] { border-radius: var(--k-r-sm, 6px); }

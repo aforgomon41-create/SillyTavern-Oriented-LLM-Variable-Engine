@@ -6,7 +6,7 @@ import { OPERATORS } from './engine.js';
 import { selectGuides } from './guides.js';
 import { projectFacets } from './facets.js';
 import type { CompiledDefinition, Feedback, Json, LogicalState, View } from './types.js';
-import { applyProjectionRules, computedFor, listWarnings, migrationText } from './features.js';
+import { applyProjectionRules, computedFor, listWarnings, migrationText, presetText } from './features.js';
 
 export interface ProjectionOptions { view?: View; paths?: string[] }
 export function project(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): Json {
@@ -60,6 +60,7 @@ export function guide(def: CompiledDefinition, state: LogicalState, tag?: string
   const engine = tag ? [] : [
     ...(state.engineState.migration ? [migrationText(def, state.engineState.migration)] : []),
     ...listWarnings(def, state, parts => dormant(def, state, parts)),
+    presetText(def, state),
   ];
   return [tag ? '' : def.guide ?? '', ...Object.entries(def.modules ?? {}).filter(([name]) => (!tag || tag === name) && isModuleEnabled(def, state, name)).map(([, m]) => m.guide ?? ''), ...selectGuides(def, state, tag), ...engine].filter(Boolean).join('\n');
 }

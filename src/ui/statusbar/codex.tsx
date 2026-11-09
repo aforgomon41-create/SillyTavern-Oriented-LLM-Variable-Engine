@@ -1,16 +1,29 @@
 /**
- * Codex (图鉴): browse the root instances (items, abilities …) like a game encyclopedia.
- * Category switch → search + type filter → entry grid → detail with every holder.
- * Layout item: { codex: [{ collection, label, group?, holders: ['characters.*.items', …] }] }
+ * Codex (图鉴): browse ready-made and root things like a game encyclopedia.
+ * Category switch → search + filter chips → entry grid → detail.
+ * Two kinds of category in the layout item `{ codex: [...] }`:
+ *   · instances: { collection: 'items', label, group?: 'type', holders: ['characters.*.items'] }
+ *     root instances, with everyone holding each (and, for abilities, the per-level ladder);
+ *   · prefabs:   { prefabs: 'character', into: 'characters', label, origin?: 'origin', badges?, pages? }
+ *     the definition's prefabs and templates of that entity type: whether each has appeared,
+ *     and which entities were spawned from it (their `origin` field).
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
-import { isEmpty, type Path, type StatusModel } from './model.js';
-import { Field, NavigateContext, useModel } from './fields.js';
+import { isEmpty, StatusModel, type Path } from './model.js';
+import { Field, ModelContext, NavigateContext, useModel } from './fields.js';
+import { Pages, type PageSpec } from './body.js';
+import { LevelLadder } from './levels.js';
 import { part, solve } from './widgets.js';
 
-export interface CodexCategory { collection: string; label: string; group?: string; holders?: string[] }
+export interface CodexCategory {
+  label: string;
+  collection?: string; group?: string; holders?: string[];
+  prefabs?: string; into?: string; origin?: string; badges?: string[]; pages?: PageSpec[];
+}
 const rel = (s: string): Path => s.split('.');
+/** Stable key of a category (instances by collection, prefabs by entity type). */
+export const catKey = (c: CodexCategory): string => c.collection ?? '$prefab:' + (c.prefabs ?? '');
 
 /** Everyone holding `id` through a `a.*.b` pattern, with their own entry (count, level …). */
 function holdersOf(m: StatusModel, patterns: string[], id: string): { owner: Path; entry: any }[] {
@@ -26,6 +39,46 @@ function holdersOf(m: StatusModel, patterns: string[], id: string): { owner: Pat
   }
   return out;
 }
+
+/** One codex entry, whatever its source. */
+interface Entry { id: string; data: Record<string, any>; group?: string; sub: string; dim?: boolean; state?: string }
+type PrefabState = 'active' | 'dormant' | 'destroyed' | 'template';
+const STATE_LABEL: Record<PrefabState, string> = { active: '已登场', dormant: '未登场', destroyed: '已退场', template: '模板' };
+const STATE_ORDER: PrefabState[] = ['active', 'dormant', 'destroyed', 'template'];
+
+function prefabEntries(m: StatusModel, c: CodexCategory): (Entry & { state: PrefabState })[] {
+  const type = c.prefabs!, into = rel(c.into ?? '');
+  const spawned = (id: string) => c.origin ? Object.values(m.value(into) ?? {}).filter((v: any) => v?.[c.origin!] === id).length : 0;
+  const out: (Entry & { state: PrefabState })[] = [];
+  const add = (id: string, data: Record<string, any>, state: PrefabState) => {
+    const live = state === 'active' ? m.value([...into, id]) : undefined;
+    const d = live ?? data, n = spawned(id);
+    const role = c.badges?.[0] ? d[c.badges[0]] : undefined;
+    out.push({ id, data: d, state, group: STATE_LABEL[state], dim: state === 'destroyed',
+      sub: [role, STATE_LABEL[state], n ? `衍生 ${n}` : ''].filter(Boolean).join(' · ') });
+  };
+  for (const [id, p] of Object.entries(m.def.prefabs ?? {})) {
+    if (p.type !== type) continue;
+    const life = m.state.engineState.prefabLifecycle?.[id];
+    add(id, (p.data ?? {}) as Record<string, any>, life === 'active' ? 'active' : life === 'destroyed' ? 'destroyed' : 'dormant');
+  }
+  for (const [id, p] of Object.entries(m.def.templates ?? {})) if (p.type === type) add(id, (p.data ?? {}) as Record<string, any>, 'template');
+  return out;
+}
+function instanceEntries(m: StatusModel, c: CodexCategory): Entry[] {
+  const all: Record<string, any> = m.value(rel(c.collection!)) ?? {};
+  return Object.keys(all).map(id => {
+    const v = all[id] ?? {}, owned = holdersOf(m, c.holders ?? [], id).length;
+    const group = c.group ? v[c.group] : undefined;
+    return { id, data: v, ...(group ? { group } : {}), dim: !owned, sub: `${group ?? ''}${owned ? `${group ? ' · ' : ''}${owned}人` : `${group ? ' · ' : ''}无人${c.holders?.some(h => h.includes('abilities')) ? '掌握' : '持有'}`}` };
+  });
+}
+function entriesOf(m: StatusModel, c: CodexCategory): Entry[] { return c.prefabs ? prefabEntries(m, c) : instanceEntries(m, c); }
+function available(m: StatusModel, c: CodexCategory): boolean {
+  if (c.prefabs) return !!c.into && !m.dormant(rel(c.into)) && entriesOf(m, c).length > 0;
+  return !!c.collection && !!m.meta(rel(c.collection)) && !m.dormant(rel(c.collection));
+}
+
 function useWide(): [React.RefObject<HTMLDivElement | null>, boolean] {
   const ref = React.useRef<HTMLDivElement>(null);
   const [wide, setWide] = React.useState(true);
@@ -39,8 +92,8 @@ function useWide(): [React.RefObject<HTMLDivElement | null>, boolean] {
 
 export function Codex({ categories, focus }: { categories: CodexCategory[]; focus?: { path: Path; at: number } }) {
   const m = useModel(), K = useKit();
-  const cats = categories.filter(c => m.meta(rel(c.collection)) && !m.dormant(rel(c.collection)));
-  const [cat, setCat] = React.useState(cats[0]?.collection ?? '');
+  const cats = categories.filter(c => available(m, c));
+  const [cat, setCat] = React.useState(cats[0] ? catKey(cats[0]) : '');
   const [query, setQuery] = React.useState('');
   const [group, setGroup] = React.useState('');
   const [sel, setSel] = React.useState<string | undefined>();
@@ -48,22 +101,24 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
   // Arriving from elsewhere (an item tile, an ability name): open that category and entry.
   React.useEffect(() => {
     if (!focus) return;
-    const c = cats.find(x => focus.path.slice(0, rel(x.collection).length).join('.') === x.collection);
-    const id = c ? focus.path[rel(c.collection).length] : undefined;
-    if (c && id) { setCat(c.collection); setGroup(''); setQuery(''); setSel(id); }
+    const c = cats.find(x => x.collection && focus.path.slice(0, rel(x.collection).length).join('.') === x.collection);
+    const id = c ? focus.path[rel(c.collection!).length] : undefined;
+    if (c && id) { setCat(catKey(c)); setGroup(''); setQuery(''); setSel(id); }
   }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
-  const current = cats.find(c => c.collection === cat) ?? cats[0];
+  const current = cats.find(c => catKey(c) === cat) ?? cats[0];
   if (!current) return <K.Empty title="图鉴是空的" description="还没有可以收录的条目。" />;
-  const base = rel(current.collection);
-  const all: Record<string, any> = m.value(base) ?? {};
-  const groupMeta = current.group ? m.meta([...base, '*', current.group]) : undefined;
-  const groups = current.group ? [...new Set(Object.values(all).map(v => v?.[current.group!]).filter(Boolean))] as string[] : [];
-  groups.sort((a, b) => (groupMeta?.values?.indexOf(a) ?? 0) - (groupMeta?.values?.indexOf(b) ?? 0));
+  const all = entriesOf(m, current);
+  // Filter chips: the instance's own grouping field (in declared order), or the prefab's lifecycle.
+  const order = current.prefabs ? STATE_ORDER.map(s => STATE_LABEL[s])
+    : (current.group ? m.meta([...rel(current.collection!), '*', current.group])?.values : undefined) ?? [];
+  const groups = [...new Set(all.map(e => e.group).filter(Boolean))] as string[];
+  groups.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
   const q = query.trim().toLowerCase();
-  const ids = Object.keys(all).filter(id => (!group || all[id]?.[current.group!] === group)
-    && (!q || [all[id]?.name, id, all[id]?.desc].some(t => typeof t === 'string' && t.toLowerCase().includes(q))));
-  const pick = sel && all[sel] ? sel : undefined;
+  const shown = all.filter(e => (!group || e.group === group)
+    && (!q || [e.data.name, e.id, e.data.desc, e.data.intro].some(t => typeof t === 'string' && t.toLowerCase().includes(q))));
+  const pick = sel ? all.find(e => e.id === sel) : undefined;
   const switchCat = (c: string) => { setCat(c); setGroup(''); setQuery(''); setSel(undefined); };
+  const count = (c: CodexCategory) => entriesOf(m, c).length;
 
   const list = (
     <div {...part('browse')}>
@@ -72,36 +127,34 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
           : <input type="search" {...part('search')} placeholder={`搜索${current.label}`} value={query} onChange={e => setQuery(e.target.value)} aria-label={`搜索${current.label}`} />}
         {groups.length > 1 ? (
           <div {...part('filters')} role="group" aria-label="分类">
-            {['', ...groups].map(g => <button key={g || '*'} type="button" aria-pressed={group === g} onClick={() => setGroup(g)}>{g || '全部'}<small>{g ? Object.values(all).filter(v => v?.[current.group!] === g).length : Object.keys(all).length}</small></button>)}
+            {['', ...groups].map(g => <button key={g || '*'} type="button" aria-pressed={group === g} onClick={() => setGroup(g)}>{g || '全部'}<small>{g ? all.filter(e => e.group === g).length : all.length}</small></button>)}
           </div>
         ) : null}
       </div>
-      {ids.length ? (
+      {shown.length ? (
         <div {...part('grid')}>
-          {ids.map(id => {
-            const v = all[id] ?? {}, owned = holdersOf(m, current.holders ?? [], id).length;
-            return (
-              <button key={id} type="button" {...solve('codex-entry', { kind: v[current.group ?? ''], unowned: owned ? undefined : '' })} aria-pressed={id === pick} onClick={() => setSel(id)}>
-                <span {...part('glyph')} aria-hidden="true">{[...(v.name ?? id)][0]}</span>
-                <span {...part('name')}>{v.name ?? id}</span>
-                <span {...part('sub')}>{current.group ? v[current.group] : ''}{owned ? ` · ${owned}人` : ' · 无人持有'}</span>
-              </button>
-            );
-          })}
+          {shown.map(e => (
+            <button key={e.id} type="button" {...solve('codex-entry', { kind: current.prefabs ? undefined : e.group, state: e.state, unowned: e.dim ? '' : undefined })} aria-pressed={e.id === pick?.id} onClick={() => setSel(e.id)}>
+              <span {...part('glyph')} aria-hidden="true">{[...(e.data.name ?? e.id)][0]}</span>
+              <span {...part('name')}>{e.data.name ?? e.id}</span>
+              <span {...part('sub')}>{e.sub}</span>
+            </button>
+          ))}
         </div>
       ) : <span {...solve('none')}>没有符合的条目</span>}
     </div>
   );
-  const detail = pick ? <CodexDetail path={[...base, pick]} category={current} onBack={wide ? undefined : () => setSel(undefined)} /> : (
-    <div {...part('placeholder')}>选择一个条目查看详情</div>
-  );
+  const back = wide ? undefined : () => setSel(undefined);
+  const detail = !pick ? <div {...part('placeholder')}>选择一个条目查看详情</div>
+    : current.prefabs ? <PrefabDetail key={pick.id} entry={pick as Entry & { state: PrefabState }} category={current} {...(back ? { onBack: back } : {})} />
+    : <InstanceDetail path={[...rel(current.collection!), pick.id]} category={current} {...(back ? { onBack: back } : {})} />;
   return (
     <div ref={ref} {...solve('codex', { layout: wide ? 'wide' : 'narrow' })}>
       {cats.length > 1 ? (
         <div {...part('cats')}>
-          {K.Segmented ? <K.Segmented label="图鉴分类" value={current.collection} onValueChange={switchCat}
-            options={cats.map(c => ({ value: c.collection, label: <>{c.label}<small>{Object.keys(m.value(rel(c.collection)) ?? {}).length}</small></> }))} />
-            : cats.map(c => <button key={c.collection} type="button" onClick={() => switchCat(c.collection)}>{c.label}</button>)}
+          {K.Segmented ? <K.Segmented label="图鉴分类" value={catKey(current)} onValueChange={switchCat}
+            options={cats.map(c => ({ value: catKey(c), label: <>{c.label}<small>{count(c)}</small></> }))} />
+            : cats.map(c => <button key={catKey(c)} type="button" onClick={() => switchCat(catKey(c))}>{c.label}</button>)}
         </div>
       ) : null}
       {wide ? <div {...part('split')}>{list}<div {...part('detail')}>{detail}</div></div> : pick ? detail : list}
@@ -109,38 +162,104 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
   );
 }
 
-function CodexDetail({ path, category, onBack }: { path: Path; category: CodexCategory; onBack?: () => void }) {
+function Head({ name, onBack, label, children }: { name: string; onBack?: (() => void) | undefined; label: string; children?: React.ReactNode }) {
+  return (
+    <>
+      {onBack ? <button type="button" {...part('back')} onClick={onBack}>‹ 返回{label}列表</button> : null}
+      <header {...part('head')}>
+        <span {...part('glyph')} aria-hidden="true">{[...name][0]}</span>
+        <div><h3 {...part('name')}>{name}</h3>{children ? <div {...part('badges')}>{children}</div> : null}</div>
+      </header>
+    </>
+  );
+}
+function Avatar({ m, id }: { m: StatusModel; id: string }) {
+  return <span {...part('avatar')} aria-hidden="true">{[...m.entityName(id)][0]}</span>;
+}
+
+function InstanceDetail({ path, category, onBack }: { path: Path; category: CodexCategory; onBack?: () => void }) {
   const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
   const v = m.value(path) ?? {}, id = path.at(-1)!;
   const holders = holdersOf(m, category.holders ?? [], id);
-  const fields = m.children(path).filter(k => !['name', 'desc', category.group ?? ''].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
+  const ladder = m.widget([...path, 'levels']) === 'levels' && !isEmpty(v.levels);
+  const fields = m.children(path).filter(k => !['name', 'desc', category.group ?? '', ...(ladder ? ['levels'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
+  const skill = category.holders?.some(h => h.includes('abilities'));
   const describe = (entry: any) => entry && typeof entry === 'object'
     ? Object.entries(entry).filter(([, x]) => x !== false && x !== undefined && !(typeof x === 'number' && x === 1 && 'equipped' in entry))
       .map(([k, x]) => k === 'equipped' ? '装备中' : k === 'count' ? `×${x}` : k === 'level' ? `Lv.${x}` : `${k} ${x}`).join(' · ')
     : '';
   return (
     <article {...solve('codex-detail')}>
-      {onBack ? <button type="button" {...part('back')} onClick={onBack}>‹ 返回{category.label}列表</button> : null}
-      <header {...part('head')}>
-        <span {...part('glyph')} aria-hidden="true">{[...(v.name ?? id)][0]}</span>
-        <div>
-          <h3 {...part('name')}>{v.name ?? id}</h3>
-          {category.group && v[category.group] ? <K.Badge tone="accent">{v[category.group]}</K.Badge> : null}
-        </div>
-      </header>
+      <Head name={v.name ?? id} onBack={onBack} label={category.label}>
+        {category.group && v[category.group] ? <K.Badge tone="accent">{v[category.group]}</K.Badge> : null}
+      </Head>
       {v.desc ? <p {...part('desc')}>{v.desc}</p> : null}
       {fields.length ? <div {...solve('fields')}>{fields.map(k => <Field key={k} path={[...path, k]} compact />)}</div> : null}
+      {ladder ? <LevelLadder levels={v.levels} holders={holders.map(h => {
+        const who = h.owner.at(-1)!;
+        return { key: h.owner.join('.'), ...(typeof h.entry?.level === 'number' ? { level: h.entry.level } : {}),
+          mark: <button type="button" {...part('mark')} onClick={() => go(h.owner)} title={`${m.entityName(who)} · Lv.${h.entry?.level ?? '?'}`}><Avatar m={m} id={who} />{m.entityName(who)}</button> };
+      })} /> : null}
       <section {...part('holders')}>
-        <h4 {...part('title')}>{category.label === '能力' ? '掌握者' : '持有者'}<small>{holders.length}</small></h4>
+        <h4 {...part('title')}>{skill ? '掌握者' : '持有者'}<small>{holders.length}</small></h4>
         {holders.length ? (
           <ul>{holders.map(h => (
             <li key={h.owner.join('.')}>
-              <button type="button" onClick={() => go(h.owner)}><span {...part('avatar')} aria-hidden="true">{[...m.entityName(h.owner.at(-1)!)][0]}</span>{m.entityName(h.owner.at(-1)!)}</button>
+              <button type="button" onClick={() => go(h.owner)}><Avatar m={m} id={h.owner.at(-1)!} />{m.entityName(h.owner.at(-1)!)}</button>
               <span {...part('entry')}>{describe(h.entry)}</span>
             </li>))}
           </ul>
-        ) : <span {...solve('none')}>目前无人{category.label === '能力' ? '掌握' : '持有'}</span>}
+        ) : <span {...solve('none')}>目前无人{skill ? '掌握' : '持有'}</span>}
       </section>
+    </article>
+  );
+}
+
+const STATE_NOTE: Record<PrefabState, string> = {
+  active: '已经登场，下面是此刻的状态。',
+  dormant: '预制人物，还没有在故事里出现。',
+  destroyed: '登场过，已经退场（预制人物只会登场一次）。',
+  template: '模板：可以据此生成任意多个独立的人物。',
+};
+const STATE_TONE: Record<PrefabState, string> = { active: 'success', dormant: 'neutral', destroyed: 'danger', template: 'info' };
+
+function PrefabDetail({ entry, category, onBack }: { entry: Entry & { state: PrefabState }; category: CodexCategory; onBack?: () => void }) {
+  const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
+  const into = rel(category.into ?? ''), { id, data, state } = entry;
+  const spawned = category.origin ? Object.entries(m.value(into) ?? {}).filter(([, v]: [string, any]) => v?.[category.origin!] === id).map(([k]) => k) : [];
+  // Prefab data is not in the chat state: show it through a model where it sits at its would-be place.
+  const view = React.useMemo(() => state === 'active' ? m
+    : new StatusModel(m.def, { ...m.state, data: { ...m.data, [into[0]!]: { ...(m.value(into) ?? {}), [id]: data } } } as typeof m.state), [m, state, id, data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const base = [...into, id];
+  const [shown, setShown] = React.useState(state !== 'dormant');
+  return (
+    <article {...solve('codex-detail', { state })}>
+      <Head name={data.name ?? id} onBack={onBack} label={category.label}>
+        {(category.badges ?? []).map(b => data[b] ? <K.Badge key={b} tone="accent">{String(data[b])}</K.Badge> : null)}
+        <K.Badge tone={STATE_TONE[state] as never}>{STATE_LABEL[state]}</K.Badge>
+      </Head>
+      <p {...part('note')}>{STATE_NOTE[state]}</p>
+      {state === 'active' ? <div {...part('more')}><K.Button size="sm" variant="default" onClick={() => go(base)}>查看这个角色 ›</K.Button></div> : null}
+      {category.origin ? (
+        <section {...part('holders')}>
+          <h4 {...part('title')}>由此生成<small>{spawned.length}</small></h4>
+          {spawned.length ? (
+            <ul>{spawned.map(k => (
+              <li key={k}>
+                <button type="button" onClick={() => go([...into, k])}><Avatar m={m} id={k} />{m.entityName(k)}</button>
+                <span {...part('entry')}>{String(m.value([...into, k, 'condition']) ?? '')}</span>
+              </li>))}
+            </ul>
+          ) : <span {...solve('none')}>{state === 'template' ? '还没有用这个模板生成过人物' : '还没有以它为原型的人物'}</span>}
+        </section>
+      ) : null}
+      {category.pages?.length ? (
+        shown ? (
+          <ModelContext.Provider value={view}>
+            <Pages base={base} pages={category.pages} label={`${data.name ?? id}资料`} compact />
+          </ModelContext.Provider>
+        ) : <button type="button" {...solve('spoiler', { state: 'hidden' })} onClick={() => setShown(true)}><i aria-hidden="true" />未登场 · 点击查看资料</button>
+      ) : null}
     </article>
   );
 }

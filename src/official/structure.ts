@@ -26,7 +26,9 @@ const character: FieldNode = {
   fields: {
     name: text('姓名', { required: true }),
     alias: text('别称', { optional: true }),
-    role: { type: 'enum', label: '定位', values: ['用户角色', '核心角色', '主要配角', '次要配角'], default: '次要配角' },
+    role: { type: 'enum', label: '定位', values: ['用户角色', '核心角色', '主要配角', '次要配角', '一次性敌人'], default: '次要配角' },
+    // Which prefab / template this character was spawned from (by $from); the codex lists them under it.
+    origin: text('原型', { optional: true }),
     age: text('年龄'),
     intro: text('简介', { as: 'paragraph' }),
     tags: { type: 'array', label: '身份', of: { type: 'string' }, list: OFFICIAL_LISTS.tags, as: 'tags' },
@@ -148,6 +150,8 @@ export const officialStructure: StructureDescription = {
         name: text('能力名', { required: true }),
         kind: { type: 'enum', label: '类别', values: ['特质', '技能'], default: '技能' },
         desc: text('描述'),
+        // Effect per level, keyed by the level number ("1", "2" …; gaps allowed). A holder at level n gets the highest key ≤ n.
+        levels: { type: 'record', label: '等级效果', of: { type: 'string' }, as: 'levels' },
         truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
       } },
     },
@@ -193,7 +197,7 @@ export const officialStructure: StructureDescription = {
     attr_wod: { label: 'WOD', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'WOD 属性为不小于 0 的整数，没有上限；每超过 5 点获得 1 点超凡（由引擎计算，不要写入）。' },
     attr_fate: { label: 'FATE', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FATE 技能使用阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX。' },
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FU 属性只用四档：弱/普通/优秀/卓越。' },
-    rp_abilities: { label: '能力', parent: 'rp', guide: '能力：能力本体只在根节点 abilities 建一次（{name, kind: 特质|技能, desc}），角色的 rp.abilities 以能力 ID 为键引用它，只写本人的 {level}。多人共有同一能力时引用同一个 ID；新能力先建实体再引用。' },
+    rp_abilities: { label: '能力', parent: 'rp', guide: '能力：能力本体只在根节点 abilities 建一次（{name, kind: 特质|技能, desc, levels}），角色的 rp.abilities 以能力 ID 为键引用它，只写本人的 {level}。有等级的能力在 levels 里写每一级的效果，键是等级数字（如 {"1": "…", "3": "…"}，可以跳级，持有者按不超过自身等级的最高一级生效），每级效果要有实际差别。多人共有同一能力时引用同一个 ID；新能力先建实体再引用。' },
     rp_status: { label: '状态', parent: 'rp', guide: '状态：gauges 为量表，名称与数量依世界观和剧情决定；需要精确数值时写 {value, max}，叙事化的状态直接写一句话（如「伤口在渗血，勉强能走」）。effects 为效果，剧情上结束后移除，可用 until 写结束条件。' },
     assets: { label: '资产', guide: '资产：物品本体只在根节点 items 建一次（{name, type, desc, condition}），角色的 items 以物品 ID 为键引用它，只写本人的 {count, equipped}。物品转手：从原持有者的 items 删去该键，再在新持有者的 items 下加上同一 ID；同类消耗品多人持有时各自记数量。funds 的币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元）；清楚数额时写整数，转账用 $transfer 保证总数守恒；说不清数额时写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
     nsfw: { label: 'NSFW', enabled: false },
@@ -205,7 +209,9 @@ export const officialStructure: StructureDescription = {
   guide: [
     '用 <solve_operate> 输出 JSON 操作来更新变量，只写本回合实际发生的变化。',
     'meta.round（轮次）由引擎维护，不要修改。推进时间时用 $set 整体写入 meta.time（clock 格式 HH:MM）。',
-    '只为 用户角色/核心角色/主要配角/次要配角 建立角色实体，路人与龙套不建。实体 ID 用简短英文或拼音，全局唯一（角色、物品、能力、地点、势力之间也不能重名）。',
+    '角色定位：用户角色 / 核心角色 / 主要配角 / 次要配角 / 一次性敌人。只出场一次的敌人（拦路的强盗、一场战斗里的怪物）用「一次性敌人」，事件结束后用 $deleteEntity 删除；会反复出场的反派按分量归入配角。路人与龙套不建。',
+    '有预制实体或模板时优先使用：预制实体以它自己的 ID 登场；需要以它为基础另做一个独立角色时用 $from，并把 origin 写成来源的 ID。',
+    '实体 ID 用简短英文或拼音，全局唯一（角色、物品、能力、地点、势力之间也不能重名）。',
     '角色登场或离场时更新 meta.present；当前地点写入 meta.location（地点实体 ID）。',
     '清单类条目（身份、关系、约定、关键事件等）有上限；收到整理提示时先合并或删除旧条目。',
   ].join('\n'),
@@ -253,6 +259,13 @@ export const officialStructure: StructureDescription = {
       { tab: '地图', items: [{ map: 'places', current: 'meta.location' }] },
       // Codex: every item and ability instance in one place, with who holds it.
       { tab: '图鉴', items: [{ codex: [
+        // Prefabs and templates of type character: a bestiary of ready-made NPCs, with who was spawned from each.
+        { prefabs: 'character', into: 'characters', label: '人物', origin: 'origin', badges: ['role'],
+          pages: [
+            { label: '概况', paths: ['condition', 'age', 'tags', 'intro', 'appearance'] },
+            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
+            { label: '物品', paths: ['items', 'funds'], as: 'inventory' },
+          ] },
         { collection: 'items', label: '物品', group: 'type', holders: ['characters.*.items'] },
         { collection: 'abilities', label: '能力', group: 'kind', holders: ['characters.*.rp.abilities'] },
       ] }] },

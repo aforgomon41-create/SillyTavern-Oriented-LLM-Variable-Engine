@@ -233,10 +233,12 @@ class Runner {
       const input = Object.fromEntries(entries(s.value));
       const from = input.$from;
       delete input.$from;
-      const template = from === undefined ? undefined : this.def.templates?.[String(from).replace(/^@/u, '')];
+      // A template, or a prefab used as a base: either way the result is a new, independent entity.
+      const fromId = from === undefined ? undefined : String(from).replace(/^@/u, '');
+      const template = fromId === undefined ? undefined : this.def.templates?.[fromId] ?? this.def.prefabs?.[fromId];
       if (from !== undefined && !template) fail('TEMPLATE_NOT_FOUND', '模板不存在');
       if ((template && template.type !== spec.type) || (prefab && prefab.type !== spec.type)) fail('ENTITY_TYPE', '模板或预制类型与目标不匹配');
-      const value = merge(prefab?.data ?? template?.data ?? {}, input);
+      const value = merge(template?.data ?? prefab?.data ?? {}, input);
       const parts = [...parent, entityId];
       if (at(state.data, parts, false) !== undefined) fail('TARGET_OCCUPIED', '目标 Key 已存在');
       const parsed = await parseInput(this.def, state, parts, stampValue(this.def, state, parts, value), strict, notes);

@@ -193,6 +193,26 @@ export function migrationText(def: CompiledDefinition, migration: PendingMigrati
   return `【迁移】${group}由「${label(migration.from)}」切换为「${label(migration.to)}」。原数据如下（只提供这一次）：${JSON.stringify(migration.data)}。请依这些数值和角色设定换算，在本次更新中填写「${label(migration.to)}」的对应字段；不适用的项填 null。`;
 }
 /** Compaction warnings for lists at or above their warning threshold. */
+/** Tells the model which ready-made entities exist: dormant prefabs (appear once, under their own ID) and templates. */
+export function presetText(def: CompiledDefinition, state: LogicalState): string {
+  const name = (id: string, data: unknown) => {
+    const n = data && typeof data === 'object' && typeof (data as Record<string, unknown>).name === 'string' ? (data as Record<string, string>).name : '';
+    return n ? `${id}（${n}）` : id;
+  };
+  const dormantPrefabs = Object.entries(def.prefabs ?? {}).filter(([id]) => state.engineState.prefabLifecycle[id] === 'dormant');
+  const templates = Object.entries(def.templates ?? {});
+  if (!dormantPrefabs.length && !templates.length) return '';
+  const byType = (list: [string, { type: string; data: unknown }][]) => {
+    const groups = new Map<string, string[]>();
+    for (const [id, p] of list) groups.set(p.type, [...(groups.get(p.type) ?? []), name(id, p.data)]);
+    return [...groups].map(([type, ids]) => `${type}: ${ids.join('、')}`).join('；');
+  };
+  return [
+    dormantPrefabs.length ? `预制实体（尚未登场；登场时用 $createEntity 以同一 ID 创建，内容自动带入，只能登场一次）：${byType(dormantPrefabs)}` : '',
+    templates.length ? `模板（$createEntity 时写 "$from": "@模板ID" 生成新的独立实体，可多次使用）：${byType(templates)}` : '',
+    '预制实体也可以作为 $from 的来源，生成与它不同 ID 的独立实体。',
+  ].filter(Boolean).join('\n');
+}
 export function listWarnings(def: CompiledDefinition, state: LogicalState, isDormant: (parts: string[]) => boolean): string[] {
   const lines: string[] = [];
   for (const [pattern, rule] of Object.entries(def.lists ?? {})) {

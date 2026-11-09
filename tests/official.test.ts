@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, SolveCore, compileStructure, officialStructure, project, guide, toJson, applyAction, computeAll, selectBgm, nextRound } from '../src/index.js';
-import { exampleData, exampleState } from '../examples/official/example.js';
+import { exampleData, exampleState, exampleStructure } from '../examples/official/example.js';
 import type { Action, LogicalState } from '../src/types.js';
 
 async function official() {
-  const def = await compile(compileStructure(officialStructure));
+  const def = await compile(compileStructure(exampleStructure));
   const core = new SolveCore(def);
   return { def, core, state: await exampleState(core) };
 }
@@ -16,7 +16,7 @@ test('官方结构可编译，示例数据通过校验，指纹稳定且不含�
   const { def, state } = await official();
   assert.equal(data(state).characters.erin.rp.attributes.wod.str, 23);
   assert.equal(data(state).characters.ash.rp.attributes.wod.sta, null);
-  const again = await compile(compileStructure({ ...officialStructure, display: { layout: [] } }));
+  const again = await compile(compileStructure({ ...exampleStructure, display: { layout: [] } }));
   assert.equal(again.fingerprint, def.fingerprint, '布局变化不改变定义指纹');
   assert.equal(def.display?.labels?.['characters.*.rp.attributes.wod.str'], '力量');
   assert.equal(def.display?.spoiler?.['items.*.truth'], 'hidden');
@@ -200,3 +200,45 @@ test('物品与能力是根节点实例，角色只引用：引用须存在、�
   assert.deepEqual(Object.keys(json.items['@old_map']).sort(), ['name', 'type'], '无人持有的物品只留名称与类型');
   assert.deepEqual(Object.keys(json.abilities['@fireball']).sort(), ['kind', 'name'], '无人掌握的能力只留名称与类别');
 });
+
+test('能力按等级写效果：键为等级数字，示例的盾击有 5 级', async () => {
+  const { def, state } = await official();
+  const bash = data(state).abilities.shield_bash;
+  assert.deepEqual(Object.keys(bash.levels), ['1', '2', '3', '4', '5']);
+  assert.equal(def.display?.as?.['abilities.*.levels'], 'levels');
+  assert.match(guide(def, state), /levels 里写每一级的效果/u);
+});
+
+test('一次性敌人是角色定位的最低一级', async () => {
+  const { core, state } = await official();
+  const r = await core.execute({ $set: { 'characters.@goon': { name: '打手', role: '一次性敌人' } } }, state);
+  assert.equal(data(r.state).characters.goon.role, '一次性敌人');
+  const enumValues = (officialStructure.fields.characters as any).of.fields.role.values as string[];
+  assert.equal(enumValues.at(-1), '一次性敌人');
+});
+
+test('预制角色：只能登场一次；可作为 $from 的来源生成独立角色；指南列出未登场的预制与模板', async () => {
+  const { def, core, state } = await official();
+  assert.equal(state.engineState.prefabLifecycle.cassius, 'active');
+  assert.equal(state.engineState.prefabLifecycle.rat_king, 'destroyed');
+  assert.equal(state.engineState.prefabLifecycle.grave_hound, 'dormant');
+  assert.equal(data(state).characters.one_eye.origin, 'cult_zealot');
+  assert.equal(data(state).characters.one_eye.role, '一次性敌人');
+  const text = guide(def, state);
+  assert.match(text, /预制实体（尚未登场.*grave_hound（墓园猎犬）/u);
+  assert.doesNotMatch(text, /rat_king（/u);
+  assert.match(text, /模板.*cult_zealot（教团狂信徒）/u);
+  const appear = await core.execute({ $createEntity: { 'characters.@grave_hound': {} } }, state);
+  assert.equal(data(appear.state).characters.grave_hound.name, '墓园猎犬');
+  assert.equal(appear.state.engineState.prefabLifecycle.grave_hound, 'active');
+  const again = await core.execute({ $createEntity: { 'characters.@grave_hound': {} } }, appear.state);
+  assert.equal(again.feedback[0]?.code, 'PREFAB_LIFECYCLE');
+  const copy = await core.execute({ $createEntity: { 'characters.@pup': { $from: '@grave_hound', name: '墓园幼犬', origin: 'grave_hound' } } }, appear.state);
+  assert.equal(data(copy.state).characters.pup.intro, data(appear.state).characters.grave_hound.intro);
+  assert.equal(data(copy.state).characters.pup.name, '墓园幼犬');
+  assert.equal(copy.state.engineState.prefabLifecycle.pup, undefined);
+  // A dormant prefab used as a base stays dormant.
+  const base = await core.execute({ $createEntity: { 'characters.@pup': { $from: '@grave_hound' } } }, state);
+  assert.equal(base.state.engineState.prefabLifecycle.grave_hound, 'dormant');
+});
+

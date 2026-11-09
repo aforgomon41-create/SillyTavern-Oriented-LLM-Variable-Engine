@@ -12,8 +12,8 @@ import { createRuntime } from 'kami/frontend/runtime/index';
 import { SkinManager, type SkinEntry, type StoredSettings } from 'kami/frontend/skin-engine/manager';
 import * as DS from 'kami/frontend/ds';
 import kamiSkins from 'kami-skins';
-import { compile, SolveCore, compileStructure, officialStructure } from '../../src/index';
-import { exampleState } from '../../examples/official/example';
+import { compile, SolveCore, compileStructure } from '../../src/index';
+import { exampleState, exampleStructure } from '../../examples/official/example';
 import { KitProvider, type Kit } from '../../src/ui/kit';
 import { StatusBar } from '../../src/ui/statusbar/views';
 import { StatusModel } from '../../src/ui/statusbar/model';
@@ -92,7 +92,7 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
   sheet.replaceSync('@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;\n@layer k.components {\n' + statusCss + '\n}');
   layer.shadow.adoptedStyleSheets = [...layer.shadow.adoptedStyleSheets, sheet];
 
-  const def = await compile(compileStructure(officialStructure));
+  const def = await compile(compileStructure(exampleStructure));
   const core = new SolveCore(def);
   const model = new StatusModel(def, await exampleState(core));
   const kit = DS as unknown as Kit;

@@ -7,6 +7,7 @@ import { useKit } from '../kit.js';
 import { isEmpty, type Path, type StatusModel } from './model.js';
 import { Field, NavigateContext, RefChip, useModel } from './fields.js';
 import { part, solve } from './widgets.js';
+import { LevelNow, LevelPips, steps } from './levels.js';
 
 interface Held { id: string; at?: Path; data: Record<string, any> }
 /** Join each referenced id with its root instance. */
@@ -86,8 +87,10 @@ export function Abilities({ path }: { path: Path }) {
                   <div {...part('head')}>
                     {h.at ? <button type="button" {...part('name')} onClick={() => go(h.at!)} title="在图鉴中查看">{nameOf(h)}</button> : <b {...part('name')}>{nameOf(h)}</b>}
                     {typeof h.data.level === 'number' ? <K.Badge tone="accent">Lv.{h.data.level}</K.Badge> : null}
+                    {typeof h.data.level === 'number' ? <LevelPips level={h.data.level} max={steps(h.data.levels).at(-1)?.level ?? 0} /> : null}
                   </div>
                   {h.data.desc ? <p {...part('desc')}>{h.data.desc}</p> : null}
+                  <LevelNow levels={h.data.levels} level={typeof h.data.level === 'number' ? h.data.level : undefined} />
                   {share.length ? <div {...part('share')}>同样拥有：{share.map((id, i) => <React.Fragment key={id}>{i ? '、' : ''}<RefChip id={id} /></React.Fragment>)}</div> : null}
                 </li>
               );
