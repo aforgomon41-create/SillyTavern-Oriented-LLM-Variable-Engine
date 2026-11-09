@@ -52,7 +52,7 @@ function gallery(): void {
     <p class="note"></p>
     <div class="coins" aria-label="货币图标"></div>
     <details class="credits"><summary>图片与音乐来源（都是外链的网络资源）</summary>
-      <p>图片：Wikimedia Commons，公有领域画作与 CC0 博物馆藏品照片（大都会艺术博物馆开放获取）。音乐：${MUSIC_CREDIT}。</p>
+      <p>图片：<a href="https://www.irasutoya.com/" target="_blank" rel="noopener">いらすとや</a>（みふねたかし），按其<a href="https://www.irasutoya.com/p/terms.html" target="_blank" rel="noopener">使用条款</a>免费使用（商用作品最多 20 张）。音乐：${MUSIC_CREDIT}。</p>
       <ul>${Object.entries(IMAGES).map(([k, v]) => `<li><code>${k}</code> <a href="${v.source}" target="_blank" rel="noopener">${v.title}</a> · ${v.artist} · ${v.license}</li>`).join('')}
       ${MUSIC.map(t => `<li><code>${t.id}</code> 「${t.title}」 · CC BY 4.0${t.moods.length ? ' · 情绪：' + t.moods.join('、') : ''}</li>`).join('')}</ul>
     </details>
