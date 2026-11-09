@@ -126,12 +126,11 @@ export const exampleData: Record<string, Json> = {
     marsh_hut: { name: '沼泽小屋', ...pics('marsh_hut'), kind: '地点', parent: 'fog_marsh', links: ['fog_marsh'], desc: '艾琳救下米拉的地方。', discovered: true },
   },
   lore: {
-    main_arc: { title: '洗清罪名', kind: '主线', content: '艾琳被诬陷私通灰烬教团，逐出银枝骑士团，正在追查陷害她的人。', known: true, stage: '进行中', related: ['erin', 'silver_branch'], source: '剧情' },
     ember_pact: { title: '契约之力', kind: '规则', content: '与亡者订立契约可以借用对方的力量，代价是亡者会一点点侵占契约者的意识。', known: true, stage: null, related: ['erin', 'ash'], source: '剧情' },
     grey_rain: { title: '灰烬之雨', kind: '世界观', content: '王都终年细雨，据说雨里混着上一个纪元覆灭时留下的灰烬。', known: true, stage: null, related: ['capital'], source: '剧情' },
     cellar_ghost: { title: '地窖里的亡灵', kind: '传闻', content: '酒客们说醉橡木酒馆的地窖里住着亡灵，夜里能听见铠甲的响声。', truth: '那是灰烬白天藏身的地方。', known: true, stage: null, related: ['tavern', 'ash'], source: '剧情' },
-    lost_score: { title: '琴颈上的花纹', kind: '伏笔', content: '米拉的旧鲁特琴琴颈上刻着一段谁也看不懂的花纹。', truth: '那是能唤醒亡者的失落乐谱的一部分。', known: true, stage: '未展开', related: ['mira', 'lute'], source: '剧情' },
-    forged_seal: { title: '伪造的火漆', kind: '秘密', content: '定罪艾琳的那封信上的骑士团火漆是伪造的。', truth: '伪造者是卡修斯的副官，受灰烬教团收买。', known: false, stage: '未展开', related: ['cassius', 'silver_branch', 'sealed_letter'], source: '剧情' },
+    lost_score: { title: '琴颈上的花纹', kind: '伏笔', content: '米拉的旧鲁特琴琴颈上刻着一段谁也看不懂的花纹。', truth: '那是能唤醒亡者的失落乐谱的一部分。', known: true, stage: '已埋下', related: ['mira', 'lute'], source: '剧情' },
+    forged_seal: { title: '伪造的火漆', kind: '秘密', content: '定罪艾琳的那封信上的骑士团火漆是伪造的。', truth: '伪造者是卡修斯的副官，受灰烬教团收买。', known: false, stage: null, related: ['cassius', 'silver_branch', 'sealed_letter'], source: '剧情' },
     magic_cost: { title: '魔法的代价', kind: '规则', content: '施展魔法要付出等价的记忆，越强的法术忘掉的越多。', known: true, stage: null, related: [], source: '玩家' },
   },
   buildings: {

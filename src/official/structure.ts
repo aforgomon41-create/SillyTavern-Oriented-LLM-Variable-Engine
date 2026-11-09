@@ -248,7 +248,7 @@ export const officialStructure: StructureDescription = {
       } },
     },
     // Lore established during play (the card author's fixed setting stays in the world book): rules, history,
-    // secrets, foreshadowing, rumours, the main arc. The model sees every entry; the player sees what 主角 knows.
+    // secrets, foreshadowing, rumours (not the plot's progress itself). The model sees every entry; the player sees what 主角 knows.
     lore: {
       type: 'record', label: '设定', entity: 'lore', module: 'lore', list: { max: 40, warn: 32 },
       spoiler: 'spoiler', reveal: { known: true }, actions: LORE_ACTIONS,
@@ -256,11 +256,11 @@ export const officialStructure: StructureDescription = {
         narrate: '玩家确立了设定「{title}」（{kind}）：{content}' },
       of: { type: 'object', fields: {
         title: text('标题', { required: true, edit: playerLore }),
-        kind: { type: 'enum', label: '类别', values: ['世界观', '历史', '规则', '秘密', '伏笔', '传闻', '主线'], default: '世界观', edit: playerLore },
+        kind: { type: 'enum', label: '类别', values: ['世界观', '历史', '规则', '秘密', '伏笔', '传闻'], default: '世界观', edit: playerLore },
         content: text('内容', { as: 'paragraph', edit: playerLore }),
         truth: text('真相', { optional: true, spoiler: 'hidden' }),
         known: { type: 'bool', label: '主角已知', default: true },
-        stage: { type: 'enum', label: '进度', values: ['未展开', '进行中', '已收束'], nullable: true, default: null },
+        stage: { type: 'enum', label: '伏笔进度', values: ['已埋下', '推进中', '已回收'], nullable: true, default: null },
         related: { type: 'refs', label: '相关', to: ['character', 'place', 'faction', 'item', 'building'] },
         source: { type: 'enum', label: '来源', values: ['剧情', '玩家'], default: '剧情' },
       } },
@@ -320,7 +320,7 @@ export const officialStructure: StructureDescription = {
     assets: { label: '资产', guide: '资产：物品本体只在根节点 items 建一次（{name, type, desc, condition}），角色的 items 以物品 ID 为键引用它，只写本人的 {count, equipped, note}。独一无二的物品（具名武器、信物、钥匙、座驾等世上只有一件的东西）设 unique: true，同一时间只能在一个角色名下：转手时直接在新持有者的 items 下加上该 ID，引擎会自动从原持有者处移除（也可以用 $move）。普通物品（制式装备、药剂、杂物）不设 unique，多人可以各自持有同一 ID 并各记数量。钱也是物品，类型为「货币」，币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元），各建一个物品实体，持有者用 count 记数量；付钱、交易用 $transfer 在双方的 count 之间转移（对方还没有这种货币时会自动新建），保证总数守恒；说不清数额时在 note 写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
     nsfw: { label: 'NSFW', enabled: false },
     map: { label: '地图', guide: '地图：地点用 parent 表示层级（区域 → 地点），用 links 记录相通的地点；新发现的地点 discovered 设为 true。' },
-    lore: { label: '设定', guide: '设定：剧情中确立下来的世界观、历史、规则、秘密、伏笔、传闻与主线写进根节点 lore（{title, kind, content, truth?, known, stage?, related}），卡作者在世界书里写好的固定设定不必重复。content 写成一两句；truth 写真相（玩家看不到）；主角还不知道的设定 known 设为 false，揭晓后改为 true；伏笔与主线用 stage 标进度（未展开 / 进行中 / 已收束），伏笔要记得回收；related 列出相关的角色、地点、势力、物品、建筑。source 为「玩家」的条目是玩家亲自确立的，必须遵守，不要改写或删除。新剧情与已有设定矛盾时先修改设定，不要另建一条。' },
+    lore: { label: '设定', guide: '设定：剧情中确立下来的世界观、历史、规则、秘密、伏笔与传闻写进根节点 lore（{title, kind, content, truth?, known, stage?, related}）。剧情进展本身不是设定，记在主角的驱动力里；卡作者在世界书里写好的固定设定也不必重复。content 写成一两句；truth 写真相（玩家看不到）；主角还不知道的设定 known 设为 false，揭晓后改为 true；伏笔用 stage 标进度（已埋下 / 推进中 / 已回收），埋下的伏笔要记得回收，其他类别 stage 留空；related 列出相关的角色、地点、势力、物品、建筑。source 为「玩家」的条目是玩家亲自确立的，必须遵守，不要改写或删除。新剧情与已有设定矛盾时先修改设定，不要另建一条。' },
     buildings: { label: '建筑', enabled: false, guide: '建筑：住宅、商铺、银行、仓库等。owner 为产权人；vault 为 true 表示任何人都能寄存（银行、出租仓库）。物品存放在建筑里时写在持有者自己的 items.<物品ID>.stored.<建筑ID>（数量），count 只记随身携带的数量；存取用 $transfer 在 count 与 stored 之间转移，取空的 stored 条目删除。' },
     factions: { label: '势力', enabled: false, guide: '势力：只为有分量的组织建实体；声望每次变化不超过 ±10。' },
   },
