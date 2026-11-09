@@ -1,4 +1,5 @@
 import { at, assertJson, canonical, clone, expand, fail, matches, pointer, safeKey } from './json.js';
+import { EntityGraph } from './entities.js';
 import type { BgmTrack, CompiledDefinition, ComputedFormula, Data, Definition, Feedback, Json, ListLimit, LogicalState, PendingMigration, ProjectionRule, SettingsPatch } from './types.js';
 
 /* ---------- computed fields ---------- */
@@ -193,6 +194,47 @@ export function migrationText(def: CompiledDefinition, migration: PendingMigrati
   return `【迁移】${group}由「${label(migration.from)}」切换为「${label(migration.to)}」。原数据如下（只提供这一次）：${JSON.stringify(migration.data)}。请依这些数值和角色设定换算，在本次更新中填写「${label(migration.to)}」的对应字段；不适用的项填 null。`;
 }
 /** Compaction warnings for lists at or above their warning threshold. */
+/** Records currently holding each flagged ("unique") target, per rule. */
+function uniqueHolders(def: CompiledDefinition, state: LogicalState): { rule: { path: string; flag: string }; id: string; records: string[][] }[] {
+  if (!def.uniqueHolds?.length) return [];
+  const graph = new EntityGraph(def, state);
+  const out: { rule: { path: string; flag: string }; id: string; records: string[][] }[] = [];
+  for (const rule of def.uniqueHolds) {
+    const held = new Map<string, string[][]>();
+    for (const found of expand(state.data, rule.path)) {
+      if (!found.value || typeof found.value !== 'object' || Array.isArray(found.value)) continue;
+      for (const id of Object.keys(found.value)) held.set(id, [...(held.get(id) ?? []), found.parts]);
+    }
+    for (const [id, records] of held) {
+      if (records.length < 2 || !graph.entities.has(id)) continue;
+      const target = at(state.data, graph.resolve('@' + id), false) as Record<string, unknown> | undefined;
+      if (target?.[rule.flag] === true) out.push({ rule, id, records });
+    }
+  }
+  return out;
+}
+function ownerName(graph: EntityGraph, state: LogicalState, parts: string[]): string {
+  const p = pointer(parts);
+  const owner = [...graph.entities.values()].filter(e => p.startsWith(e.pointer + '/')).sort((a, b) => b.pointer.length - a.pointer.length)[0];
+  const name = owner ? (at(state.data, graph.resolve('@' + owner.id), false) as Record<string, unknown> | undefined)?.name : undefined;
+  return typeof name === 'string' && name ? name : owner?.id ?? parts.join('.');
+}
+/** A unique target added to a new holder leaves its previous holders (L1 note); two new holders at once is an error. */
+export function moveUniqueHolds(def: CompiledDefinition, next: LogicalState, previous: LogicalState, notes: Feedback[]): void {
+  for (const { id, records } of uniqueHolders(def, next)) {
+    const fresh = records.filter(r => at(previous.data, [...r, id], false) === undefined);
+    const graph = new EntityGraph(def, next);
+    if (fresh.length !== 1) fail('UNIQUE_HELD', `${id} 是独一无二的，不能同时由${records.map(r => ownerName(graph, next, r)).join('、')}持有`, pointer([...records[0]!, id]));
+    const old = records.filter(r => r !== fresh[0]);
+    notes.push({ level: 'L1', code: 'UNIQUE_MOVED', message: `${id} 是独一无二的：已从${old.map(r => ownerName(graph, next, r)).join('、')}处移除，交给${ownerName(graph, next, fresh[0]!)}`, path: pointer([...fresh[0]!, id]) });
+    for (const r of old) delete (at(next.data, r, false) as Record<string, unknown>)[id];
+  }
+}
+/** Stored state must not have a unique target under two holders. */
+export function assertUniqueHolds(def: CompiledDefinition, state: LogicalState): void {
+  const dup = uniqueHolders(def, state)[0];
+  if (dup) fail('UNIQUE_HELD', `${dup.id} 是独一无二的，却同时出现在 ${dup.records.map(r => r.join('.')).join('、')}`);
+}
 /** Tells the model which ready-made entities exist: dormant prefabs (appear once, under their own ID) and templates. */
 export function presetText(def: CompiledDefinition, state: LogicalState): string {
   const name = (id: string, data: unknown) => {
@@ -263,9 +305,7 @@ export function applyProjectionRules(rules: ProjectionRule[] | undefined, data: 
         else if (Array.isArray(v)) v.forEach(x => typeof x === 'string' && used.add(x));
         else if (v && typeof v === 'object') Object.keys(v).forEach(k => used.add(k));
       }
-      const field = rule.field;
-      const isUsed = (key: string, item: any) => field ? typeof item?.[field] === 'string' && used.has(item[field]) : used.has(key);
-      for (const [key, item] of Object.entries(collection)) if (!isUsed(key, item)) collection[key] = keepFields(item, rule.keep);
+      for (const [key, item] of Object.entries(collection)) if (!used.has(key)) collection[key] = keepFields(item, rule.keep);
     } else {
       const collection = valueAt(out, rule.collection) as Record<string, any> | undefined;
       const current = valueAt(out, rule.current);

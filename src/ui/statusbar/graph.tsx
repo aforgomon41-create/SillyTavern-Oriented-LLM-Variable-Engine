@@ -1,7 +1,8 @@
 /**
  * Interactive node graph (map, relationships, diplomacy): force layout, pan / wheel / pinch zoom,
  * draggable nodes, labels at a constant on-screen size, selection highlighting.
- * Hooks: [data-solve="graph"] with parts canvas / edge / edge-label / node / dot / halo / name / here / tools.
+ * Hooks: [data-solve="graph"] with parts canvas / region / area / region-name / edge / edge-label / node / dot / halo / name / here / tools.
+ * Groups (map regions) are drawn as soft areas around their members instead of nodes.
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
@@ -9,11 +10,26 @@ import { bounds, forceLayout, nodeBox, type Point } from './force.js';
 import { part, solve } from './widgets.js';
 
 export type Tone = 'positive' | 'negative' | 'neutral' | 'info';
-export interface GraphNode { id: string; label: string; r?: number; kind?: string; current?: boolean; muted?: boolean; mark?: string; tone?: Tone }
-export interface GraphEdge { a: string; b: string; kind?: 'link' | 'hierarchy' | 'relation'; tone?: Tone; label?: string; width?: number; length?: number; strength?: number; opacity?: number }
+/** `hidden`: takes part in the layout (e.g. a region pulling its places together) but is not drawn. */
+export interface GraphNode { id: string; label: string; r?: number; kind?: string; current?: boolean; muted?: boolean; mark?: string; tone?: Tone; hidden?: boolean }
+export interface GraphEdge { a: string; b: string; kind?: 'link' | 'hierarchy' | 'relation'; tone?: Tone; label?: string; width?: number; length?: number; strength?: number; opacity?: number; hidden?: boolean }
+/** An area drawn around `members` (ids of drawn nodes); `level` 0 is innermost, outer areas get more padding. */
+export interface GraphGroup { id: string; label: string; members: string[]; level?: number; current?: boolean }
 
-export function GraphView({ nodes, edges, selected, onSelect, label, start, height = 'md' }: {
-  nodes: GraphNode[]; edges: GraphEdge[]; selected?: string; onSelect?: (id: string | undefined) => void; label: string;
+/** Convex hull (monotone chain) of a point set. */
+function hull(points: Point[]): Point[] {
+  const p = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (p.length < 3) return p;
+  const cross = (o: Point, a: Point, b: Point) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: Point[] = [], upper: Point[] = [];
+  for (const q of p) { while (lower.length >= 2 && cross(lower.at(-2)!, lower.at(-1)!, q) <= 0) lower.pop(); lower.push(q); }
+  for (const q of [...p].reverse()) { while (upper.length >= 2 && cross(upper.at(-2)!, upper.at(-1)!, q) <= 0) upper.pop(); upper.push(q); }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+const AREA_PAD = 34, AREA_STEP = 28;
+
+export function GraphView({ nodes, edges, groups = [], selected, onSelect, label, start, height = 'md' }: {
+  nodes: GraphNode[]; edges: GraphEdge[]; groups?: GraphGroup[]; selected?: string; onSelect?: (id: string | undefined) => void; label: string;
   /** Narrow screens open zoomed around this node. */
   start?: string; height?: 'sm' | 'md';
 }) {
@@ -23,7 +39,8 @@ export function GraphView({ nodes, edges, selected, onSelect, label, start, heig
   const [moved, setMoved] = React.useState<Record<string, Point>>({});
   React.useEffect(() => setMoved({}), [key]);
   const pos = (id: string): Point => moved[id] ?? layout.get(id) ?? { x: 0, y: 0 };
-  const box = React.useMemo(() => bounds(nodes.map(n => ({ ...(layout.get(n.id) ?? { x: 0, y: 0 }), box: nodeBox({ id: n.id, r: n.r ?? 16, label: n.label }) }))), [layout]); // eslint-disable-line react-hooks/exhaustive-deps
+  const areaPad = groups.length ? AREA_PAD + AREA_STEP * Math.max(0, ...groups.map(g => g.level ?? 0)) + 20 : 24;
+  const box = React.useMemo(() => bounds(nodes.filter(n => !n.hidden).map(n => ({ ...(layout.get(n.id) ?? { x: 0, y: 0 }), box: nodeBox({ id: n.id, r: n.r ?? 16, label: n.label }) })), areaPad), [layout]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const svgRef = React.useRef<SVGSVGElement>(null);
   const [px, setPx] = React.useState({ w: 0, h: 0 });
@@ -84,7 +101,12 @@ export function GraphView({ nodes, edges, selected, onSelect, label, start, heig
       if (Math.hypot(e.clientX - drag.current.start.x, e.clientY - drag.current.start.y) > 4) drag.current.moved = true;
       const dx = (e.clientX - prev.x) * s, dy = (e.clientY - prev.y) * s;
       const id = drag.current.id;
-      if (id) setMoved(m => { const p = m[id] ?? layout.get(id) ?? { x: 0, y: 0 }; return { ...m, [id]: { x: p.x + dx, y: p.y + dy } }; });
+      const group = id ? groups.find(g => g.id === id) : undefined;
+      if (id) setMoved(m => {
+        const out = { ...m };
+        for (const k of group ? group.members : [id]) { const p = m[k] ?? layout.get(k) ?? { x: 0, y: 0 }; out[k] = { x: p.x + dx, y: p.y + dy }; }
+        return out;
+      });
       else setView(v => ({ ...v, minX: v.minX - dx, minY: v.minY - dy }));
     } else if (pointers.current.size === 2) {
       const [pa, pb] = [...pointers.current.values()];
@@ -104,24 +126,64 @@ export function GraphView({ nodes, edges, selected, onSelect, label, start, heig
 
   const near = new Set<string>();
   if (selected) for (const e of edges) { if (e.a === selected) near.add(e.b); if (e.b === selected) near.add(e.a); }
+  const selGroup = groups.find(g => g.id === selected);
+  if (selGroup) selGroup.members.forEach(id => near.add(id));
   const dim = (id: string) => !!selected && id !== selected && !near.has(id);
+  // Areas: hull of the members' boxes, padded by a round-joined stroke; outer (higher level) areas first.
+  const areas = groups.map(g => {
+    const pts = g.members.flatMap(id => {
+      const n = nodes.find(x => x.id === id); if (!n) return [];
+      const p = pos(id), b = nodeBox({ id, r: n.r ?? 16, label: n.label });
+      // The current place carries a halo and a 「当前」 tag above it: keep those inside the area too.
+      const top = n.current ? Math.max(b.top, (n.r ?? 16) + 14 + 16 * ts) : b.top;
+      return [{ x: p.x - b.w / 2, y: p.y - top }, { x: p.x + b.w / 2, y: p.y - top }, { x: p.x - b.w / 2, y: p.y + b.bottom }, { x: p.x + b.w / 2, y: p.y + b.bottom }];
+    });
+    const h = hull(pts), pad = AREA_PAD + AREA_STEP * (g.level ?? 0);
+    const top = h.reduce((t, q) => q.y < t.y ? q : t, h[0] ?? { x: 0, y: 0 });
+    const cx = pts.reduce((s, q) => s + q.x, 0) / (pts.length || 1), cy = pts.reduce((s, q) => s + q.y, 0) / (pts.length || 1);
+    return { g, d: h.length ? 'M' + h.map(q => `${q.x} ${q.y}`).join('L') + 'Z' : '', pad, label: { x: (Math.min(...h.map(q => q.x)) + Math.max(...h.map(q => q.x))) / 2, y: top.y - pad * 0.5 }, center: { x: cx, y: cy } };
+  }).sort((a, b) => (b.g.level ?? 0) - (a.g.level ?? 0));
+  // Edges to a region end at its area's centre.
+  const end = (id: string): Point => areas.find(a => a.g.id === id)?.center ?? pos(id);
   return (
     <div {...solve('graph', { size: height })}>
       <div {...part('canvas')} data-k-level="sunken">
         <svg ref={svgRef} viewBox={`${view.minX} ${view.minY} ${view.w} ${view.h}`} role="group" aria-label={label}
           onPointerDown={e => onPointerDown(e)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+          {/* Links to a region run from its centre: drawn under the (opaque) areas so only the part between areas shows. */}
           {edges.map((e, i) => {
-            const a = pos(e.a), b = pos(e.b), off = !!selected && e.a !== selected && e.b !== selected;
+            if (e.hidden || !(areas.some(a => a.g.id === e.a) || areas.some(a => a.g.id === e.b))) return null;
+            const a = end(e.a), b = end(e.b), off = !!selected && e.a !== selected && e.b !== selected;
+            return <line key={'r' + i} {...part('edge')} data-kind={e.kind ?? 'link'} data-tone={e.tone} data-dim={off ? '' : undefined} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+          })}
+          {areas.map(({ g, d, pad }) => (
+            <g key={'area-' + g.id} {...part('region')} data-current={g.current ? '' : undefined} data-selected={g.id === selected ? '' : undefined}
+              data-dim={selected && !selGroup && !g.members.includes(selected) && g.id !== selected ? '' : undefined}>
+              <path {...part('area')} d={d} style={{ strokeWidth: pad * 2 }} />
+            </g>
+          ))}
+          {edges.map((e, i) => {
+            if (e.hidden || areas.some(a => a.g.id === e.a || a.g.id === e.b)) return null;
+            const a = end(e.a), b = end(e.b), off = !!selected && e.a !== selected && e.b !== selected && !(selGroup && (selGroup.members.includes(e.a) || selGroup.members.includes(e.b)));
             return <line key={i} {...part('edge')} data-kind={e.kind ?? 'link'} data-tone={e.tone} data-dim={off ? '' : undefined}
               style={e.width || e.opacity !== undefined ? { ...(e.width ? { strokeWidth: e.width } : {}), ...(e.opacity !== undefined ? { strokeOpacity: e.opacity } : {}) } : undefined} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
           })}
           {edges.map((e, i) => {
-            if (!e.label) return null;
-            const a = pos(e.a), b = pos(e.b), off = !!selected && e.a !== selected && e.b !== selected;
+            if (!e.label || e.hidden) return null;
+            const a = end(e.a), b = end(e.b), off = !!selected && e.a !== selected && e.b !== selected;
             return <g key={'l' + i} transform={`translate(${(a.x + b.x) / 2} ${(a.y + b.y) / 2}) scale(${ts})`} data-dim={off ? '' : undefined}>
               <text {...part('edge-label')} data-tone={e.tone} y={4}>{e.label}</text></g>;
           })}
+          {areas.map(({ g, label: at }) => (
+            <g key={'name-' + g.id} {...part('region-label')} transform={`translate(${at.x} ${at.y}) scale(${ts})`} data-current={g.current ? '' : undefined}
+              data-selected={g.id === selected ? '' : undefined} tabIndex={0} role="button" aria-pressed={g.id === selected} aria-label={g.label}
+              onPointerDown={e => onPointerDown(e, g.id)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(g.id === selected ? undefined : g.id); } }}>
+              <text {...part('region-name')} y={5}>{g.label}</text>
+            </g>
+          ))}
           {nodes.map(n => {
+            if (n.hidden) return null;
             const p = pos(n.id), r = n.r ?? 16;
             return (
               <g key={n.id} {...part('node')} data-kind={n.kind} data-tone={n.tone} data-current={n.current ? '' : undefined} data-muted={n.muted ? '' : undefined}

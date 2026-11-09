@@ -73,9 +73,7 @@ export type ProjectionRule =
   | { kind: 'related'; path: string; collection: string; list: string; always?: { field: string; equals: Json } }
   | { kind: 'neighborhood'; collection: string; current: string; parent?: string; links?: string; keep: string[] }
   /** Root entities referenced from `from` (record keys or ref values, after earlier rules) stay whole; the rest keep only `keep`. */
-  /** Keep an instance whole when it is referenced from `from` (ids as strings, string arrays or record keys);
-   *  with `field`, when the instance's own `field` (e.g. holder) points at one of those ids instead. */
-  | { kind: 'referenced'; collection: string; from: string[]; keep: string[]; field?: string };
+  | { kind: 'referenced'; collection: string; from: string[]; keep: string[] };
 export interface BgmTrack { id: string; url: string; title?: string; moods: string[] }
 export interface BgmSpec { library?: BgmTrack[]; mood?: string; location?: string; places?: string; field?: string; parent?: string }
 export interface DisplaySpec { labels?: Record<string, string>; spoiler?: Record<string, 'public' | 'spoiler' | 'hidden'>; as?: Record<string, string>;
@@ -115,6 +113,11 @@ export interface Definition {
   groups?: Record<string, { label?: string; migrate?: boolean }>;
   /** Background music selection; presentation only, excluded from the fingerprint. */
   bgm?: BgmSpec;
+  /**
+   * Entity-keyed records (`path`, e.g. characters.*.items) where a target whose `flag` field is true may sit under
+   * one record only. Adding it to a new holder takes it from the old one; two new holders at once are rejected.
+   */
+  uniqueHolds?: { path: string; flag: string }[];
   /** Status-bar labels, spoiler levels, widgets and layout; excluded from the fingerprint. */
   display?: DisplaySpec;
 }

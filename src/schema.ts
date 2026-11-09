@@ -5,7 +5,7 @@ import { compileGuideRules, describeGuideRules } from './guides.js';
 import { hasInline, isAuthorPrepared } from './inline.js';
 import { compileAuthorDefinition } from './authoring.js';
 import { copyFacets, describeFacetHooks } from './facets.js';
-import { describeProjection, formulaName } from './features.js';
+import { assertUniqueHolds, describeProjection, formulaName } from './features.js';
 
 export function unwrap(schema: any): any {
   for (let i = 0; i < 32; i++) {
@@ -159,6 +159,10 @@ function describeEngineRules(definition: Definition): Json | undefined {
   const projection = describeProjection(definition.projection);
   if (projection !== undefined) rules.projection = projection;
   if (definition.groups && Object.keys(definition.groups).length) rules.groups = clone(definition.groups) as unknown as Json;
+  if (definition.uniqueHolds?.length) {
+    for (const rule of definition.uniqueHolds) { keys(rule.path); safeKey(rule.flag); }
+    rules.uniqueHolds = clone(definition.uniqueHolds) as unknown as Json;
+  }
   for (const [name, module] of Object.entries(definition.modules ?? {})) if (module.exclusive !== undefined && !module.exclusive) fail('MODULE_EXCLUSIVE', `互斥组名不能为空：${name}`);
   return Object.keys(rules).length ? rules : undefined;
 }
@@ -226,7 +230,7 @@ export async function validateStored(def: CompiledDefinition, state: LogicalStat
     const activeIssues = result.error.issues.filter((issue: any) => !dormant(def, state, issue.path.map(String)));
     if (activeIssues.length) fail('SCHEMA_REJECTED', activeIssues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; '));
   } else if (canonical(result.data) !== canonical(state.data)) fail('STORED_STATE_CHANGED', '状态含未声明字段或需要再次转换的值');
-  if (!structuralOnly) await def.validateState?.(clone(state), clone(context));
+  if (!structuralOnly) { assertUniqueHolds(def, state); await def.validateState?.(clone(state), clone(context)); }
 }
 function normalizeInput(def: CompiledDefinition, state: LogicalState, parts: string[], input: any, strict: boolean, feedback: Feedback[], allowDormant: boolean): any {
   if (input === undefined) return undefined;

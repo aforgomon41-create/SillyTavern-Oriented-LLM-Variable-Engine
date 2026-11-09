@@ -9,7 +9,7 @@ import { useKit } from '../kit.js';
 import { isEmpty, StatusModel, type Path } from './model.js';
 import { ModelContext, NavigateContext, RefChip, Section, useModel } from './fields.js';
 import { EntityBody, Pages, type PageSpec } from './body.js';
-import { GraphView, type GraphEdge, type GraphNode, type Tone } from './graph.js';
+import { GraphView, type GraphEdge, type GraphGroup, type GraphNode, type Tone } from './graph.js';
 import { PlayerSheet, type SheetItem } from './sheet.js';
 import { Codex, type CodexCategory } from './codex.js';
 import { part, solve } from './widgets.js';
@@ -335,28 +335,49 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
   }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
   const sel = picked ?? here;
   const known = (id: string) => places[id]?.[hidden] !== false;
+  const nameOf = (id: string) => known(id) ? places[id]?.name ?? id : '？？？';
+  const parentOf = (id: string): string | undefined => { const p = places[id]?.[parent]; return typeof p === 'string' && places[p] && p !== id ? p : undefined; };
+  const childrenOf = (id: string) => Object.keys(places).filter(k => parentOf(k) === id);
+  const ancestors = (id: string) => { const out: string[] = []; for (let p = parentOf(id); p && !out.includes(p) && out.length < 32; p = parentOf(p)) out.push(p); return out; };
+  // Regions (places with places under them) become areas around their descendants, not nodes.
+  const regions = Object.keys(places).filter(id => childrenOf(id).length > 0);
+  const leaves = Object.keys(places).filter(id => !regions.includes(id));
+  const levelOf = (id: string): number => Math.max(0, ...childrenOf(id).filter(c => regions.includes(c)).map(c => levelOf(c) + 1));
+  const groups: GraphGroup[] = regions.map(id => ({
+    id, label: nameOf(id), level: levelOf(id),
+    members: leaves.filter(l => ancestors(l).includes(id)), current: !!here && (here === id || ancestors(here).includes(id)),
+  })).filter(g => g.members.length);
   const nodes: GraphNode[] = Object.keys(places).map(id => {
-    const region = Object.values(places).some(p => p?.[parent] === id);
-    return { id, label: known(id) ? places[id]?.name ?? id : '？？？', r: region ? 24 : 14, kind: region ? 'region' : 'place', current: id === here, muted: !known(id) };
+    const area = groups.some(g => g.id === id);
+    return { id, label: area ? '' : nameOf(id), r: area ? 4 : 14, kind: regions.includes(id) ? 'region' : 'place', current: id === here, muted: !known(id), ...(area ? { hidden: true } : {}) };
   });
   const edges: GraphEdge[] = [];
   const seen = new Set<string>();
   for (const id of Object.keys(places)) {
-    const p = places[id]?.[parent];
-    if (typeof p === 'string' && places[p]) edges.push({ a: id, b: p, kind: 'hierarchy', length: 120 });
+    // Invisible springs keep a region's places together.
+    const p = parentOf(id);
+    if (p) edges.push({ a: id, b: p, kind: 'hierarchy', length: 70, strength: 0.9, hidden: true });
     for (const l of (places[id]?.[links] ?? []) as string[]) {
       const key = id < l ? `${id}|${l}` : `${l}|${id}`;
-      if (places[l] && !seen.has(key)) { seen.add(key); edges.push({ a: id, b: l, kind: 'link', length: 180 }); }
+      // A link from a place to its own region says nothing new on this map.
+      if (!places[l] || seen.has(key) || ancestors(id).includes(l) || ancestors(l).includes(id)) continue;
+      seen.add(key); edges.push({ a: id, b: l, kind: 'link', ...(regions.includes(id) || regions.includes(l) ? { length: 110, strength: 1.2 } : { length: 150 }) });
     }
   }
+  const pickedRegion = sel && groups.find(g => g.id === sel);
   const s = sel ? places[sel] : undefined;
   return (
     <div {...solve('map')}>
-      <GraphView nodes={nodes} edges={edges} selected={picked} onSelect={setPicked} label={`${m.label(path)}地图`} {...(here ? { start: here } : {})} />
-      <div {...part('legend')}><span data-kind="link"><i />相连</span><span data-kind="hierarchy"><i />隶属</span><span {...part('hint')}>拖动画布平移，滚轮或双指缩放</span></div>
+      <GraphView nodes={nodes} edges={edges} groups={groups} selected={picked} onSelect={setPicked} label={`${m.label(path)}地图`} {...(here ? { start: here } : {})} />
+      <div {...part('legend')}><span data-kind="link"><i />相连</span>{groups.length ? <span data-kind="region"><i />区域</span> : null}<span {...part('hint')}>点区域名选中整个区域，拖动区域名可整体移动</span></div>
       {s ? (
         <K.Card title={known(sel!) ? s.name ?? sel : '未发现的地点'} meta={<>{s.kind ? <K.Badge tone="neutral">{s.kind}</K.Badge> : null}{sel === here ? <K.Badge tone="accent">当前位置</K.Badge> : null}</>}>
           {known(sel!) ? <EntityBody path={[...path, sel!]} skip={['name', 'kind', hidden]} /> : <p {...solve('paragraph')}>这里还没有被探索。</p>}
+          {pickedRegion ? (
+            <div {...part('members')}><span {...part('label')}>区域内</span>
+              {childrenOf(sel!).map(c => <button key={c} type="button" {...part('member')} data-current={c === here ? '' : undefined} onClick={() => setPicked(c)}>{nameOf(c)}</button>)}
+            </div>
+          ) : null}
         </K.Card>
       ) : null}
     </div>

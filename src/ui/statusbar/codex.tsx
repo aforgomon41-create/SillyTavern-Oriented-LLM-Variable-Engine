@@ -18,20 +18,15 @@ import { part, solve } from './widgets.js';
 
 export interface CodexCategory {
   label: string;
-  collection?: string; group?: string; holders?: string[]; holder?: string;
+  collection?: string; group?: string; holders?: string[];
   prefabs?: string; into?: string; origin?: string; badges?: string[]; pages?: PageSpec[];
 }
 const rel = (s: string): Path => s.split('.');
 /** Stable key of a category (instances by collection, prefabs by entity type). */
 export const catKey = (c: CodexCategory): string => c.collection ?? '$prefab:' + (c.prefabs ?? '');
 
-/** Who holds instance `id`: its own `holder` field, or everyone referencing it through `a.*.b` patterns (with their own entry: count, level …). */
+/** Everyone holding instance `id` through `a.*.b` patterns, with their own entry (count, level …). */
 function holdersOf(m: StatusModel, c: CodexCategory, id: string): { owner: Path; entry: any }[] {
-  if (c.holder) {
-    const v = m.value([...rel(c.collection!), id]) ?? {}, who = v[c.holder];
-    const at = typeof who === 'string' ? m.locate(who) : undefined;
-    return at ? [{ owner: at, entry: { count: v.count, equipped: v.equipped } }] : [];
-  }
   const patterns = c.holders ?? [];
   const out: { owner: Path; entry: any }[] = [];
   for (const pattern of patterns) {
@@ -76,7 +71,7 @@ function instanceEntries(m: StatusModel, c: CodexCategory): Entry[] {
   return Object.keys(all).map(id => {
     const v = all[id] ?? {}, owners = holdersOf(m, c, id), owned = owners.length;
     const group = c.group ? v[c.group] : undefined;
-    const who = c.holder ? (owned ? m.entityName(owners[0]!.owner.at(-1)!) : '无主') : owned ? `${owned}人` : `无人${c.holders?.some(h => h.includes('abilities')) ? '掌握' : '持有'}`;
+    const who = owned === 1 ? m.entityName(owners[0]!.owner.at(-1)!) : owned ? `${owned}人` : `无人${c.holders?.some(h => h.includes('abilities')) ? '掌握' : '持有'}`;
     return { id, data: v, ...(group ? { group } : {}), dim: !owned, sub: [group, who].filter(Boolean).join(' · ') };
   });
 }
@@ -202,7 +197,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
   const v = m.value(path) ?? {}, id = path.at(-1)!;
   const holders = holdersOf(m, category, id);
   const ladder = m.widget([...path, 'levels']) === 'levels' && !isEmpty(v.levels);
-  const fields = m.children(path).filter(k => !['name', 'desc', category.group ?? '', ...(ladder ? ['levels'] : []), ...(category.holder ? [category.holder, 'count', 'equipped'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
+  const fields = m.children(path).filter(k => !['name', 'desc', 'unique', category.group ?? '', ...(ladder ? ['levels'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
   const skill = category.holders?.some(h => h.includes('abilities'));
   const describe = (entry: any) => entry && typeof entry === 'object'
     ? Object.entries(entry).filter(([, x]) => x !== false && x !== undefined && !(typeof x === 'number' && x === 1 && 'equipped' in entry))
@@ -212,6 +207,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
     <article {...solve('codex-detail')}>
       <Head name={v.name ?? id} onBack={onBack} label={category.label}>
         {category.group && v[category.group] ? <K.Badge tone="accent">{v[category.group]}</K.Badge> : null}
+        {v.unique === true ? <K.Badge tone="warning">独一无二</K.Badge> : null}
       </Head>
       {v.desc ? <p {...part('desc')}>{v.desc}</p> : null}
       {fields.length ? <div {...solve('fields')}>{fields.map(k => <Field key={k} path={[...path, k]} compact />)}</div> : null}
@@ -221,7 +217,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
           mark: <button type="button" {...part('mark')} onClick={() => go(h.owner)} title={`${m.entityName(who)} · Lv.${h.entry?.level ?? '?'}`}><Avatar m={m} id={who} />{m.entityName(who)}</button> };
       })} /> : null}
       <section {...part('holders')}>
-        <h4 {...part('title')}>{skill ? '掌握者' : '持有者'}{category.holder ? null : <small>{holders.length}</small>}</h4>
+        <h4 {...part('title')}>{skill ? '掌握者' : '持有者'}<small>{holders.length}</small></h4>
         {holders.length ? (
           <ul>{holders.map(h => (
             <li key={h.owner.join('.')}>
@@ -229,7 +225,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
               <span {...part('entry')}>{describe(h.entry)}</span>
             </li>))}
           </ul>
-        ) : <span {...solve('none')}>{category.holder ? '无主之物' : `目前无人${skill ? '掌握' : '持有'}`}</span>}
+        ) : <span {...solve('none')}>目前无人{skill ? '掌握' : '持有'}</span>}
       </section>
     </article>
   );

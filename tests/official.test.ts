@@ -181,33 +181,23 @@ test('oneOf 结构描述：至少两种且 JSON 类型不同', () => {
   assert.throws(() => compileStructure({ ...base, fields: { a: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'ref', to: 'x' }] } } }), /不支持 ref/);
 });
 
-test('物品是根节点实例、只有一个持有者；能力由角色引用：引用须存在、删除自动处理、投影按持有展开', async () => {
+test('物品与能力是根节点实例，角色只引用：引用须存在、删除自动清理、投影只展开被引用的', async () => {
   const { core, state, def } = await official();
-  assert.equal(data(state).items.healing_draught.holder, 'erin');
-  assert.equal(data(state).items.healing_draught.count, 2);
-  assert.equal(data(state).items.healing_draught_mira.holder, 'mira', '同类物品分属不同人时各为一个实例');
-  assert.equal(data(state).characters.erin.items, undefined, '角色身上不再有物品引用');
-  const ghost = await core.execute({ $set: { 'items.iron_sword.holder': 'no_such_one' } }, state);
-  assert.equal(data(ghost.state).items.iron_sword.holder, 'erin', '持有者必须存在');
-  const wrong = await core.execute({ $set: { 'items.iron_sword.holder': 'night_vision' } }, state);
-  assert.equal(data(wrong.state).items.iron_sword.holder, 'erin', '持有者不能是能力');
-  const given = await core.execute({ $set: { 'items.iron_sword.holder': 'mira', 'items.iron_sword.equipped': false } }, state);
-  assert.equal(data(given.state).items.iron_sword.holder, 'mira', '转手只改 holder');
-  const placed = await core.execute({ $set: { 'items.rusty_key.holder': 'lower_town' } }, state);
-  assert.equal(data(placed.state).items.rusty_key.holder, 'lower_town', '物品可以放在地点');
-  const dead = await core.execute({ $deleteEntity: ['@one_eye'] }, (await core.execute({ $set: { 'items.rusty_key.holder': 'one_eye' } }, state)).state);
-  assert.equal(data(dead.state).items.rusty_key.holder, null, '持有者删除后物品变为无主');
+  assert.equal(data(state).items.healing_draught.name, '治疗药剂');
+  assert.deepEqual(data(state).characters.erin.items.healing_draught, { count: 2, equipped: false });
+  assert.deepEqual(data(state).characters.mira.items.healing_draught, { count: 1, equipped: false }, '同类物品多人各自计数');
+  const ghost = await core.execute({ $set: { '@erin.items.no_such_item': { count: 1, equipped: false } } }, state);
+  assert.equal(data(ghost.state).characters.erin.items.no_such_item, undefined, '引用不存在的物品被拒绝');
   const bad = await core.execute({ $set: { '@erin.rp.abilities.iron_sword': {} } }, state);
   assert.equal(data(bad.state).characters.erin.rp.abilities.iron_sword, undefined, '能力引用不能指向物品');
-  const gone = await core.execute({ $deleteEntity: ['@lullaby'] }, state);
-  assert.equal(data(gone.state).characters.mira.rp.abilities.lullaby, undefined, '删除能力后角色的引用自动清理');
-  const more = await core.execute({ $createEntity: { 'items.@old_map': { name: '旧地图', type: '道具', holder: null, desc: '标着一处废弃矿坑' }, 'abilities.@fireball': { name: '火球术', kind: '技能', desc: '投出一团火' } } }, state);
+  const gone = await core.execute({ $deleteEntity: ['@healing_draught'] }, state);
+  assert.equal(data(gone.state).characters.erin.items.healing_draught, undefined, '删除物品后持有者的引用自动清理');
+  assert.equal(data(gone.state).characters.mira.items.healing_draught, undefined);
+  const more = await core.execute({ $createEntity: { 'items.@old_map': { name: '旧地图', type: '道具', desc: '标着一处废弃矿坑' }, 'abilities.@fireball': { name: '火球术', kind: '技能', desc: '投出一团火' } } }, state);
   const json = JSON.parse(toJson(def, more.state));
-  assert.ok(json.items['@iron_sword'].desc, '角色持有的物品完整');
-  assert.ok(json.items['@old_banner'].desc, '放在当前地点的物品完整');
-  assert.ok(json.abilities['@lullaby'].desc, '角色掌握的能力完整');
-  assert.deepEqual(Object.keys(json.items['@old_map']).sort(), ['holder', 'name', 'type'], '无主物品只留名称、类型与持有者');
-  assert.deepEqual(Object.keys(json.items['@silver_seal']).sort(), ['holder', 'name', 'type'], '势力持有的物品只留摘要');
+  assert.ok(json.items['@iron_sword'].desc, '在场角色持有的物品完整');
+  assert.ok(json.abilities['@lullaby'].desc, '在场角色的能力完整');
+  assert.deepEqual(Object.keys(json.items['@old_map']).sort(), ['name', 'type'], '无人持有的物品只留名称与类型');
   assert.deepEqual(Object.keys(json.abilities['@fireball']).sort(), ['kind', 'name'], '无人掌握的能力只留名称与类别');
 });
 
@@ -250,5 +240,29 @@ test('预制角色：只能登场一次；可作为 $from 的来源生成独立�
   // A dormant prefab used as a base stays dormant.
   const base = await core.execute({ $createEntity: { 'characters.@pup': { $from: '@grave_hound' } } }, state);
   assert.equal(base.state.engineState.prefabLifecycle.grave_hound, 'dormant');
+});
+
+test('独一无二的物品只有一个持有者：交给新持有者时自动从原持有者移除，同时交给两人被拒绝', async () => {
+  const { def, core, state } = await official();
+  assert.deepEqual(def.uniqueHolds, [{ path: 'characters.*.items', flag: 'unique' }]);
+  const given = await core.execute({ $set: { '@mira.items.grey_mare': { count: 1, equipped: false } } }, state);
+  assert.equal(data(given.state).characters.erin.items.grey_mare, undefined, '原持有者自动移除');
+  assert.ok(data(given.state).characters.mira.items.grey_mare, '新持有者得到');
+  assert.ok(given.feedback.some(f => f.code === 'UNIQUE_MOVED' && /艾琳/u.test(f.message) && /米拉/u.test(f.message)));
+  const moved = await core.execute({ $move: { '@erin.items.sealed_letter': '@ash.items.sealed_letter' } }, state);
+  assert.equal(data(moved.state).characters.erin.items.sealed_letter, undefined);
+  assert.ok(data(moved.state).characters.ash.items.sealed_letter, '$move 也可以转手');
+  // Statements run in order: handing it to two people in a row leaves it with the last one.
+  const both = await core.execute({ $set: { '@ash.items.lute': { count: 1, equipped: false }, '@cassius.items.lute': { count: 1, equipped: false } } }, state);
+  const owners = ['erin', 'mira', 'ash', 'cassius'].filter(id => data(both.state).characters[id].items.lute);
+  assert.deepEqual(owners, ['cassius'], '始终只有一个持有者');
+  // One statement placing it under two holders at once is rejected.
+  const twice = await core.execute({ $set: { 'characters.ash.items': { lute: { count: 1, equipped: false } }, 'characters.cassius.items': { lute: { count: 1, equipped: false } } } }, state);
+  assert.equal(['erin', 'mira', 'ash', 'cassius'].filter(id => data(twice.state).characters[id].items?.lute).length, 1);
+  const shared = await core.execute({ $set: { '@ash.items.healing_draught': { count: 1, equipped: false } } }, state);
+  assert.ok(data(shared.state).characters.erin.items.healing_draught && data(shared.state).characters.ash.items.healing_draught, '普通物品可多人持有');
+  const flag = await core.execute({ $set: { 'items.healing_draught.unique': true } }, state);
+  assert.equal(data(flag.state).items.healing_draught.unique, false, '已被多人持有的物品不能改成独一无二');
+  assert.ok(flag.feedback.some(f => f.code === 'UNIQUE_HELD'));
 });
 

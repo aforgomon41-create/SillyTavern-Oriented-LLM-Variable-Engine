@@ -2,7 +2,7 @@ import { at, assertJson, canonical, clone, covered, expand, fail, matches, merge
 import { EntityGraph } from './entities.js';
 import { clamp, dormant, initialState, isModuleEnabled, numericRule, parseInput, schemaAt, unwrap, validateStored } from './schema.js';
 import type { Batch, CompiledDefinition, ExecutionContext, ExecutionResult, Feedback, LogicalState, SettingsPatch } from './types.js';
-import { applySettings, assertListCaps, isRoundPath, limitDelta, stampValue, switchExclusive } from './features.js';
+import { applySettings, assertListCaps, isRoundPath, limitDelta, moveUniqueHolds, stampValue, switchExclusive } from './features.js';
 
 export const OPERATORS = ['$createEntity', '$move', '$swap', '$set', '$inc', '$transfer', '$push', '$pull', '$unset', '$deleteEntity', '$group'] as const;
 const MAX_STATEMENTS = 2000;
@@ -138,6 +138,7 @@ class Runner {
               if (current && current.type !== old.type) fail('ENTITY_TYPE', '结构搬移不能改变已有实体类型');
             }
             this.destroyZero(next, this.state);
+            moveUniqueHolds(this.def, next, this.state, notes);
             assertListCaps(this.def, this.state, next);
             await validateStored(this.def, next, this.context, strict); this.graph(next);
             this.state = next; this.aliases = aliases; this.feedback.push(...notes); this.applied++;

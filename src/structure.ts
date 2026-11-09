@@ -23,6 +23,8 @@ export interface FieldNode {
   entity?: string;
   /** record: keys are references to entities of this type (removed when the target is deleted) */
   keys?: string;
+  /** record with `keys`: a target whose field of this name is true can sit under one such record only (e.g. a unique item has one holder) */
+  uniqueBy?: string;
   /** enum / ladder: allowed values (ladder is ordered, low → high) */
   values?: string[];
   /** ref / refs: entity type of the target */
@@ -74,6 +76,7 @@ interface Collected {
   entities: EntitySpec[];
   refs: RefSpec[];
   typedRefs: { path: string; kind: RefSpec['kind']; to: string[] }[];
+  uniqueHolds: { path: string; flag: string }[];
   modulePaths: Record<string, string[]>;
   numeric: Record<string, NumericRule>;
   lists: Record<string, ListLimit & { label?: string }>;
@@ -92,7 +95,7 @@ function problem(path: string, message: string): never { return fail('STRUCTURE_
 function build(node: FieldNode, path: string[], out: Collected, modules: Set<string>, inModule: boolean): { schema: z.ZodType; hasDefault: boolean } {
   const at = path.join('.');
   if (!node || typeof node !== 'object' || !TYPES.has(node.type)) problem(at, '未知字段类型');
-  const known = ['type','label','desc','fields','of','variants','entity','keys','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal'];
+  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal'];
   const extra = Object.keys(node).filter(key => !known.includes(key));
   if (extra.length) problem(at, `未知属性：${extra.join(', ')}`);
   if (node.module !== undefined) {
@@ -138,6 +141,10 @@ function build(node: FieldNode, path: string[], out: Collected, modules: Set<str
       if (!node.of) problem(at, 'record 需要 of');
       if (node.entity !== undefined) out.entities.push({ path: at, type: node.entity });
       if (node.keys !== undefined) { out.refs.push({ path: at, kind: 'record-key', onDelete: 'unset' }); out.typedRefs.push({ path: at, kind: 'record-key', to: [node.keys] }); }
+      if (node.uniqueBy !== undefined) {
+        if (node.keys === undefined) problem(at, 'uniqueBy 只能用于带 keys 的字典');
+        safeKey(node.uniqueBy); out.uniqueHolds.push({ path: at, flag: node.uniqueBy });
+      }
       schema = z.record(z.string(), build(node.of, [...path, '*'], out, modules, moduled).schema);
       fallback = {};
       break;
@@ -236,7 +243,7 @@ export function compileStructure(description: StructureDescription): Definition 
   if (!description || typeof description !== 'object') fail('STRUCTURE_INVALID', '结构描述必须是对象');
   if (!description.id || !description.version) fail('STRUCTURE_INVALID', '结构描述需要 id 与 version');
   const modules = new Set(Object.keys(description.modules ?? {}));
-  const out: Collected = { entities: [], refs: [], typedRefs: [], modulePaths: {}, numeric: {}, lists: {}, computed: {}, stamps: {}, readonly: [], internal: [], labels: {}, spoiler: {}, as: {}, fields: {} };
+  const out: Collected = { entities: [], refs: [], typedRefs: [], uniqueHolds: [], modulePaths: {}, numeric: {}, lists: {}, computed: {}, stamps: {}, readonly: [], internal: [], labels: {}, spoiler: {}, as: {}, fields: {} };
   const root = build({ type: 'object', fields: description.fields }, [], out, modules, false);
   const moduleSpecs: Record<string, ModuleSpec> = {};
   for (const [name, m] of Object.entries(description.modules ?? {})) {
@@ -268,6 +275,7 @@ export function compileStructure(description: StructureDescription): Definition 
     ...(description.projection?.length ? { projection: clone(description.projection) } : {}),
     ...(description.groups ? { groups: clone(description.groups) } : {}),
     ...(description.bgm ? { bgm: clone(description.bgm) } : {}),
+    ...(out.uniqueHolds.length ? { uniqueHolds: out.uniqueHolds } : {}),
     ...(description.prefabs && Object.keys(description.prefabs).length ? { prefabs: clone(description.prefabs) } : {}),
     ...(description.templates && Object.keys(description.templates).length ? { templates: clone(description.templates) } : {}),
     display: { ...(clone(description.display ?? {}) as DisplaySpec), labels: out.labels, spoiler: out.spoiler, as: out.as, fields: out.fields,
