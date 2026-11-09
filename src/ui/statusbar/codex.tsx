@@ -18,15 +18,21 @@ import { part, solve } from './widgets.js';
 
 export interface CodexCategory {
   label: string;
-  collection?: string; group?: string; holders?: string[];
+  collection?: string; group?: string; holders?: string[]; holder?: string;
   prefabs?: string; into?: string; origin?: string; badges?: string[]; pages?: PageSpec[];
 }
 const rel = (s: string): Path => s.split('.');
 /** Stable key of a category (instances by collection, prefabs by entity type). */
 export const catKey = (c: CodexCategory): string => c.collection ?? '$prefab:' + (c.prefabs ?? '');
 
-/** Everyone holding `id` through a `a.*.b` pattern, with their own entry (count, level …). */
-function holdersOf(m: StatusModel, patterns: string[], id: string): { owner: Path; entry: any }[] {
+/** Who holds instance `id`: its own `holder` field, or everyone referencing it through `a.*.b` patterns (with their own entry: count, level …). */
+function holdersOf(m: StatusModel, c: CodexCategory, id: string): { owner: Path; entry: any }[] {
+  if (c.holder) {
+    const v = m.value([...rel(c.collection!), id]) ?? {}, who = v[c.holder];
+    const at = typeof who === 'string' ? m.locate(who) : undefined;
+    return at ? [{ owner: at, entry: { count: v.count, equipped: v.equipped } }] : [];
+  }
+  const patterns = c.holders ?? [];
   const out: { owner: Path; entry: any }[] = [];
   for (const pattern of patterns) {
     const parts = rel(pattern), star = parts.indexOf('*');
@@ -68,9 +74,10 @@ function prefabEntries(m: StatusModel, c: CodexCategory): (Entry & { state: Pref
 function instanceEntries(m: StatusModel, c: CodexCategory): Entry[] {
   const all: Record<string, any> = m.value(rel(c.collection!)) ?? {};
   return Object.keys(all).map(id => {
-    const v = all[id] ?? {}, owned = holdersOf(m, c.holders ?? [], id).length;
+    const v = all[id] ?? {}, owners = holdersOf(m, c, id), owned = owners.length;
     const group = c.group ? v[c.group] : undefined;
-    return { id, data: v, ...(group ? { group } : {}), dim: !owned, sub: `${group ?? ''}${owned ? `${group ? ' · ' : ''}${owned}人` : `${group ? ' · ' : ''}无人${c.holders?.some(h => h.includes('abilities')) ? '掌握' : '持有'}`}` };
+    const who = c.holder ? (owned ? m.entityName(owners[0]!.owner.at(-1)!) : '无主') : owned ? `${owned}人` : `无人${c.holders?.some(h => h.includes('abilities')) ? '掌握' : '持有'}`;
+    return { id, data: v, ...(group ? { group } : {}), dim: !owned, sub: [group, who].filter(Boolean).join(' · ') };
   });
 }
 function entriesOf(m: StatusModel, c: CodexCategory): Entry[] { return c.prefabs ? prefabEntries(m, c) : instanceEntries(m, c); }
@@ -97,6 +104,7 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
   const [query, setQuery] = React.useState('');
   const [group, setGroup] = React.useState('');
   const [sel, setSel] = React.useState<string | undefined>();
+  const [foldOpen, setFoldOpen] = React.useState(false);
   const [ref, wide] = useWide();
   // Arriving from elsewhere (an item tile, an ability name): open that category and entry.
   React.useEffect(() => {
@@ -108,16 +116,27 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
   const current = cats.find(c => catKey(c) === cat) ?? cats[0];
   if (!current) return <K.Empty title="图鉴是空的" description="还没有可以收录的条目。" />;
   const all = entriesOf(m, current);
-  // Filter chips: the instance's own grouping field (in declared order), or the prefab's lifecycle.
-  const order = current.prefabs ? STATE_ORDER.map(s => STATE_LABEL[s])
-    : (current.group ? m.meta([...rel(current.collection!), '*', current.group])?.values : undefined) ?? [];
-  const groups = [...new Set(all.map(e => e.group).filter(Boolean))] as string[];
+  // Filter chips: the instance's own grouping field, in declared order (prefab categories have none).
+  const order = (!current.prefabs && current.group ? m.meta([...rel(current.collection!), '*', current.group])?.values : undefined) ?? [];
+  const groups = current.prefabs ? [] : [...new Set(all.map(e => e.group).filter(Boolean))] as string[];
   groups.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
   const q = query.trim().toLowerCase();
   const shown = all.filter(e => (!group || e.group === group)
     && (!q || [e.data.name, e.id, e.data.desc, e.data.intro].some(t => typeof t === 'string' && t.toLowerCase().includes(q))));
   const pick = sel ? all.find(e => e.id === sel) : undefined;
-  const switchCat = (c: string) => { setCat(c); setGroup(''); setQuery(''); setSel(undefined); };
+  const switchCat = (c: string) => { setCat(c); setGroup(''); setQuery(''); setSel(undefined); setFoldOpen(false); };
+  // Prefab categories: templates are always listed; prefabs sit in one folded group (opened by a search hit too).
+  const main = current.prefabs ? shown.filter(e => e.state === 'template') : shown;
+  const folded = current.prefabs ? shown.filter(e => e.state !== 'template')
+    .sort((a, b) => STATE_ORDER.indexOf(a.state as PrefabState) - STATE_ORDER.indexOf(b.state as PrefabState)) : [];
+  const foldShown = foldOpen || (!!q && folded.length > 0) || (!!pick && pick.state !== undefined && pick.state !== 'template');
+  const tile = (e: Entry) => (
+    <button key={e.id} type="button" {...solve('codex-entry', { kind: current.prefabs ? undefined : e.group, state: e.state, unowned: e.dim ? '' : undefined })} aria-pressed={e.id === pick?.id} onClick={() => setSel(e.id)}>
+      <span {...part('glyph')} aria-hidden="true">{[...(e.data.name ?? e.id)][0]}</span>
+      <span {...part('name')}>{e.data.name ?? e.id}</span>
+      <span {...part('sub')}>{e.sub}</span>
+    </button>
+  );
   const count = (c: CodexCategory) => entriesOf(m, c).length;
 
   const list = (
@@ -131,17 +150,18 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
           </div>
         ) : null}
       </div>
-      {shown.length ? (
-        <div {...part('grid')}>
-          {shown.map(e => (
-            <button key={e.id} type="button" {...solve('codex-entry', { kind: current.prefabs ? undefined : e.group, state: e.state, unowned: e.dim ? '' : undefined })} aria-pressed={e.id === pick?.id} onClick={() => setSel(e.id)}>
-              <span {...part('glyph')} aria-hidden="true">{[...(e.data.name ?? e.id)][0]}</span>
-              <span {...part('name')}>{e.data.name ?? e.id}</span>
-              <span {...part('sub')}>{e.sub}</span>
-            </button>
-          ))}
-        </div>
-      ) : <span {...solve('none')}>没有符合的条目</span>}
+      {main.length ? <div {...part('grid')}>{main.map(tile)}</div>
+        : !folded.length ? <span {...solve('none')}>没有符合的条目</span>
+        : current.prefabs ? <span {...solve('none')}>没有{q ? '符合的' : ''}模板</span> : null}
+      {folded.length ? (
+        <section {...solve('codex-fold', { open: foldShown ? '' : undefined })}>
+          <button type="button" {...part('toggle')} aria-expanded={foldShown} onClick={() => setFoldOpen(!foldShown)}>
+            <span {...part('chev')} aria-hidden="true">›</span>预制{current.label}<small>{folded.length}</small>
+            <span {...part('hint')}>{STATE_ORDER.filter(st => st !== 'template').map(st => [st, folded.filter(e => e.state === st).length] as const).filter(([, n]) => n).map(([st, n]) => `${STATE_LABEL[st]} ${n}`).join(' · ')}</span>
+          </button>
+          {foldShown ? <div {...part('grid')}>{folded.map(tile)}</div> : null}
+        </section>
+      ) : null}
     </div>
   );
   const back = wide ? undefined : () => setSel(undefined);
@@ -180,9 +200,9 @@ function Avatar({ m, id }: { m: StatusModel; id: string }) {
 function InstanceDetail({ path, category, onBack }: { path: Path; category: CodexCategory; onBack?: () => void }) {
   const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
   const v = m.value(path) ?? {}, id = path.at(-1)!;
-  const holders = holdersOf(m, category.holders ?? [], id);
+  const holders = holdersOf(m, category, id);
   const ladder = m.widget([...path, 'levels']) === 'levels' && !isEmpty(v.levels);
-  const fields = m.children(path).filter(k => !['name', 'desc', category.group ?? '', ...(ladder ? ['levels'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
+  const fields = m.children(path).filter(k => !['name', 'desc', category.group ?? '', ...(ladder ? ['levels'] : []), ...(category.holder ? [category.holder, 'count', 'equipped'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
   const skill = category.holders?.some(h => h.includes('abilities'));
   const describe = (entry: any) => entry && typeof entry === 'object'
     ? Object.entries(entry).filter(([, x]) => x !== false && x !== undefined && !(typeof x === 'number' && x === 1 && 'equipped' in entry))
@@ -201,7 +221,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
           mark: <button type="button" {...part('mark')} onClick={() => go(h.owner)} title={`${m.entityName(who)} · Lv.${h.entry?.level ?? '?'}`}><Avatar m={m} id={who} />{m.entityName(who)}</button> };
       })} /> : null}
       <section {...part('holders')}>
-        <h4 {...part('title')}>{skill ? '掌握者' : '持有者'}<small>{holders.length}</small></h4>
+        <h4 {...part('title')}>{skill ? '掌握者' : '持有者'}{category.holder ? null : <small>{holders.length}</small>}</h4>
         {holders.length ? (
           <ul>{holders.map(h => (
             <li key={h.owner.join('.')}>
@@ -209,17 +229,17 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
               <span {...part('entry')}>{describe(h.entry)}</span>
             </li>))}
           </ul>
-        ) : <span {...solve('none')}>目前无人{skill ? '掌握' : '持有'}</span>}
+        ) : <span {...solve('none')}>{category.holder ? '无主之物' : `目前无人${skill ? '掌握' : '持有'}`}</span>}
       </section>
     </article>
   );
 }
 
 const STATE_NOTE: Record<PrefabState, string> = {
-  active: '已经登场，下面是此刻的状态。',
-  dormant: '预制人物，还没有在故事里出现。',
-  destroyed: '登场过，已经退场（预制人物只会登场一次）。',
-  template: '模板：可以据此生成任意多个独立的人物。',
+  active: '预制角色，已经登场，下面是此刻的状态。',
+  dormant: '预制角色，还没有在故事里出现。',
+  destroyed: '预制角色，登场过，已经退场（预制角色只会登场一次）。',
+  template: '模板：可以据此生成任意多个独立的角色。',
 };
 const STATE_TONE: Record<PrefabState, string> = { active: 'success', dormant: 'neutral', destroyed: 'danger', template: 'info' };
 
@@ -250,7 +270,7 @@ function PrefabDetail({ entry, category, onBack }: { entry: Entry & { state: Pre
                 <span {...part('entry')}>{String(m.value([...into, k, 'condition']) ?? '')}</span>
               </li>))}
             </ul>
-          ) : <span {...solve('none')}>{state === 'template' ? '还没有用这个模板生成过人物' : '还没有以它为原型的人物'}</span>}
+          ) : <span {...solve('none')}>{state === 'template' ? '还没有用这个模板生成过角色' : '还没有以它为原型的角色'}</span>}
         </section>
       ) : null}
       {category.pages?.length ? (

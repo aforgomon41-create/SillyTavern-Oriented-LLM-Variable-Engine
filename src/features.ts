@@ -263,7 +263,9 @@ export function applyProjectionRules(rules: ProjectionRule[] | undefined, data: 
         else if (Array.isArray(v)) v.forEach(x => typeof x === 'string' && used.add(x));
         else if (v && typeof v === 'object') Object.keys(v).forEach(k => used.add(k));
       }
-      for (const [key, item] of Object.entries(collection)) if (!used.has(key)) collection[key] = keepFields(item, rule.keep);
+      const field = rule.field;
+      const isUsed = (key: string, item: any) => field ? typeof item?.[field] === 'string' && used.has(item[field]) : used.has(key);
+      for (const [key, item] of Object.entries(collection)) if (!isUsed(key, item)) collection[key] = keepFields(item, rule.keep);
     } else {
       const collection = valueAt(out, rule.collection) as Record<string, any> | undefined;
       const current = valueAt(out, rule.current);

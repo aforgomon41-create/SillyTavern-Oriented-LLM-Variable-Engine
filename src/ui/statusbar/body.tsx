@@ -6,7 +6,7 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { isEmpty, type Path, type StatusModel } from './model.js';
 import { Field, RelationRow, Section, useModel } from './fields.js';
-import { Abilities, Inventory } from './inventory.js';
+import { Abilities, Inventory, heldBy, parseBackref } from './inventory.js';
 import { Checklist, part, solve } from './widgets.js';
 
 export interface PageSpec { label: string; paths: string[]; as?: string }
@@ -24,7 +24,7 @@ export function Pages({ base, pages, label, compact = false, page: controlled, o
   base: Path; pages: PageSpec[]; label: string; compact?: boolean; page?: string; onPage?: (p: string) => void;
 }) {
   const m = useModel(), K = useKit();
-  const shown = pages.filter(p => p.paths.some(r => visible(m, resolveUser(m, base, r))));
+  const shown = pages.filter(p => p.paths.some(r => backrefItems(m, base, r)?.length || visible(m, resolveUser(m, base, r))));
   const [inner, setInner] = React.useState(shown[0]?.label ?? '');
   const page = controlled ?? inner, setPage = (v: string) => { setInner(v); onPage?.(v); };
   const current = shown.find(p => p.label === page) ?? shown[0];
@@ -46,6 +46,11 @@ export function Pages({ base, pages, label, compact = false, page: controlled, o
   );
 }
 
+/** Items of a backward reference (`items@holder`) owned by the entity at `base`; undefined for plain paths. */
+function backrefItems(m: StatusModel, base: Path, r: string) {
+  const ref = parseBackref(r), owner = base.at(-1);
+  return ref && owner && m.meta(ref.collection.split('.')) && !m.dormant(ref.collection.split('.')) ? heldBy(m, ref.collection, ref.field, owner) : undefined;
+}
 /** One page: loose scalar fields are gathered into one fact grid, bigger parts follow in order. */
 function PageBody({ base, paths, as }: { base: Path; paths: string[]; as?: string }) {
   const m = useModel();
@@ -55,8 +60,10 @@ function PageBody({ base, paths, as }: { base: Path; paths: string[]; as?: strin
   const facts = items.filter(x => scalar(x.path));
   const rest = items.filter(x => !scalar(x.path));
   const parent = (p: Path) => m.meta(p.slice(0, -1));
+  const backrefs = paths.map(r => ({ r, items: backrefItems(m, base, r) })).filter(x => x.items?.length);
   return (
     <>
+      {backrefs.map(x => <Inventory key={x.r} items={x.items!} />)}
       {rest.filter(x => parent(x.path)?.keys).map(x => <AboutYou key={x.r} path={x.path} />)}
       {facts.length ? <div {...solve('fields')}>{facts.map(x => <Field key={x.r} path={x.path} compact />)}</div> : null}
       {rest.filter(x => !parent(x.path)?.keys).map(x => <Part key={x.r} path={x.path} as={as} />)}

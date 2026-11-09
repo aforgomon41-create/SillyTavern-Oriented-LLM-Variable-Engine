@@ -83,9 +83,6 @@ const character: FieldNode = {
           of: { type: 'object', fields: { desc: text('描述'), source: text('来源', { optional: true }), until: text('持续到', { optional: true }) } } },
       },
     },
-    // Items live once in the root `items`; a character only references them (with its own count / equipped).
-    items: { type: 'record', label: '物品', module: 'assets', keys: 'item', as: 'inventory',
-      of: { type: 'object', fields: { count: { type: 'int', label: '数量', min: 0, default: 1 }, equipped: { type: 'bool', label: '已装备' } } } },
     funds: { type: 'record', label: '资金', module: 'assets', as: 'currency', of: { type: 'oneOf', variants: [{ type: 'int', min: 0 }, { type: 'string' }] } },
     nsfw: {
       type: 'object', label: 'NSFW', module: 'nsfw', fields: {
@@ -139,6 +136,10 @@ export const officialStructure: StructureDescription = {
       of: { type: 'object', fields: {
         name: text('物品名', { required: true }),
         type: { type: 'enum', label: '类型', values: ['装备', '道具', '消耗', '关键', '杂物', '座驾'], default: '杂物' },
+        // One holder per instance: a character, a faction, or a place (left there). Deleting the holder drops it (null).
+        holder: { type: 'ref', label: '持有者', to: ['character', 'faction', 'place'], nullable: true },
+        count: { type: 'int', label: '数量', min: 0, default: 1 },
+        equipped: { type: 'bool', label: '已装备' },
         desc: text('描述'),
         truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
         condition: text('状态', { optional: true }),
@@ -199,7 +200,7 @@ export const officialStructure: StructureDescription = {
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FU 属性只用四档：弱/普通/优秀/卓越。' },
     rp_abilities: { label: '能力', parent: 'rp', guide: '能力：能力本体只在根节点 abilities 建一次（{name, kind: 特质|技能, desc, levels}），角色的 rp.abilities 以能力 ID 为键引用它，只写本人的 {level}。有等级的能力在 levels 里写每一级的效果，键是等级数字（如 {"1": "…", "3": "…"}，可以跳级，持有者按不超过自身等级的最高一级生效），每级效果要有实际差别。多人共有同一能力时引用同一个 ID；新能力先建实体再引用。' },
     rp_status: { label: '状态', parent: 'rp', guide: '状态：gauges 为量表，名称与数量依世界观和剧情决定；需要精确数值时写 {value, max}，叙事化的状态直接写一句话（如「伤口在渗血，勉强能走」）。effects 为效果，剧情上结束后移除，可用 until 写结束条件。' },
-    assets: { label: '资产', guide: '资产：物品本体只在根节点 items 建一次（{name, type, desc, condition}），角色的 items 以物品 ID 为键引用它，只写本人的 {count, equipped}。物品转手：从原持有者的 items 删去该键，再在新持有者的 items 下加上同一 ID；同类消耗品多人持有时各自记数量。funds 的币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元）；清楚数额时写整数，转账用 $transfer 保证总数守恒；说不清数额时写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
+    assets: { label: '资产', guide: '资产：物品都在根节点 items（{name, type, holder, count, equipped, desc, condition}），holder 写持有者 ID（角色、势力，或放在某个地点时写地点 ID；无主写 null）。转手只改 holder（交出时 equipped 设为 false）；持有者被删除时物品自动变为无主。同类物品分属不同人时各建一个实例（如 healing_draught、healing_draught_mira），各自记 count。funds 的币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元）；清楚数额时写整数，转账用 $transfer 保证总数守恒；说不清数额时写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
     nsfw: { label: 'NSFW', enabled: false },
     map: { label: '地图', guide: '地图：地点用 parent 表示层级（区域 → 地点），用 links 记录相通的地点；新发现的地点 discovered 设为 true。' },
     estates: { label: '不动产', enabled: false },
@@ -219,7 +220,8 @@ export const officialStructure: StructureDescription = {
     { kind: 'present', collection: 'characters', list: 'meta.present', keep: ['name', 'alias', 'role', 'intro', 'tags', 'condition'], always: { field: 'role', equals: '用户角色' } },
     { kind: 'related', path: 'characters.*.relations', collection: 'characters', list: 'meta.present', always: { field: 'role', equals: '用户角色' } },
     { kind: 'related', path: 'factions.*.reputation', collection: 'characters', list: 'meta.present', always: { field: 'role', equals: '用户角色' } },
-    { kind: 'referenced', collection: 'items', from: ['characters.*.items'], keep: ['name', 'type'] },
+    // Items held by any character, or lying at the current place, go to the model whole; others keep name, type and holder.
+    { kind: 'referenced', collection: 'items', from: ['characters', 'meta.location'], field: 'holder', keep: ['name', 'type', 'holder'] },
     { kind: 'referenced', collection: 'abilities', from: ['characters.*.rp.abilities'], keep: ['name', 'kind'] },
     { kind: 'neighborhood', collection: 'places', current: 'meta.location', parent: 'parent', links: 'links', keep: ['name', 'kind', 'parent'] },
   ],
@@ -237,7 +239,7 @@ export const officialStructure: StructureDescription = {
         pages: [
           { label: '属性', paths: ['rp.attributes', 'rp.special'] },
           { label: '能力', paths: ['rp.abilities'] },
-          { label: '背包', paths: ['items'], as: 'inventory' },
+          { label: '背包', paths: ['items@holder'], as: 'inventory' },
           { label: '任务', paths: ['drive'], as: 'quests' },
           { label: '档案', paths: ['age', 'intro', 'appearance', 'nsfw'] },
         ],
@@ -252,7 +254,7 @@ export const officialStructure: StructureDescription = {
             { label: '动机', paths: ['drive'], as: 'quests' },
             { label: '关系', paths: ['relations'] },
             { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
-            { label: '物品', paths: ['items', 'funds'], as: 'inventory' },
+            { label: '物品', paths: ['items@holder', 'funds'], as: 'inventory' },
             { label: '私密', paths: ['nsfw'] },
           ] },
       ] },
@@ -260,13 +262,13 @@ export const officialStructure: StructureDescription = {
       // Codex: every item and ability instance in one place, with who holds it.
       { tab: '图鉴', items: [{ codex: [
         // Prefabs and templates of type character: a bestiary of ready-made NPCs, with who was spawned from each.
-        { prefabs: 'character', into: 'characters', label: '人物', origin: 'origin', badges: ['role'],
+        { prefabs: 'character', into: 'characters', label: '角色', origin: 'origin', badges: ['role'],
           pages: [
             { label: '概况', paths: ['condition', 'age', 'tags', 'intro', 'appearance'] },
             { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
-            { label: '物品', paths: ['items', 'funds'], as: 'inventory' },
+            { label: '资金', paths: ['funds'] },
           ] },
-        { collection: 'items', label: '物品', group: 'type', holders: ['characters.*.items'] },
+        { collection: 'items', label: '物品', group: 'type', holder: 'holder' },
         { collection: 'abilities', label: '能力', group: 'kind', holders: ['characters.*.rp.abilities'] },
       ] }] },
       { tab: '势力', module: 'factions', items: [

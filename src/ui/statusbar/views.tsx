@@ -292,9 +292,12 @@ function RelationGraph({ item }: { item: any }) {
   }
   const edges: GraphEdge[] = [...pairs.values()].map(p => {
     const avg = p.weights.length ? p.weights.reduce((s, w) => s + w, 0) / p.weights.length : 0;
+    // Strength of the tie = mean |weight| (love and hatred are both strong ties); the sign only picks the colour.
+    const intensity = p.weights.length ? Math.min(1, p.weights.reduce((s, w) => s + Math.abs(w), 0) / p.weights.length / 100) : 0.3;
     const mapped = p.tones.map(t => item.tones?.[t] as Tone | undefined).find(Boolean);
     const tone: Tone = mapped ?? (avg > 15 ? 'positive' : avg < -15 ? 'negative' : 'neutral');
-    return { a: p.a, b: p.b, kind: 'relation', tone, label: p.labels.slice(0, 2).join(' / ') || p.tones[0], width: 1.5 + Math.min(1, Math.abs(avg) / 100) * 3, length: 210 };
+    return { a: p.a, b: p.b, kind: 'relation', tone, label: p.labels.slice(0, 2).join(' / ') || p.tones[0],
+      width: 1 + intensity * 5, opacity: 0.4 + intensity * 0.6, length: 220 - intensity * 90, strength: 0.25 + intensity * 0.7 };
   });
   const s = sel ? value[sel] : undefined;
   return (

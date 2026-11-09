@@ -40,9 +40,10 @@ export function forceLayout(nodes: ForceNode[], edges: ForceEdge[], iterations =
       const f = (d - l.len) / d * alpha * l.k * 0.5;
       vx[l.a]! += dx * f; vy[l.a]! += dy * f; vx[l.b]! -= dx * f; vy[l.b]! -= dy * f;
     }
-    // gravity, integrate
+    // gravity (stronger for unconnected nodes, so they stay at the edge of the cluster instead of drifting away), integrate
     for (let i = 0; i < n; i++) {
-      vx[i]! -= x[i]! * 0.012 * alpha; vy[i]! -= y[i]! * 0.012 * alpha;
+      const g = degree[i] ? 0.012 : 0.05;
+      vx[i]! -= x[i]! * g * alpha; vy[i]! -= y[i]! * g * alpha;
       vx[i]! *= 0.6; vy[i]! *= 0.6; x[i]! += vx[i]!; y[i]! += vy[i]!;
     }
     collide(x, y, boxes, 0.5);

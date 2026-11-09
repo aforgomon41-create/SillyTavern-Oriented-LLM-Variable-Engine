@@ -9,7 +9,7 @@ import { Field, NavigateContext, RefChip, useModel } from './fields.js';
 import { part, solve } from './widgets.js';
 import { LevelNow, LevelPips, steps } from './levels.js';
 
-interface Held { id: string; at?: Path; data: Record<string, any> }
+export interface Held { id: string; at?: Path; data: Record<string, any> }
 /** Join each referenced id with its root instance. */
 function held(m: StatusModel, path: Path): Held[] {
   const holder: Record<string, any> = m.value(path) ?? {};
@@ -18,6 +18,17 @@ function held(m: StatusModel, path: Path): Held[] {
     const inst = at ? m.value(at) ?? {} : {};
     return { id, ...(at ? { at } : {}), data: { ...inst, ...(holder[id] && typeof holder[id] === 'object' ? holder[id] : {}) } };
   });
+}
+/** Backward reference: instances of a root `collection` whose `field` points at `owner` (e.g. items.*.holder). */
+export function heldBy(m: StatusModel, collection: string, field: string, owner: string): Held[] {
+  const base = collection.split('.');
+  const all: Record<string, any> = m.value(base) ?? {};
+  return Object.keys(all).filter(id => all[id]?.[field] === owner).map(id => ({ id, at: [...base, id], data: all[id] ?? {} }));
+}
+/** `items@holder` in a page's paths: the backward reference above. */
+export function parseBackref(r: string): { collection: string; field: string } | undefined {
+  const at = r.indexOf('@');
+  return at > 0 ? { collection: r.slice(0, at), field: r.slice(at + 1) } : undefined;
 }
 /** Other entities of the same collection holding the same instance (e.g. who else knows this ability). */
 function others(m: StatusModel, path: Path, id: string): string[] {
@@ -28,9 +39,9 @@ function others(m: StatusModel, path: Path, id: string): string[] {
 }
 const nameOf = (h: Held) => h.data.name ?? h.id;
 
-export function Inventory({ path }: { path: Path }) {
+export function Inventory({ path, items }: { path?: Path; items?: Held[] }) {
   const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
-  const list = held(m, path);
+  const list = items ?? (path ? held(m, path) : []);
   const equipped = list.filter(h => h.data.equipped), bag = list.filter(h => !h.data.equipped);
   const [sel, setSel] = React.useState<string | undefined>(list[0]?.id);
   const it = list.find(h => h.id === sel);
@@ -41,7 +52,7 @@ export function Inventory({ path }: { path: Path }) {
       {typeof h.data.count === 'number' && h.data.count !== 1 ? <span {...part('count')}>×{h.data.count}</span> : null}
     </button>
   );
-  const fixed = ['name', 'type', 'count', 'equipped', 'desc'];
+  const fixed = ['name', 'type', 'count', 'equipped', 'desc', 'holder'];
   const detail = it?.at ? m.children(it.at).filter(k => !fixed.includes(k) && !isEmpty(it.data[k]) && m.spoiler([...it.at!, k]) !== 'hidden') : [];
   return (
     <div {...solve('inventory')}>

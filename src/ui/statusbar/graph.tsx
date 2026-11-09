@@ -10,7 +10,7 @@ import { part, solve } from './widgets.js';
 
 export type Tone = 'positive' | 'negative' | 'neutral' | 'info';
 export interface GraphNode { id: string; label: string; r?: number; kind?: string; current?: boolean; muted?: boolean; mark?: string; tone?: Tone }
-export interface GraphEdge { a: string; b: string; kind?: 'link' | 'hierarchy' | 'relation'; tone?: Tone; label?: string; width?: number; length?: number }
+export interface GraphEdge { a: string; b: string; kind?: 'link' | 'hierarchy' | 'relation'; tone?: Tone; label?: string; width?: number; length?: number; strength?: number; opacity?: number }
 
 export function GraphView({ nodes, edges, selected, onSelect, label, start, height = 'md' }: {
   nodes: GraphNode[]; edges: GraphEdge[]; selected?: string; onSelect?: (id: string | undefined) => void; label: string;
@@ -19,7 +19,7 @@ export function GraphView({ nodes, edges, selected, onSelect, label, start, heig
 }) {
   const K = useKit();
   const key = JSON.stringify([nodes.map(n => [n.id, n.label, n.r]), edges.map(e => [e.a, e.b, e.length])]);
-  const layout = React.useMemo(() => forceLayout(nodes.map(n => ({ id: n.id, r: n.r ?? 16, label: n.label })), edges.map(e => ({ a: e.a, b: e.b, ...(e.length ? { length: e.length } : {}), strength: e.kind === 'hierarchy' ? 0.9 : 0.6 }))), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const layout = React.useMemo(() => forceLayout(nodes.map(n => ({ id: n.id, r: n.r ?? 16, label: n.label })), edges.map(e => ({ a: e.a, b: e.b, ...(e.length ? { length: e.length } : {}), strength: e.strength ?? (e.kind === 'hierarchy' ? 0.9 : 0.6) }))), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const [moved, setMoved] = React.useState<Record<string, Point>>({});
   React.useEffect(() => setMoved({}), [key]);
   const pos = (id: string): Point => moved[id] ?? layout.get(id) ?? { x: 0, y: 0 };
@@ -113,7 +113,7 @@ export function GraphView({ nodes, edges, selected, onSelect, label, start, heig
           {edges.map((e, i) => {
             const a = pos(e.a), b = pos(e.b), off = !!selected && e.a !== selected && e.b !== selected;
             return <line key={i} {...part('edge')} data-kind={e.kind ?? 'link'} data-tone={e.tone} data-dim={off ? '' : undefined}
-              style={e.width ? { strokeWidth: e.width } : undefined} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+              style={e.width || e.opacity !== undefined ? { ...(e.width ? { strokeWidth: e.width } : {}), ...(e.opacity !== undefined ? { strokeOpacity: e.opacity } : {}) } : undefined} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
           })}
           {edges.map((e, i) => {
             if (!e.label) return null;

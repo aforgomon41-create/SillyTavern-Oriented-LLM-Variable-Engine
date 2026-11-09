@@ -181,23 +181,33 @@ test('oneOf 结构描述：至少两种且 JSON 类型不同', () => {
   assert.throws(() => compileStructure({ ...base, fields: { a: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'ref', to: 'x' }] } } }), /不支持 ref/);
 });
 
-test('物品与能力是根节点实例，角色只引用：引用须存在、删除自动清理、投影只展开被引用的', async () => {
+test('物品是根节点实例、只有一个持有者；能力由角色引用：引用须存在、删除自动处理、投影按持有展开', async () => {
   const { core, state, def } = await official();
-  assert.equal(data(state).items.healing_draught.name, '治疗药剂');
-  assert.deepEqual(data(state).characters.erin.items.healing_draught, { count: 2, equipped: false });
-  assert.deepEqual(data(state).characters.mira.items.healing_draught, { count: 1, equipped: false }, '同类物品多人各自计数');
-  const ghost = await core.execute({ $set: { '@erin.items.no_such_item': { count: 1, equipped: false } } }, state);
-  assert.equal(data(ghost.state).characters.erin.items.no_such_item, undefined, '引用不存在的物品被拒绝');
+  assert.equal(data(state).items.healing_draught.holder, 'erin');
+  assert.equal(data(state).items.healing_draught.count, 2);
+  assert.equal(data(state).items.healing_draught_mira.holder, 'mira', '同类物品分属不同人时各为一个实例');
+  assert.equal(data(state).characters.erin.items, undefined, '角色身上不再有物品引用');
+  const ghost = await core.execute({ $set: { 'items.iron_sword.holder': 'no_such_one' } }, state);
+  assert.equal(data(ghost.state).items.iron_sword.holder, 'erin', '持有者必须存在');
+  const wrong = await core.execute({ $set: { 'items.iron_sword.holder': 'night_vision' } }, state);
+  assert.equal(data(wrong.state).items.iron_sword.holder, 'erin', '持有者不能是能力');
+  const given = await core.execute({ $set: { 'items.iron_sword.holder': 'mira', 'items.iron_sword.equipped': false } }, state);
+  assert.equal(data(given.state).items.iron_sword.holder, 'mira', '转手只改 holder');
+  const placed = await core.execute({ $set: { 'items.rusty_key.holder': 'lower_town' } }, state);
+  assert.equal(data(placed.state).items.rusty_key.holder, 'lower_town', '物品可以放在地点');
+  const dead = await core.execute({ $deleteEntity: ['@one_eye'] }, (await core.execute({ $set: { 'items.rusty_key.holder': 'one_eye' } }, state)).state);
+  assert.equal(data(dead.state).items.rusty_key.holder, null, '持有者删除后物品变为无主');
   const bad = await core.execute({ $set: { '@erin.rp.abilities.iron_sword': {} } }, state);
   assert.equal(data(bad.state).characters.erin.rp.abilities.iron_sword, undefined, '能力引用不能指向物品');
-  const gone = await core.execute({ $deleteEntity: ['@healing_draught'] }, state);
-  assert.equal(data(gone.state).characters.erin.items.healing_draught, undefined, '删除物品后持有者的引用自动清理');
-  assert.equal(data(gone.state).characters.mira.items.healing_draught, undefined);
-  const more = await core.execute({ $createEntity: { 'items.@old_map': { name: '旧地图', type: '道具', desc: '标着一处废弃矿坑' }, 'abilities.@fireball': { name: '火球术', kind: '技能', desc: '投出一团火' } } }, state);
+  const gone = await core.execute({ $deleteEntity: ['@lullaby'] }, state);
+  assert.equal(data(gone.state).characters.mira.rp.abilities.lullaby, undefined, '删除能力后角色的引用自动清理');
+  const more = await core.execute({ $createEntity: { 'items.@old_map': { name: '旧地图', type: '道具', holder: null, desc: '标着一处废弃矿坑' }, 'abilities.@fireball': { name: '火球术', kind: '技能', desc: '投出一团火' } } }, state);
   const json = JSON.parse(toJson(def, more.state));
-  assert.ok(json.items['@iron_sword'].desc, '在场角色持有的物品完整');
-  assert.ok(json.abilities['@lullaby'].desc, '在场角色的能力完整');
-  assert.deepEqual(Object.keys(json.items['@old_map']).sort(), ['name', 'type'], '无人持有的物品只留名称与类型');
+  assert.ok(json.items['@iron_sword'].desc, '角色持有的物品完整');
+  assert.ok(json.items['@old_banner'].desc, '放在当前地点的物品完整');
+  assert.ok(json.abilities['@lullaby'].desc, '角色掌握的能力完整');
+  assert.deepEqual(Object.keys(json.items['@old_map']).sort(), ['holder', 'name', 'type'], '无主物品只留名称、类型与持有者');
+  assert.deepEqual(Object.keys(json.items['@silver_seal']).sort(), ['holder', 'name', 'type'], '势力持有的物品只留摘要');
   assert.deepEqual(Object.keys(json.abilities['@fireball']).sort(), ['kind', 'name'], '无人掌握的能力只留名称与类别');
 });
 

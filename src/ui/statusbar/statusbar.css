@@ -571,3 +571,15 @@
 [data-solve="codex-entry"][data-state="destroyed"] > [data-solve-part="name"] { text-decoration: line-through; text-decoration-color: var(--k-on-muted); }
 [data-solve="codex-entry"][data-state] > [data-solve-part="glyph"] { border-radius: 50%; }
 [data-solve="codex-entry"][data-state="template"] > [data-solve-part="glyph"] { border-radius: var(--k-r-sm, 6px); }
+/* Codex: prefabs folded below the always-listed templates. */
+[data-solve="codex-fold"] { display: flex; flex-direction: column; gap: var(--k-space-2); padding-top: var(--k-space-2); border-top: 1px dashed var(--k-divider); }
+[data-solve="codex-fold"] > [data-solve-part="toggle"] {
+  display: flex; align-items: baseline; gap: var(--k-space-2); font: inherit; font-size: var(--k-fs-sm); font-weight: var(--k-fw-strong);
+  background: none; border: 0; padding: 4px 0; cursor: pointer; color: var(--k-on-muted); text-align: start;
+}
+[data-solve="codex-fold"] > [data-solve-part="toggle"]:hover { color: var(--k-on); }
+[data-solve="codex-fold"] > [data-solve-part="toggle"]:focus-visible { outline: 2px solid var(--k-focus-ring); outline-offset: 2px; }
+[data-solve="codex-fold"] [data-solve-part="chev"] { display: inline-block; transition: transform .15s; }
+[data-solve="codex-fold"][data-open] [data-solve-part="chev"] { transform: rotate(90deg); }
+[data-solve="codex-fold"] small { font-weight: var(--k-fw); }
+[data-solve="codex-fold"] [data-solve-part="hint"] { margin-inline-start: auto; font-size: var(--k-fs-xs); font-weight: var(--k-fw); color: var(--k-on-sunken-subtle, var(--k-on-subtle)); }
