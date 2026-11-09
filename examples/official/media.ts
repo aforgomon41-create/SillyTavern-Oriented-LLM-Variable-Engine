@@ -32,6 +32,21 @@ export const IMAGES = {
   lute: { url: 'https://thumb.wikimedia.org/wikipedia/commons/thumb/4/41/Lute_MET_DP168843.jpg/500px-Lute_MET_DP168843.jpg', title: "Lute MET DP168843", artist: "Wendelin Tieffenbrucker", license: 'CC0', source: 'https://commons.wikimedia.org/wiki/File:Lute_MET_DP168843.jpg' },
 } satisfies Record<string, ImageCredit>;
 
+/** Square face crops (percent of the picture) for avatars, as media fragments on the thumbnail link. */
+const CROPS: Partial<Record<keyof typeof IMAGES, [number, number, number, number]>> = {
+  erin: [40, 5, 40, 35.1], mira: [20, 9, 36, 27.2], ash: [30, 3, 40, 30.5], cassius: [42, 18, 46, 34.7],
+  ember_bishop: [30, 3, 34, 21.7], grave_hound: [40, 24, 40, 29.6], rat_king: [40, 20, 50, 64], cult_zealot: [52, 40, 26, 42],
+};
+/** Wikimedia serves fixed widths: swap the width in a thumbnail link (originals stay as they are). */
+const sized = (url: string, width: number) => url.replace(/\/((?:lossy-page1-)?)\d+px-/u, `/$1${width}px-`);
+/** Full picture (立绘 / scene / item photo). */
+export const art = (k: keyof typeof IMAGES): string => sized(IMAGES[k].url, 960);
+/** Thumbnail: a small copy, cropped to the face where a crop is known. */
+export const thumb = (k: keyof typeof IMAGES): string => {
+  const c = CROPS[k];
+  return sized(IMAGES[k].url, 330) + (c ? `#xywh=percent:${c.join(',')}` : '');
+};
+
 const MUSIC_BASE = 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/';
 /** Library: places point at a track by id; the rest are picked by scene mood. */
 export const MUSIC: BgmTrack[] = [

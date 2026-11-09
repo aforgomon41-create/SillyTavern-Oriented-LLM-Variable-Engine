@@ -7,7 +7,7 @@
 import * as React from 'react';
 import { useKit } from '../kit.js';
 import { bounds, forceLayout, nodeBox, type Point } from './force.js';
-import { part, solve } from './widgets.js';
+import { parseCrop, part, solve } from './widgets.js';
 
 export type Tone = 'positive' | 'negative' | 'neutral' | 'info';
 /** `hidden`: takes part in the layout (e.g. a region pulling its places together) but is not drawn. */
@@ -196,8 +196,13 @@ export function GraphView({ nodes, edges, groups = [], selected, onSelect, label
                 <circle {...part('dot')} r={r} />
                 {n.image && !broken.has(n.id) ? <>
                   <clipPath id={`${uid}-c-${n.id}`}><circle r={r - 1.5} /></clipPath>
-                  <image {...part('photo')} href={n.image} x={-r} y={-r} width={r * 2} height={r * 2} preserveAspectRatio={n.kind === "place" ? "xMidYMid slice" : "xMidYMin slice"} clipPath={`url(#${uid}-c-${n.id})`}
-                    onError={() => setBroken(b => new Set(b).add(n.id))} />
+                  {(() => {
+                    // A `#xywh=percent:` crop maps the crop box onto the node's circle; otherwise cover the circle.
+                    const c = parseCrop(n.image), d = r * 2;
+                    const geo = c ? { href: c.url, x: -r - c.x / c.w * d, y: -r - c.y / c.h * d, width: d * 100 / c.w, height: d * 100 / c.h, preserveAspectRatio: 'none' }
+                      : { href: n.image, x: -r, y: -r, width: d, height: d, preserveAspectRatio: n.kind === 'place' ? 'xMidYMid slice' : 'xMidYMin slice' };
+                    return <image {...part('photo')} {...geo} clipPath={`url(#${uid}-c-${n.id})`} onError={() => setBroken(b => new Set(b).add(n.id))} />;
+                  })()}
                 </> : n.mark ? <g transform={`scale(${Math.min(ts, r / 12)})`}><text {...part('mark')} y={5}>{n.mark}</text></g> : null}
                 <g transform={`translate(0 ${r + 4}) scale(${ts})`}><text {...part('name')} y={15}>{n.label}</text></g>
                 {n.current ? <g transform={`translate(0 ${-r - 14}) scale(${ts})`}><text {...part('here')} y={-2}>当前</text></g> : null}

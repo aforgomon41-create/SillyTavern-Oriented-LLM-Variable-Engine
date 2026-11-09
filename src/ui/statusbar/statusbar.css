@@ -636,3 +636,51 @@
 [data-solve="slot"] > [data-solve-part="glyph"]:has(> img) { width: 52px; height: 52px; }
 [data-solve="inventory"] > [data-solve-part="detail"] > [data-solve-part="head"] > [data-solve-part="glyph"]:has(> img) { width: 72px; height: 72px; }
 [data-solve="codex-detail"] > [data-solve-part="head"] [data-solve-part="glyph"]:has(> img) { width: 84px; height: 84px; }
+
+/* ───────── pictures: thumbnail crops, 立绘 / full pictures, full-screen view ───────── */
+[data-solve="crop"] { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; border-radius: inherit; }
+[data-solve="art"] {
+  display: block; width: 100%; margin: 0; padding: 0; border: 0; overflow: hidden; cursor: zoom-in;
+  border-radius: var(--k-r-md); background: var(--k-sunken); box-shadow: inset 0 0 0 1px var(--k-divider);
+  aspect-ratio: 16 / 9;
+}
+[data-solve="art"] > img {
+  display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 15%;
+  transition: opacity var(--k-dur-base, .2s) var(--k-ease), transform .4s var(--k-ease);
+}
+[data-solve="art"][data-state="loading"] > img { opacity: 0; }
+[data-solve="art"]:hover > img { transform: scale(1.025); }
+[data-solve="art"]:focus-visible { outline: 2px solid var(--k-focus-ring); outline-offset: 2px; }
+/* player sheet: a tall portrait leading the hero card */
+[data-solve="art"][data-variant="hero"] { aspect-ratio: 4 / 5; max-height: 380px; }
+[data-solve="hero"][data-art] { position: static; }
+@container (max-width: 639px) {
+  [data-solve="art"][data-variant="hero"] { aspect-ratio: 4 / 3; max-height: 300px; }
+}
+/* NPC cards: portrait column beside the pages when there is room, a banner otherwise */
+[data-solve="card-body"] { container-type: inline-size; }
+[data-solve="card-body"] > [data-solve-part="layout"] { display: flex; flex-direction: column; gap: var(--k-space-3); }
+[data-solve="card-body"] [data-solve-part="main"] { min-width: 0; }
+[data-solve="art"][data-variant="side"] { aspect-ratio: 4 / 3; max-height: 280px; }
+@container (min-width: 560px) {
+  [data-solve="card-body"][data-art] > [data-solve-part="layout"] { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: start; }
+  [data-solve="card-body"] [data-solve="art"][data-variant="side"] { aspect-ratio: 3 / 4; max-height: none; }
+}
+/* item photos are museum shots: show the whole object */
+[data-solve="art"][data-variant="item"] { aspect-ratio: 4 / 3; max-height: 260px; background: var(--k-surface-2, var(--k-sunken)); }
+[data-solve="art"][data-variant="item"] > img { object-fit: contain; object-position: 50% 50%; }
+[data-solve="map"] [data-solve="art"][data-variant="banner"] { aspect-ratio: 16 / 7; margin-bottom: var(--k-space-3); }
+[data-solve="map"] [data-solve="art"] > img { object-position: 50% 50%; }
+[data-solve="codex-detail"] > [data-solve="art"][data-variant="side"] { aspect-ratio: 4 / 3; }
+
+[data-solve="lightbox"] {
+  position: fixed; inset: 0; z-index: 2147483000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgba(8, 8, 10, .88); cursor: zoom-out;
+  animation: solve-fade .18s ease-out;
+}
+[data-solve="lightbox"] > img { max-width: 100%; max-height: calc(100% - 56px); object-fit: contain; border-radius: 6px; box-shadow: 0 12px 48px rgba(0, 0, 0, .5); cursor: default; }
+[data-solve="lightbox"] > [data-solve-part="bar"] { display: flex; align-items: center; gap: 16px; color: #f3f1ec; font-size: 15px; }
+[data-solve="lightbox"] > [data-solve-part="bar"] > button {
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .08); color: #fff; font-size: 16px; cursor: pointer;
+}
+@keyframes solve-fade { from { opacity: 0; } to { opacity: 1; } }

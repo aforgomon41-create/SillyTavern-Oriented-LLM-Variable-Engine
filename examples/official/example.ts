@@ -6,9 +6,10 @@ import type { Json, LogicalState } from '../../src/types.js';
 import type { SolveCore } from '../../src/engine.js';
 import type { StructureDescription } from '../../src/structure.js';
 import { officialStructure } from '../../src/official/structure.js';
-import { IMAGES, MUSIC } from './media.js';
+import { art, MUSIC, thumb } from './media.js';
 
-const img = (k: keyof typeof IMAGES) => IMAGES[k].url;
+/** Both pictures of an entity: thumbnail for avatars, full picture for the 立绘 / scene view. */
+const pics = (k: Parameters<typeof art>[0]) => ({ thumb: thumb(k), image: art(k) });
 
 /** Modules switched on for this example (others keep their defaults). */
 export const exampleModules: Record<string, boolean> = { attr_dnd: false, attr_wod: true, factions: true, estates: true };
@@ -21,7 +22,7 @@ export const exampleData: Record<string, Json> = {
   },
   characters: {
     erin: {
-      name: '艾琳', alias: '银发', avatar: img('erin'), role: '用户角色', age: '二十出头',
+      name: '艾琳', alias: '银发', ...pics('erin'), role: '用户角色', age: '二十出头',
       intro: '被逐出银枝骑士团的见习骑士，背着一桩不属于自己的罪名，正在王都暗中调查真相。',
       tags: ['见习骑士', '流亡者', '契约者'], appearance: '银色短发，旧皮甲上有被刮掉的骑士团纹章。', condition: '疲惫，左臂擦伤',
       drive: { goals: { long: '洗清罪名，重回骑士团', short: '找到当晚的目击者' }, thoughts: '米拉知道的比她说的多。',
@@ -47,7 +48,7 @@ export const exampleData: Record<string, Json> = {
       funds: { 金币: 140, 银币: 37, 铜币: 58, 当票: '一张押着家传戒指的当票' },
     },
     mira: {
-      name: '米拉', avatar: img('mira'), role: '核心角色', age: '看不出', intro: '游走各地的吟游诗人，对王都的传闻无所不知。',
+      name: '米拉', ...pics('mira'), role: '核心角色', age: '看不出', intro: '游走各地的吟游诗人，对王都的传闻无所不知。',
       tags: ['吟游诗人', '情报贩子'], appearance: '绿色斗篷，背着一把旧鲁特琴。', condition: '微醺',
       drive: { goals: { long: '找回失落的家族乐谱', short: '让艾琳欠她一个人情' }, thoughts: '如果艾琳知道我是灰烬教团的逃亡者……', plan: [] },
       relations: {
@@ -64,7 +65,7 @@ export const exampleData: Record<string, Json> = {
       funds: { 银币: 12 },
     },
     ash: {
-      name: '灰烬', avatar: img('ash'), role: '次要配角', age: '死去多年', intro: '徘徊在酒馆地窖的亡灵骑士，只记得自己的誓言。',
+      name: '灰烬', ...pics('ash'), role: '次要配角', age: '死去多年', intro: '徘徊在酒馆地窖的亡灵骑士，只记得自己的誓言。',
       tags: ['亡灵', '旧骑士'], appearance: '锈蚀的板甲里只有一团幽蓝的火。', condition: '沉默地守在门边',
       drive: { goals: { long: '完成生前的誓言', short: '守住地窖的门' }, thoughts: '……', plan: [] },
       relations: { mira: { affection: 20, labels: ['听众'], impression: '她的歌让火焰安静', promises: [], keyEvents: [] } },
@@ -77,7 +78,7 @@ export const exampleData: Record<string, Json> = {
       items: {}, funds: {},
     },
     cassius: {
-      name: '卡修斯', avatar: img('cassius'), role: '主要配角', age: '四十余岁', intro: '银枝骑士团团长，亲手将艾琳逐出骑士团。',
+      name: '卡修斯', ...pics('cassius'), role: '主要配角', age: '四十余岁', intro: '银枝骑士团团长，亲手将艾琳逐出骑士团。',
       tags: ['骑士团长'], appearance: '高大，左眼有一道旧伤。', condition: '在王城值守',
       drive: { goals: { long: '保住骑士团的名誉', short: '找到伪造火漆的人' }, thoughts: '那孩子不会做这种事。', plan: [] },
       relations: { erin: { affection: 10, labels: ['前部下'], impression: '太过天真', promises: [], keyEvents: [] } },
@@ -87,12 +88,12 @@ export const exampleData: Record<string, Json> = {
     },
   },
   items: {
-    iron_sword: { name: '铁剑', image: img('iron_sword'), type: '装备', desc: '普通的制式铁剑' },
-    round_shield: { name: '圆盾', image: img('round_shield'), type: '装备', desc: '边缘有凹痕的木盾' },
-    healing_draught: { name: '治疗药剂', image: img('healing_draught'), type: '消耗', desc: '散发苦味的红色药水，能止血' },
-    sealed_letter: { name: '封蜡信', image: img('sealed_letter'), type: '关键', unique: true, desc: '盖着骑士团火漆的信', truth: '火漆是伪造的' },
-    grey_mare: { name: '灰马', image: img('grey_mare'), type: '座驾', unique: true, desc: '温顺的老母马', condition: '拴在酒馆马厩' },
-    lute: { name: '旧鲁特琴', image: img('lute'), type: '装备', unique: true, desc: '琴颈刻着看不懂的花纹', truth: '花纹是失落乐谱的一部分' },
+    iron_sword: { name: '铁剑', ...pics('iron_sword'), type: '装备', desc: '普通的制式铁剑' },
+    round_shield: { name: '圆盾', ...pics('round_shield'), type: '装备', desc: '边缘有凹痕的木盾' },
+    healing_draught: { name: '治疗药剂', ...pics('healing_draught'), type: '消耗', desc: '散发苦味的红色药水，能止血' },
+    sealed_letter: { name: '封蜡信', ...pics('sealed_letter'), type: '关键', unique: true, desc: '盖着骑士团火漆的信', truth: '火漆是伪造的' },
+    grey_mare: { name: '灰马', ...pics('grey_mare'), type: '座驾', unique: true, desc: '温顺的老母马', condition: '拴在酒馆马厩' },
+    lute: { name: '旧鲁特琴', ...pics('lute'), type: '装备', unique: true, desc: '琴颈刻着看不懂的花纹', truth: '花纹是失落乐谱的一部分' },
   },
   abilities: {
     night_vision: { name: '夜视', kind: '特质', desc: '在黑暗中视物如常' },
@@ -109,13 +110,13 @@ export const exampleData: Record<string, Json> = {
       4: '亡灵与野兽也会安静下来' } },
   },
   places: {
-    capital: { name: '王都', image: img('capital'), bgm: 'lord_of_the_land', kind: '区域', parent: null, links: ['fog_marsh'], desc: '灰烬纪元的王国首都，终日笼罩在细雨中。', discovered: true },
-    tavern: { name: '醉橡木酒馆', image: img('tavern'), bgm: 'minstrel_guild', kind: '地点', parent: 'capital', links: ['lower_town', 'palace'], desc: '老旧但热闹，地窖里据说住着亡灵。', discovered: true },
-    palace: { name: '王城', image: img('palace'), kind: '地点', parent: 'capital', links: ['tavern'], desc: '银枝骑士团驻守的王城。', discovered: true },
-    lower_town: { name: '下城区', image: img('lower_town'), bgm: 'sneaky_snitch', kind: '地点', parent: 'capital', links: ['tavern', 'warehouse'], desc: '鱼龙混杂的贫民区。', discovered: true },
-    warehouse: { name: '码头仓库', image: img('warehouse'), bgm: 'crypto', kind: '地点', parent: 'capital', links: ['lower_town'], desc: '据说当晚有人在这里交易。', truth: '灰烬教团的据点', discovered: false },
-    fog_marsh: { name: '雾沼', image: img('fog_marsh'), bgm: 'dark_fog', kind: '区域', parent: null, links: ['capital', 'marsh_hut'], desc: '终年不散的浓雾与沼泽。', discovered: true },
-    marsh_hut: { name: '沼泽小屋', image: img('marsh_hut'), kind: '地点', parent: 'fog_marsh', links: ['fog_marsh'], desc: '艾琳救下米拉的地方。', discovered: true },
+    capital: { name: '王都', ...pics('capital'), bgm: 'lord_of_the_land', kind: '区域', parent: null, links: ['fog_marsh'], desc: '灰烬纪元的王国首都，终日笼罩在细雨中。', discovered: true },
+    tavern: { name: '醉橡木酒馆', ...pics('tavern'), bgm: 'minstrel_guild', kind: '地点', parent: 'capital', links: ['lower_town', 'palace'], desc: '老旧但热闹，地窖里据说住着亡灵。', discovered: true },
+    palace: { name: '王城', ...pics('palace'), kind: '地点', parent: 'capital', links: ['tavern'], desc: '银枝骑士团驻守的王城。', discovered: true },
+    lower_town: { name: '下城区', ...pics('lower_town'), bgm: 'sneaky_snitch', kind: '地点', parent: 'capital', links: ['tavern', 'warehouse'], desc: '鱼龙混杂的贫民区。', discovered: true },
+    warehouse: { name: '码头仓库', ...pics('warehouse'), bgm: 'crypto', kind: '地点', parent: 'capital', links: ['lower_town'], desc: '据说当晚有人在这里交易。', truth: '灰烬教团的据点', discovered: false },
+    fog_marsh: { name: '雾沼', ...pics('fog_marsh'), bgm: 'dark_fog', kind: '区域', parent: null, links: ['capital', 'marsh_hut'], desc: '终年不散的浓雾与沼泽。', discovered: true },
+    marsh_hut: { name: '沼泽小屋', ...pics('marsh_hut'), kind: '地点', parent: 'fog_marsh', links: ['fog_marsh'], desc: '艾琳救下米拉的地方。', discovered: true },
   },
   estates: {
     old_manor: { name: '艾琳的旧宅', owner: 'erin', place: 'lower_town', desc: '破旧的两层小楼，被骑士团查封后无人打理。', developments: { 地下室: '藏着父亲留下的铠甲' } },
@@ -142,25 +143,25 @@ export const exampleData: Record<string, Json> = {
  */
 export const examplePresets: { prefabs: Record<string, { type: string; data: Record<string, Json> }>; templates: Record<string, { type: string; data: Record<string, Json> }> } = {
   prefabs: {
-    cassius: { type: 'character', data: { name: '卡修斯', avatar: img('cassius'), role: '主要配角', intro: '银枝骑士团团长，亲手将艾琳逐出骑士团。', tags: ['骑士团长'] } },
+    cassius: { type: 'character', data: { name: '卡修斯', ...pics('cassius'), role: '主要配角', intro: '银枝骑士团团长，亲手将艾琳逐出骑士团。', tags: ['骑士团长'] } },
     grave_hound: { type: 'character', data: {
-      name: '墓园猎犬', avatar: img('grave_hound'), role: '一次性敌人', age: '不详', tags: ['亡灵', '野兽'],
+      name: '墓园猎犬', ...pics('grave_hound'), role: '一次性敌人', age: '不详', tags: ['亡灵', '野兽'],
       intro: '在王都旧墓园游荡的腐朽猎犬，闻到活人的气味就会扑上来。', appearance: '皮毛脱落，肋骨间燃着暗绿色的火。', condition: '在墓园深处游荡',
       rp: { rank: '铁阶', attributes: { wod: { str: 5, dex: 6, sta: null, int: 1, wits: 4, res: 3, pre: 0, man: 0, com: 2 } },
         abilities: { night_vision: {}, undying: {} }, gauges: { 生命: { value: 30, max: 30 } } } } },
     ember_bishop: { type: 'character', data: {
-      name: '余烬主教', avatar: img('ember_bishop'), role: '主要配角', age: '看不出年纪', tags: ['灰烬教团', '神职'],
+      name: '余烬主教', ...pics('ember_bishop'), role: '主要配角', age: '看不出年纪', tags: ['灰烬教团', '神职'],
       intro: '灰烬教团的主教，总在别人替他做完脏活之后才出现。', appearance: '灰袍下露出一截烧焦的手指，声音温和得过分。', condition: '藏身于码头仓库',
       drive: { goals: { long: '唤醒沉睡的灰烬之王', short: '找回逃亡的米拉' }, thoughts: '骑士团替我们做了一半的事。' },
       rp: { rank: '金阶', attributes: { wod: { str: 3, dex: 4, sta: 5, int: 9, wits: 7, res: 8, pre: 7, man: 9, com: 6 } },
         special: { 信徒: '下城区约有三十人' }, abilities: { undying: {}, echo_slash: { level: 3 } } } } },
     rat_king: { type: 'character', data: {
-      name: '下水道鼠王', avatar: img('rat_king'), role: '一次性敌人', tags: ['野兽', '群体'], intro: '几十只尾巴缠在一起的老鼠，像一个会思考的东西。',
+      name: '下水道鼠王', ...pics('rat_king'), role: '一次性敌人', tags: ['野兽', '群体'], intro: '几十只尾巴缠在一起的老鼠，像一个会思考的东西。',
       appearance: '一团湿漉漉的、蠕动的灰毛。', rp: { abilities: { night_vision: {} }, gauges: { 群体: '还剩二十来只' } } } },
   },
   templates: {
     cult_zealot: { type: 'character', data: {
-      name: '教团狂信徒', avatar: img('cult_zealot'), role: '一次性敌人', origin: 'cult_zealot', tags: ['灰烬教团'],
+      name: '教团狂信徒', ...pics('cult_zealot'), role: '一次性敌人', origin: 'cult_zealot', tags: ['灰烬教团'],
       intro: '被主教的布道点燃的下城区居民，为教团做跑腿和打手。', appearance: '灰色头巾，袖口有烧灼的痕迹。',
       rp: { rank: '铁阶', attributes: { wod: { str: 3, dex: 3, sta: 3, int: 2, wits: 2, res: 4, pre: 2, man: 2, com: 2 } }, gauges: { 生命: { value: 20, max: 20 } } } } },
   },

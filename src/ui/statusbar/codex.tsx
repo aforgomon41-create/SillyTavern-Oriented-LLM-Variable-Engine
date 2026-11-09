@@ -10,11 +10,11 @@
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
-import { isEmpty, StatusModel, type Path } from './model.js';
+import { artOf, isEmpty, StatusModel, thumbOf, type Path } from './model.js';
 import { Field, ModelContext, NavigateContext, useModel } from './fields.js';
 import { Pages, type PageSpec } from './body.js';
 import { LevelLadder } from './levels.js';
-import { Mono, part, solve } from './widgets.js';
+import { Art, Mono, part, solve } from './widgets.js';
 
 export interface CodexCategory {
   label: string;
@@ -127,7 +127,7 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
   const foldShown = foldOpen || (!!q && folded.length > 0) || (!!pick && pick.state !== undefined && pick.state !== 'template');
   const tile = (e: Entry) => (
     <button key={e.id} type="button" {...solve('codex-entry', { kind: current.prefabs ? undefined : e.group, state: e.state, unowned: e.dim ? '' : undefined })} aria-pressed={e.id === pick?.id} onClick={() => setSel(e.id)}>
-      <span {...part('glyph')} aria-hidden="true"><Mono name={e.data.name ?? e.id} src={e.data.avatar ?? e.data.image} /></span>
+      <span {...part('glyph')} aria-hidden="true"><Mono name={e.data.name ?? e.id} src={thumbOf(e.data)} /></span>
       <span {...part('name')}>{e.data.name ?? e.id}</span>
       <span {...part('sub')}>{e.sub}</span>
     </button>
@@ -177,12 +177,14 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
   );
 }
 
-function Head({ name, src, onBack, label, children }: { name: string; src?: unknown; onBack?: (() => void) | undefined; label: string; children?: React.ReactNode }) {
+/** Detail header; with a full picture the picture leads and the small glyph is dropped. */
+function Head({ name, src, art, artVariant = 'banner', onBack, label, children }: { name: string; src?: unknown; art?: string | undefined; artVariant?: 'banner' | 'item' | 'side'; onBack?: (() => void) | undefined; label: string; children?: React.ReactNode }) {
   return (
     <>
       {onBack ? <button type="button" {...part('back')} onClick={onBack}>‹ 返回{label}列表</button> : null}
+      {art ? <Art src={art} alt={name} variant={artVariant} /> : null}
       <header {...part('head')}>
-        <span {...part('glyph')} aria-hidden="true"><Mono name={name} src={src} /></span>
+        {art ? null : <span {...part('glyph')} aria-hidden="true"><Mono name={name} src={src} /></span>}
         <div><h3 {...part('name')}>{name}</h3>{children ? <div {...part('badges')}>{children}</div> : null}</div>
       </header>
     </>
@@ -197,7 +199,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
   const v = m.value(path) ?? {}, id = path.at(-1)!;
   const holders = holdersOf(m, category, id);
   const ladder = m.widget([...path, 'levels']) === 'levels' && !isEmpty(v.levels);
-  const fields = m.children(path).filter(k => !['name', 'desc', 'unique', 'image', 'avatar', category.group ?? '', ...(ladder ? ['levels'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
+  const fields = m.children(path).filter(k => !['name', 'desc', 'unique', 'image', 'thumb', category.group ?? '', ...(ladder ? ['levels'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
   const skill = category.holders?.some(h => h.includes('abilities'));
   const describe = (entry: any) => entry && typeof entry === 'object'
     ? Object.entries(entry).filter(([, x]) => x !== false && x !== undefined && !(typeof x === 'number' && x === 1 && 'equipped' in entry))
@@ -205,7 +207,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
     : '';
   return (
     <article {...solve('codex-detail')}>
-      <Head name={v.name ?? id} src={v.image ?? v.avatar} onBack={onBack} label={category.label}>
+      <Head name={v.name ?? id} src={thumbOf(v)} art={artOf(v)} artVariant="item" onBack={onBack} label={category.label}>
         {category.group && v[category.group] ? <K.Badge tone="accent">{v[category.group]}</K.Badge> : null}
         {v.unique === true ? <K.Badge tone="warning">独一无二</K.Badge> : null}
       </Head>
@@ -250,7 +252,7 @@ function PrefabDetail({ entry, category, onBack }: { entry: Entry & { state: Pre
   const [shown, setShown] = React.useState(state !== 'dormant');
   return (
     <article {...solve('codex-detail', { state })}>
-      <Head name={data.name ?? id} src={data.avatar ?? data.image} onBack={onBack} label={category.label}>
+      <Head name={data.name ?? id} src={thumbOf(data)} art={artOf(data)} artVariant="side" onBack={onBack} label={category.label}>
         {(category.badges ?? []).map(b => data[b] ? <K.Badge key={b} tone="accent">{String(data[b])}</K.Badge> : null)}
         <K.Badge tone={STATE_TONE[state] as never}>{STATE_LABEL[state]}</K.Badge>
       </Head>

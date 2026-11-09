@@ -85,12 +85,10 @@ export class StatusModel {
     }
     return undefined;
   }
-  /** An entity's picture (characters: avatar, places / items: image). */
-  picture(id: string): string | undefined {
-    const path = this.locate(id), v = path ? this.value(path) : undefined;
-    const src = v?.avatar ?? v?.image;
-    return typeof src === 'string' && src ? src : undefined;
-  }
+  /** An entity's thumbnail (falls back to its full picture). */
+  picture(id: string): string | undefined { const path = this.locate(id); return thumbOf(path ? this.value(path) : undefined); }
+  /** An entity's full picture / 立绘 (falls back to its thumbnail). */
+  art(id: string): string | undefined { const path = this.locate(id); return artOf(path ? this.value(path) : undefined); }
   entityName(id: string): string {
     const path = this.locate(id);
     const entity = path ? this.value(path) : undefined;
@@ -107,3 +105,9 @@ export class StatusModel {
 export function isEmpty(value: unknown): boolean {
   return value === undefined || value === '' || (Array.isArray(value) && !value.length) || (value !== null && typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length);
 }
+
+const str = (v: unknown): string | undefined => typeof v === 'string' && v ? v : undefined;
+/** Two pictures per entity: `thumb` for avatars, `image` for the full view; either stands in for the other. */
+export function thumbOf(v: any): string | undefined { return str(v?.thumb) ?? str(v?.image); }
+export function artOf(v: any): string | undefined { return str(v?.image) ?? str(v?.thumb); }
+

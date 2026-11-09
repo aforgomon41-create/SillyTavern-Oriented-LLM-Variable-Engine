@@ -6,13 +6,13 @@
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
-import { isEmpty, StatusModel, type Path } from './model.js';
+import { artOf, isEmpty, StatusModel, thumbOf, type Path } from './model.js';
 import { ModelContext, NavigateContext, RefChip, Section, useModel } from './fields.js';
 import { EntityBody, Pages, type PageSpec } from './body.js';
 import { GraphView, type GraphEdge, type GraphGroup, type GraphNode, type Tone } from './graph.js';
 import { PlayerSheet, type SheetItem } from './sheet.js';
 import { Codex, type CodexCategory } from './codex.js';
-import { Mono, part, solve } from './widgets.js';
+import { Art, Mono, part, solve } from './widgets.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
 export interface StatusBarProps {
@@ -249,14 +249,18 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
           return (
             <div key={id} ref={el => { if (el) refs.current.set(id, el); else refs.current.delete(id); }} {...solve('entity-row', { present: present.has(id) ? '' : undefined })}>
               <K.CollapseCard open={open.has(id)} onOpenChange={o => setOpen(prev => { const n = new Set(prev); if (o) n.add(id); else n.delete(id); return n; })}
-                title={<span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true"><Mono name={v.name ?? id} src={v.avatar} /></span><span {...part('name')}>{v.name ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>}
+                title={<span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true"><Mono name={v.name ?? id} src={thumbOf(v)} /></span><span {...part('name')}>{v.name ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>}
                 meta={<span {...solve('entity-meta')}>
                   {present.has(id) ? <K.Badge tone="success">在场</K.Badge> : null}
                   {(item.badges ?? []).map((b: string) => v[b] ? <K.Badge key={b} tone="neutral">{String(v[b])}</K.Badge> : null)}
                   {typeof s === 'number' ? <span {...part('score')} data-sign={s > 0 ? 'positive' : s < 0 ? 'negative' : 'zero'} title={`${item.scoreLabel ?? sMeta?.desc ?? ''}`}>{item.scoreLabel ?? ''} {s > 0 ? '+' : ''}{s}</span> : null}
                 </span>}>
-                {open.has(id) ? (item.pages ? <Pages base={[...path, id]} pages={item.pages as PageSpec[]} label={`${v.name ?? id}的资料`} compact />
-                  : <EntityBody path={[...path, id]} skip={item.badges} />) : null}
+                {open.has(id) ? (
+                  <div {...solve('card-body', { art: artOf(v) ? '' : undefined })}><div {...part('layout')}>
+                    {artOf(v) ? <Art src={artOf(v)!} alt={v.name ?? id} variant="side" /> : null}
+                    <div {...part('main')}>{item.pages ? <Pages base={[...path, id]} pages={item.pages as PageSpec[]} label={`${v.name ?? id}的资料`} compact />
+                      : <EntityBody path={[...path, id]} skip={item.badges} />}</div>
+                  </div></div>) : null}
               </K.CollapseCard>
             </div>
           );
@@ -276,7 +280,7 @@ function RelationGraph({ item }: { item: any }) {
   const nodes: GraphNode[] = Object.keys(value).map(id => {
     const tier = sizeMeta?.values ? sizeMeta.values.indexOf(value[id]?.[item.size]) : -1;
     const r = id === m.userId ? 24 : tier >= 0 ? Math.round(22 - tier * 2.5) : 18;
-    return { id, label: value[id]?.name ?? id, r, mark: [...(value[id]?.name ?? id)][0], ...(typeof value[id]?.avatar === 'string' && value[id].avatar ? { image: value[id].avatar } : {}), kind: id === m.userId ? 'user' : present.has(id) ? 'present' : 'entity' };
+    return { id, label: value[id]?.name ?? id, r, mark: [...(value[id]?.name ?? id)][0], ...(thumbOf(value[id]) ? { image: thumbOf(value[id])! } : {}), kind: id === m.userId ? 'user' : present.has(id) ? 'present' : 'entity' };
   });
   const pairs = new Map<string, { a: string; b: string; weights: number[]; labels: string[]; tones: string[] }>();
   for (const a of Object.keys(value)) for (const [b, r] of Object.entries(value[a]?.[item.edges] ?? {}) as [string, any][]) {
@@ -349,7 +353,7 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
   })).filter(g => g.members.length);
   const nodes: GraphNode[] = Object.keys(places).map(id => {
     const area = groups.some(g => g.id === id);
-    const img = !area && known(id) && typeof places[id]?.image === 'string' && places[id].image ? { image: places[id].image as string } : {};
+    const pic = !area && known(id) ? thumbOf(places[id]) : undefined, img = pic ? { image: pic } : {};
     return { id, label: area ? '' : nameOf(id), r: area ? 4 : img.image ? 17 : 14, kind: regions.includes(id) ? 'region' : 'place', current: id === here, muted: !known(id), ...img, ...(area ? { hidden: true } : {}) };
   });
   const edges: GraphEdge[] = [];
@@ -373,7 +377,7 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
       <div {...part('legend')}><span data-kind="link"><i />相连</span>{groups.length ? <span data-kind="region"><i />区域</span> : null}<span {...part('hint')}>点区域名选中整个区域，拖动区域名可整体移动</span></div>
       {s ? (
         <K.Card title={known(sel!) ? s.name ?? sel : '未发现的地点'} meta={<>{s.kind ? <K.Badge tone="neutral">{s.kind}</K.Badge> : null}{sel === here ? <K.Badge tone="accent">当前位置</K.Badge> : null}</>}>
-          {known(sel!) && typeof s.image === 'string' && s.image ? <SceneImage key={s.image} src={s.image} alt={s.name ?? sel!} /> : null}
+          {known(sel!) && artOf(s) ? <Art key={artOf(s)} src={artOf(s)!} alt={s.name ?? sel!} variant="banner" /> : null}
           {known(sel!) ? <PlaceMusic places={places} id={sel!} parentKey={parent} /> : null}
           {known(sel!) ? <EntityBody path={[...path, sel!]} skip={['name', 'kind', hidden]} /> : <p {...solve('paragraph')}>这里还没有被探索。</p>}
           {pickedRegion ? (
@@ -387,16 +391,6 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
   );
 }
 
-/** A place's scene picture; disappears if it fails to load. */
-function SceneImage({ src, alt }: { src: string; alt: string }) {
-  const [state, setState] = React.useState<'loading' | 'ok' | 'bad'>('loading');
-  if (state === 'bad') return null;
-  return (
-    <figure {...solve('scene', { state })}>
-      <img src={src} alt={alt} loading="lazy" decoding="async" referrerPolicy="no-referrer" onLoad={() => setState('ok')} onError={() => setState('bad')} />
-    </figure>
-  );
-}
 /** Which music plays at this place: its own track, or the nearest region's. */
 function PlaceMusic({ places, id, parentKey }: { places: Record<string, any>; id: string; parentKey: string }) {
   const m = useModel();
