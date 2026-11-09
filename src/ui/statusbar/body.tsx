@@ -8,6 +8,7 @@ import { isEmpty, type Path, type StatusModel } from './model.js';
 import { Field, RelationRow, Section, useModel } from './fields.js';
 import { Abilities, Inventory } from './inventory.js';
 import { Checklist, part, solve } from './widgets.js';
+import { TickList } from './interact.js';
 
 export interface PageSpec { label: string; paths: string[]; as?: string }
 const rel = (s: string): Path => s.split('.');
@@ -100,7 +101,7 @@ function QuestLog({ paths }: { paths: Path[] }) {
       } else kids.forEach(k => walk([...p, k]));
     } else if (meta?.type === 'array' && Array.isArray(v) && v.some(x => x && typeof x === 'object' && 'text' in x)) {
       const done = v.filter((x: any) => x.done).length;
-      rows.push(<section key={p.join('.')} {...solve('quests')}><h5 {...part('title')}>{m.label(p)}<small>{done}/{v.length}</small></h5><Guard path={p}><Checklist items={v} /></Guard></section>);
+      rows.push(<section key={p.join('.')} {...solve('quests')}><h5 {...part('title')}>{m.label(p)}<small>{done}/{v.length}</small></h5><Guard path={p}><TickList path={p} items={v} /></Guard></section>);
     } else if (typeof v === 'string') {
       rows.push(<figure key={p.join('.')} {...solve('inner-voice')}><figcaption>{m.label(p)}</figcaption><Guard path={p}><blockquote>{v}</blockquote></Guard></figure>);
     } else rows.push(<Field key={p.join('.')} path={p} />);

@@ -271,3 +271,42 @@ test('独一无二的物品只有一个持有者：交给新持有者时自动�
   assert.ok(flag.feedback.some(f => f.code === 'UNIQUE_HELD'));
 });
 
+
+// ── declared player interactions (status bar edit / actions) ──
+import { expand, holds } from '../src/interact.js';
+async function act(name: string, holder: string, item: string, answers: Record<string, any> = {}) {
+  const { def, core, state } = await official();
+  const spec = (def.display as any).fields['characters.*.items'].actions[name];
+  const view = { ...data(state).items[item], ...data(state).characters[holder].items[item] };
+  const vars = { ...view, self: `characters.${holder}.items.${item}`, id: item, holderId: holder, n: 1, ...answers };
+  const read = (p: string[]) => p.reduce((v: any, k) => v?.[k], data(state));
+  const ops = expand(spec.ops, view, vars, read);
+  const result = await core.execute([{ $group: ops }] as any, state, { source: 'user' });
+  assert.ok(!result.feedback.some(f => f.level === 'L3'), JSON.stringify(result.feedback));
+  return { state: result.state, visible: holds(spec.when, view, vars, read) };
+}
+test('交互：官方物品动作展开为普通操作，由引擎执行', async () => {
+  const used = await act('use', 'erin', 'healing_draught');
+  assert.equal(data(used.state).characters.erin.items.healing_draught.count, 1, '使用消耗品数量减一');
+  assert.equal(data((await act('use', 'mira', 'healing_draught')).state).characters.mira.items.healing_draught, undefined, '用掉最后一个就移除');
+  assert.equal((await act('use', 'erin', 'iron_sword')).visible, false, '非消耗品不显示「使用」');
+  const letter = await act('give', 'erin', 'sealed_letter', { to: 'mira' });
+  assert.equal(data(letter.state).characters.erin.items.sealed_letter, undefined);
+  assert.equal(data(letter.state).characters.mira.items.sealed_letter.count, 1, '独一无二的物品整件转手');
+  const potion = await act('give', 'erin', 'healing_draught', { to: 'mira', n: 1 });
+  assert.equal(data(potion.state).characters.erin.items.healing_draught.count, 1);
+  assert.equal(data(potion.state).characters.mira.items.healing_draught.count, 2, '对方已有时叠加数量');
+  const all = await act('give', 'erin', 'healing_draught', { to: 'ash', n: 2 });
+  assert.equal(data(all.state).characters.erin.items.healing_draught, undefined, '全部交出后从自己名下移除');
+  assert.equal(data(all.state).characters.ash.items.healing_draught.count, 2, '对方没有时新建');
+  const dropped = await act('drop', 'erin', 'grey_mare');
+  assert.equal(data(dropped.state).characters.erin.items.grey_mare, undefined);
+});
+test('交互：声明写错时编译报错', () => {
+  const bad = (node: any) => () => compileStructure({ id: 't', version: '1', fields: { x: node } });
+  assert.throws(bad({ type: 'record', of: { type: 'int' }, actions: { a: { label: 'A' } } }), /toggle 与 ops 二选一/u);
+  assert.throws(bad({ type: 'record', of: { type: 'int' }, actions: { a: { label: 'A', ops: [], oops: 1 } } }), /未知属性/u);
+  assert.throws(bad({ type: 'object', fields: {}, edit: true }), /edit 只能用于单个值/u);
+  assert.throws(bad({ type: 'string', edit: { narrate: ['a', 'b'] } }), /两句 narrate 只用于 bool/u);
+  assert.throws(bad({ type: 'int', actions: {} }), /actions 只能用于/u);
+});

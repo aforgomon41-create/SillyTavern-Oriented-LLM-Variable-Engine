@@ -1,4 +1,5 @@
 import type { FieldNode, StructureDescription } from '../structure.js';
+import type { ActionSpec } from '../interact.js';
 
 /**
  * SOLVE official data structure (player-facing). Spec: docs/official-structure.md.
@@ -27,6 +28,33 @@ export const OFFICIAL_LISTS = {
   tags: { max: 10, warn: 8 }, labels: { max: 6, warn: 5 }, promises: { max: 8, warn: 6 }, plan: { max: 8, warn: 6 }, events: { max: 12, warn: 9 },
 } as const;
 
+/**
+ * What the player can do with an item they hold (status bar). Ordinary SOLVE operations with placeholders;
+ * the engine validates them like any write, and `narrate` tells the model on the next turn. Spec: src/interact.ts.
+ */
+const ITEM_ACTIONS: Record<string, ActionSpec> = {
+  equip: { label: ['装备', '卸下'], toggle: 'equipped', owner: 'user', when: { type: '装备' }, narrate: ['{holder}装备了{name}', '{holder}卸下了{name}'] },
+  use: { label: '使用', owner: 'user', when: { type: '消耗' }, narrate: '{holder}使用了{name}',
+    ops: [{ $if: { count: { gt: 1 } }, then: [{ $inc: { '{self}.count': -1 } }], else: [{ $unset: '{self}' }] }] },
+  give: { label: '交给…', owner: 'user', narrate: '{holder}把{name}×{n}交给了{to.name}',
+    ask: { to: { label: '交给谁', pick: 'characters', within: 'meta.present', not: '{holderId}' },
+      n: { label: '数量', number: { min: 1, max: '{count}', default: 1 }, when: { count: { gt: 1 }, unique: { ne: true } } } },
+    ops: [
+      { $if: { unique: true }, then: [{ $move: { '{self}': 'characters.{to}.items.{id}' } }], else: [
+        { $if: { count: { gt: '{n}' } }, then: [{ $inc: { '{self}.count': '-{n}' } }], else: [{ $unset: '{self}' }] },
+        { $if: { '@characters.{to}.items.{id}': { exists: true } },
+          then: [{ $inc: { 'characters.{to}.items.{id}.count': '{n}' } }],
+          else: [{ $set: { 'characters.{to}.items.{id}': { count: '{n}' } } }] },
+      ] },
+    ] },
+  drop: { label: '丢弃', owner: 'user', tone: 'danger', confirm: '丢弃{name}？', narrate: '{holder}丢弃了{name}', ops: [{ $unset: '{self}' }] },
+};
+/** Moving the party: the current location follows the player's choice on the map. */
+const PLACE_ACTIONS: Record<string, ActionSpec> = {
+  go: { label: '前往这里', when: { '@meta.location': { ne: '{id}' }, discovered: { ne: false } }, narrate: '{user}前往{name}',
+    ops: [{ $set: { 'meta.location': '{id}' } }] },
+};
+
 const character: FieldNode = {
   type: 'object', label: '角色',
   fields: {
@@ -38,16 +66,17 @@ const character: FieldNode = {
     // Which prefab / template this character was spawned from (by $from); the codex lists them under it.
     origin: text('原型', { optional: true }),
     age: text('年龄'),
-    intro: text('简介', { as: 'paragraph' }),
+    intro: text('简介', { as: 'paragraph', edit: { owner: 'user' } }),
     tags: { type: 'array', label: '身份', of: { type: 'string' }, list: OFFICIAL_LISTS.tags, as: 'tags' },
-    appearance: text('外貌', { as: 'paragraph' }),
+    appearance: text('外貌', { as: 'paragraph', edit: { owner: 'user' } }),
     condition: text('当前状态'),
     drive: {
       type: 'object', label: '驱动力', module: 'drive', fields: {
         goals: goals('spoiler'),
         thoughts: text('想法', { spoiler: 'spoiler' }),
         plan: { type: 'array', label: '规划', spoiler: 'spoiler', list: OFFICIAL_LISTS.plan, as: 'checklist',
-          of: { type: 'object', fields: { text: text('内容', { required: true }), done: { type: 'bool', label: '完成' } } } },
+          of: { type: 'object', fields: { text: text('内容', { required: true }),
+            done: { type: 'bool', label: '完成', edit: { owner: 'user', narrate: ['{holder}完成了规划：{text}', '{holder}的规划「{text}」重新标为未完成'] } } } } },
       },
     },
     relations: {
@@ -95,7 +124,7 @@ const character: FieldNode = {
     },
     // Items live once in the root `items`; a character only references them (with its own count / equipped).
     // Unique items (unique: true) have one holder: giving one to someone takes it from its previous holder.
-    items: { type: 'record', label: '物品', module: 'assets', keys: 'item', uniqueBy: 'unique', as: 'inventory',
+    items: { type: 'record', label: '物品', module: 'assets', keys: 'item', uniqueBy: 'unique', as: 'inventory', actions: ITEM_ACTIONS,
       of: { type: 'object', fields: { count: { type: 'int', label: '数量', min: 0, default: 1 }, equipped: { type: 'bool', label: '已装备' } } } },
     funds: { type: 'record', label: '资金', module: 'assets', as: 'currency', of: { type: 'oneOf', variants: [{ type: 'int', min: 0 }, { type: 'string' }] } },
     nsfw: {
@@ -132,7 +161,7 @@ export const officialStructure: StructureDescription = {
     },
     characters: { type: 'record', label: '角色', entity: 'character', of: character },
     places: {
-      type: 'record', label: '地点', entity: 'place',
+      type: 'record', label: '地点', entity: 'place', actions: PLACE_ACTIONS,
       of: { type: 'object', fields: {
         name: text('地点名', { required: true }),
         kind: { type: 'enum', label: '类别', values: ['区域', '地点'], default: '地点' },

@@ -9,6 +9,7 @@
  *     and which entities were spawned from it (their `origin` field).
  */
 import * as React from 'react';
+import { ReadOnly } from './interact.js';
 import { useKit } from '../kit.js';
 import { artOf, isEmpty, StatusModel, thumbOf, type Path } from './model.js';
 import { Field, ModelContext, NavigateContext, useModel } from './fields.js';
@@ -163,8 +164,9 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
   const detail = !pick ? <div {...part('placeholder')}>选择一个条目查看详情</div>
     : current.prefabs ? <PrefabDetail key={pick.id} entry={pick as Entry & { state: PrefabState }} category={current} {...(back ? { onBack: back } : {})} />
     : <InstanceDetail path={[...rel(current.collection!), pick.id]} category={current} {...(back ? { onBack: back } : {})} />;
+  // Reference pages: nothing here changes the story (prefab overlays are not real state either).
   return (
-    <div ref={ref} {...solve('codex', { layout: wide ? 'wide' : 'narrow' })}>
+    <ReadOnly><div ref={ref} {...solve('codex', { layout: wide ? 'wide' : 'narrow' })}>
       {cats.length > 1 ? (
         <div {...part('cats')}>
           {K.Segmented ? <K.Segmented label="图鉴分类" value={catKey(current)} onValueChange={switchCat}
@@ -173,7 +175,7 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
         </div>
       ) : null}
       {wide ? <div {...part('split')}>{list}<div {...part('detail')}>{detail}</div></div> : pick ? detail : list}
-    </div>
+    </div></ReadOnly>
   );
 }
 

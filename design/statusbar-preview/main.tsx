@@ -18,6 +18,8 @@ import { IMAGES, MUSIC, MUSIC_CREDIT } from '../../examples/official/media';
 import { KitProvider, type Kit } from '../../src/ui/kit';
 import { StatusBar } from '../../src/ui/statusbar/views';
 import { StatusModel } from '../../src/ui/statusbar/model';
+import type { Interact } from '../../src/ui/statusbar/interact';
+import type { LogicalState } from '../../src/types';
 import statusCss from '../../src/ui/statusbar/statusbar.css';
 import solveManifest from './solve-skin.json';
 import solveSkinCss from './solve-skin.css';
@@ -104,16 +106,20 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
 
   const def = await compile(compileStructure(exampleStructure));
   const core = new SolveCore(def);
-  const model = new StatusModel(def, await exampleState(core));
+  const initial = await exampleState(core);
   // Background music, chosen by the engine's rules (place → region → mood). Browsers only start audio after a user gesture.
   const embed = q.get('embed') === '1';
-  const pick = selectBgm(def, model.state);
   const audio = new Audio();
   audio.loop = true; audio.preload = 'none';
-  if (pick.url) audio.src = pick.url;
-  const placeName = (id?: string) => (id && (model.data.places?.[id]?.name as string)) || id || '';
-  const source = pick.source === 'place' ? `当前地点「${placeName(pick.place)}」的配乐` : pick.source === 'region' ? `沿用区域「${placeName(pick.place)}」的配乐`
-    : pick.source === 'mood' ? `按场景情绪「${pick.mood}」选曲` : '没有可用的曲目';
+  const music = (state: LogicalState) => {
+    const pick = selectBgm(def, state), places = (state.data as any).places ?? {};
+    const placeName = (id?: string) => (id && (places[id]?.name as string)) || id || '';
+    const source = pick.source === 'place' ? `当前地点「${placeName(pick.place)}」的配乐` : pick.source === 'region' ? `沿用区域「${placeName(pick.place)}」的配乐`
+      : pick.source === 'mood' ? `按场景情绪「${pick.mood}」选曲` : '没有可用的曲目';
+    return { pick, source };
+  };
+  // Player interactions run through the real engine as user actions (all-or-nothing); the preview keeps an undo
+  // stack and lists what would be told to the model on the next turn (the tavern host injects it into the prompt).
   const kit = DS as unknown as Kit;
   // Launcher position, remembered per device class (the host does this in the tavern too).
   const key = 'solve.launcher.v1.' + (window.innerWidth > 1000 ? 'desktop' : 'mobile');
@@ -121,6 +127,22 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
   try { launcher = JSON.parse(localStorage.getItem(key) ?? '{}') ?? {}; } catch { launcher = {}; }
   const remember = (patch: object) => { try { launcher = { ...launcher, ...patch }; localStorage.setItem(key, JSON.stringify(launcher)); } catch { /* storage unavailable */ } };
   function App() {
+    const [history, setHistory] = React.useState<{ state: LogicalState; narrate?: string }[]>([{ state: initial }]);
+    const state = history.at(-1)!.state;
+    const model = React.useMemo(() => new StatusModel(def, state), [state]);
+    const { pick, source } = React.useMemo(() => music(state), [state]);
+    React.useEffect(() => { if (pick.url && audio.src !== pick.url) { const was = !audio.paused; audio.src = pick.url; if (was) void audio.play().catch(() => undefined); } }, [pick.url]);
+    const interact = React.useMemo<Interact>(() => ({
+      async run({ ops, narrate }) {
+        const result = await core.execute([{ $group: ops }] as never, state, { source: 'user' });
+        const errors = result.feedback.filter(f => f.level === 'L3');
+        if (errors.length) return { ok: false, error: errors.map(f => f.message).join('；') };
+        setHistory(h => [...h, { state: result.state, ...(narrate ? { narrate } : {}) }]);
+        return { ok: true };
+      },
+      async undo() { if (history.length < 2) return false; setHistory(h => h.slice(0, -1)); return true; },
+      pending: history.flatMap(h => h.narrate ? [h.narrate] : []),
+    }), [state, history]);
     const [bgm, setBgm] = React.useState({ enabled: !embed, volume: 0.5 });
     const [playing, setPlaying] = React.useState(false);
     React.useEffect(() => {
@@ -140,7 +162,7 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
     const mode = view === '横条' ? 'bar' : view === '按钮' ? 'dot' : 'panel';
     return (
       <KitProvider value={kit}>
-        <StatusBar model={model} defaultMode={mode} {...(mode === 'panel' ? { defaultTab: view } : launcher.tab ? { defaultTab: launcher.tab } : {})} onTabChange={tab => remember({ tab })}
+        <StatusBar model={model} interact={interact} defaultMode={mode} {...(mode === 'panel' ? { defaultTab: view } : launcher.tab ? { defaultTab: launcher.tab } : {})} onTabChange={tab => remember({ tab })}
           {...(launcher.pos ? { position: launcher.pos } : {})} onPositionChange={pos => remember({ pos })}
           bgm={{ title: pick.track?.title ?? (pick.url ? decodeURIComponent(pick.url.split('/').pop() ?? '') : ''), source, playing, enabled: bgm.enabled, volume: bgm.volume, onToggle: v => setBgm(b => ({ ...b, enabled: v })), onVolume: v => setBgm(b => ({ ...b, volume: v })) }} />
       </KitProvider>

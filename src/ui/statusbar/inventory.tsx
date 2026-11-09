@@ -7,6 +7,7 @@ import { useKit } from '../kit.js';
 import { artOf, isEmpty, thumbOf, type Path, type StatusModel } from './model.js';
 import { Field, NavigateContext, RefChip, useModel } from './fields.js';
 import { Art, Mono, part, solve } from './widgets.js';
+import { ActionBar } from './interact.js';
 import { LevelNow, LevelPips, steps } from './levels.js';
 
 interface Held { id: string; at?: Path; data: Record<string, any> }
@@ -33,9 +34,9 @@ export function Inventory({ path }: { path: Path }) {
   const list = held(m, path);
   const equipped = list.filter(h => h.data.equipped), bag = list.filter(h => !h.data.equipped);
   const [sel, setSel] = React.useState<string | undefined>(list[0]?.id);
-  const it = list.find(h => h.id === sel);
+  const it = list.find(h => h.id === sel) ?? list[0];
   const tile = (h: Held) => (
-    <button key={h.id} type="button" {...solve('slot', { kind: h.data.type, equipped: h.data.equipped ? '' : undefined })} aria-pressed={h.id === sel} onClick={() => setSel(h.id)} title={nameOf(h)}>
+    <button key={h.id} type="button" {...solve('slot', { kind: h.data.type, equipped: h.data.equipped ? '' : undefined })} aria-pressed={h.id === it?.id} onClick={() => setSel(h.id)} title={nameOf(h)}>
       <span {...part('glyph')} aria-hidden="true"><Mono name={nameOf(h)} src={thumbOf(h.data)} /></span>
       <span {...part('name')}>{nameOf(h)}</span>
       {typeof h.data.count === 'number' && h.data.count !== 1 ? <span {...part('count')}>×{h.data.count}</span> : null}
@@ -60,6 +61,7 @@ export function Inventory({ path }: { path: Path }) {
             {typeof it.data.count === 'number' && it.data.count !== 1 ? <span {...part('count')}>×{it.data.count}</span> : null}
           </div>
           {it.data.desc ? <p {...part('desc')}>{it.data.desc}</p> : null}
+          <ActionBar path={[...path, it.id]} />
           {detail.map(k => <Field key={k} path={[...it.at!, k]} compact />)}
           {!it.at ? <span {...solve('none')}>这件物品的资料缺失</span> : <div {...part('more')}><K.Button size="sm" variant="ghost" onClick={() => go(it.at!)}>在图鉴中查看</K.Button></div>}
         </div>

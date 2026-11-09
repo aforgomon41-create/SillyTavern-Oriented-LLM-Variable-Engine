@@ -8,6 +8,7 @@ import { isEmpty, type Path, type StatusModel } from './model.js';
 import { CenterMeter, Checklist, Chips, Facts, Ladder, Meter, Spoiler, Stat, Timeline, part, solve } from './widgets.js';
 import { CurrencyList } from './currency.js';
 import { Abilities, Inventory } from './inventory.js';
+import { EditButton, Editor, useEditing, useInteract } from './interact.js';
 
 export const ModelContext = React.createContext<StatusModel | null>(null);
 export const useModel = (): StatusModel => { const m = React.useContext(ModelContext); if (!m) throw new Error('缺少状态模型'); return m; };
@@ -47,10 +48,23 @@ export function Value({ path, value }: { path: Path; value: any }) {
 
 /** A labelled field as a block: picks the richest widget for its type. */
 export function Field({ path, compact = false }: { path: Path; compact?: boolean }) {
-  const m = useModel(), K = useKit();
+  const m = useModel(), K = useKit(), editing = useEditing(path), live = useInteract();
   const value = m.value(path), meta = m.meta(path), as = m.widget(path), label = m.label(path);
-  if (value === undefined || m.dormant(path) || m.spoiler(path) === 'hidden') return null;
-  if (compact && isEmpty(value)) return null;
+  if (m.dormant(path) || m.spoiler(path) === 'hidden') return null;
+  if (value === undefined && !editing.edit) return null;
+  if (compact && isEmpty(value) && !editing.edit) return null;
+  if (editing.edit) {
+    // Declared editable: label with a pencil; the editor takes the value's place while open.
+    const inline = ['enum', 'string', 'ref', 'bool', 'int', 'number', 'ladder'].includes(meta?.type ?? '') && as !== 'paragraph';
+    return (
+      <div {...solve('field', { layout: inline && !editing.editing ? 'inline' : 'stack', editable: '' })}>
+        <span {...part('label')}>{label}{editing.editing ? null : <EditButton label={label} onClick={editing.start} disabled={!!live?.locked} {...(live?.locked ? { title: live.locked } : {})} />}</span>
+        <div {...part('value')}>{editing.editing ? <Editor path={path} onSave={editing.save} onCancel={editing.stop} />
+          : isEmpty(value) ? <span {...solve('none')}>未填写</span> : <Guarded path={path}><Value path={path} value={value} /></Guarded>}</div>
+      </div>
+    );
+  }
+  if (value === undefined) return null;
   // Media links are shown where they belong (portraits, scene banners, the music button), never as text.
   if (as === 'image' || as === 'bgm') return null;
   let body: React.ReactNode;

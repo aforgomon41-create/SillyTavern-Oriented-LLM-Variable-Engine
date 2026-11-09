@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { assertJson, clone, fail, safeKey } from './json.js';
 import { EntityGraph } from './entities.js';
+import { checkActions, checkEdit, type ActionSpec, type EditSpec } from './interact.js';
 import type { BgmSpec, CompiledDefinition, ComputedRule, Definition, DisplaySpec, EntitySpec, GuideRule, Json, ListLimit, ModuleSpec, NumericRule, ProjectionRule, RefSpec, StampRule } from './types.js';
 
 /**
@@ -49,6 +50,10 @@ export interface FieldNode {
   sections?: { label: string; keys: string[] }[];
   readonly?: boolean;
   internal?: boolean;
+  /** The player may change this value from the status bar (see src/interact.ts). */
+  edit?: true | EditSpec;
+  /** Buttons on each entry (record / array) or on this object (see src/interact.ts). */
+  actions?: Record<string, ActionSpec>;
 }
 export interface StructureModule { label?: string; enabled?: boolean; parent?: string; exclusive?: string; guide?: string }
 export interface StructureDescription {
@@ -97,7 +102,7 @@ function problem(path: string, message: string): never { return fail('STRUCTURE_
 function build(node: FieldNode, path: string[], out: Collected, modules: Set<string>, inModule: boolean): { schema: z.ZodType; hasDefault: boolean } {
   const at = path.join('.');
   if (!node || typeof node !== 'object' || !TYPES.has(node.type)) problem(at, '未知字段类型');
-  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal'];
+  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal','edit','actions'];
   const extra = Object.keys(node).filter(key => !known.includes(key));
   if (extra.length) problem(at, `未知属性：${extra.join(', ')}`);
   if (node.module !== undefined) {
@@ -128,6 +133,14 @@ function build(node: FieldNode, path: string[], out: Collected, modules: Set<str
       for (const k of s.keys) { if (!node.fields?.[k] || seen.has(k)) problem(at, `sections 中的 ${k} 不存在或重复`); seen.add(k); }
     }
     meta.sections = clone(node.sections) as unknown as Json;
+  }
+  if (node.edit !== undefined) {
+    if (['object', 'record', 'oneOf'].includes(node.type)) problem(at, 'edit 只能用于单个值（文字、数字、开关、枚举、引用、列表）');
+    meta.edit = clone(checkEdit(at, node.edit, node.type)) as unknown as Json;
+  }
+  if (node.actions !== undefined) {
+    if (!['object', 'record', 'array'].includes(node.type)) problem(at, 'actions 只能用于 object / record / array');
+    meta.actions = clone(checkActions(at, node.actions)) as unknown as Json;
   }
   if (path.length) out.fields[at] = meta;
 

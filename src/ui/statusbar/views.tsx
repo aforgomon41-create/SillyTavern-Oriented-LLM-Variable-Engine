@@ -13,6 +13,7 @@ import { GraphView, type GraphEdge, type GraphGroup, type GraphNode, type Tone }
 import { PlayerSheet, type SheetItem } from './sheet.js';
 import { Codex, type CodexCategory } from './codex.js';
 import { Art, Mono, part, solve } from './widgets.js';
+import { ActionBar, InteractLayer, PendingNarration, type Interact } from './interact.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
 export interface StatusBarProps {
@@ -23,11 +24,13 @@ export interface StatusBarProps {
   defaultMode?: Mode; onModeChange?: (mode: Mode) => void;
   /** Saved launcher position; the host persists it. */
   position?: { x: number; y: number }; onPositionChange?: (p: { x: number; y: number }) => void;
+  /** Player interactions declared in the structure (edit / actions); omitted → read-only. */
+  interact?: Interact;
 }
 export type Mode = 'bar' | 'dot' | 'panel';
 const rel = (s: string): Path => s.split('.');
 
-export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = 'bar', onModeChange, position, onPositionChange }: StatusBarProps) {
+export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = 'bar', onModeChange, position, onPositionChange, interact }: StatusBarProps) {
   const K = useKit();
   const tabs = model.layout.filter((t: any) => model.moduleOn(t.module));
   const [tab, setTabState] = React.useState<string>(tabs.some((t: any) => t.tab === defaultTab) ? defaultTab! : tabs[0]?.tab ?? '');
@@ -56,7 +59,8 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
     <K.TooltipProvider>
       {mode === 'panel' ? (
         <K.Panel title={<Overview model={model} where="title" />} onClose={() => setMode(rest)} closeLabel="收起"
-          geometry={panelGeometry(anchor.current)} defaultSize={{ w: 780, h: 720 }} actions={bgm ? <BgmButton bgm={bgm} /> : undefined}>
+          geometry={panelGeometry(anchor.current)} defaultSize={{ w: 780, h: 720 }} actions={bgm ? <BgmButton bgm={bgm} /> : undefined}
+          footer={interact?.pending?.length ? <PendingNarration host={interact} /> : undefined}>
           <K.Tabs label="状态栏" mode="scroll" sticky swipe value={tab} onValueChange={setTab}
             items={tabs.map((t: any) => ({ value: t.tab, label: t.tab, content: <div {...solve('tab')}>{t.items.filter((i: any) => typeof i === 'string' || model.moduleOn(i.module)).map((item: any, i: number) => <LayoutItem key={i} item={item} focus={focus} />)}</div> }))} />
         </K.Panel>
@@ -66,7 +70,7 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
       )}
     </K.TooltipProvider>
   );
-  return <ModelContext.Provider value={model}><NavigateContext.Provider value={navigate}>{content}</NavigateContext.Provider></ModelContext.Provider>;
+  return <ModelContext.Provider value={model}><NavigateContext.Provider value={navigate}><InteractLayer {...(interact ? { host: interact } : {})}>{content}</InteractLayer></NavigateContext.Provider></ModelContext.Provider>;
 }
 /** Desktop: the panel opens where the bar was, so the bar visibly turns into the title. */
 function panelGeometry(r: DOMRect | null): { x: number; y: number; w: number; h: number } | undefined {
@@ -379,6 +383,7 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
         <K.Card title={known(sel!) ? s.name ?? sel : '未发现的地点'} meta={<>{s.kind ? <K.Badge tone="neutral">{s.kind}</K.Badge> : null}{sel === here ? <K.Badge tone="accent">当前位置</K.Badge> : null}</>}>
           {known(sel!) && artOf(s) ? <Art key={artOf(s)} src={artOf(s)!} alt={s.name ?? sel!} variant="banner" /> : null}
           {known(sel!) ? <PlaceMusic places={places} id={sel!} parentKey={parent} /> : null}
+          <ActionBar path={[...path, sel!]} />
           {known(sel!) ? <EntityBody path={[...path, sel!]} skip={['name', 'kind', hidden]} /> : <p {...solve('paragraph')}>这里还没有被探索。</p>}
           {pickedRegion ? (
             <div {...part('members')}><span {...part('label')}>区域内</span>
