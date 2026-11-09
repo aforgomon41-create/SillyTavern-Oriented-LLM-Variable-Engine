@@ -263,13 +263,32 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
                   <div {...solve('card-body', { art: artOf(v) ? '' : undefined })}><div {...part('layout')}>
                     {artOf(v) ? <Art src={artOf(v)!} alt={v.name ?? id} variant="side" /> : null}
                     <div {...part('main')}>{item.pages ? <Pages base={[...path, id]} pages={item.pages as PageSpec[]} label={`${v.name ?? id}的资料`} compact />
-                      : <EntityBody path={[...path, id]} skip={item.badges} />}</div>
+                      : <EntityBody path={[...path, id]} skip={item.badges} />}
+                      {item.stored ? <StoredHere id={id} spec={item.stored} /> : null}</div>
                   </div></div>) : null}
               </K.CollapseCard>
             </div>
           );
         })}
       </div>
+    </section>
+  );
+}
+
+/** What is kept in this entity (a building): every holder's `<field>.<id>` under the holdings pattern, e.g. characters.*.items. */
+function StoredHere({ id, spec }: { id: string; spec: { holders: string; field: string } }) {
+  const m = useModel();
+  const [owners, , ...rest] = spec.holders.split('.');
+  const rows: { who: string; item: string; n: number }[] = [];
+  for (const who of Object.keys(m.value([owners!]) ?? {})) {
+    const held: Record<string, any> = m.value([owners!, who, ...rest]) ?? {};
+    for (const [item, own] of Object.entries(held)) { const n = own?.[spec.field]?.[id]; if (typeof n === 'number' && n > 0) rows.push({ who, item, n }); }
+  }
+  if (!rows.length || m.dormant([owners!, Object.keys(m.value([owners!]) ?? {})[0] ?? '', ...rest])) return null;
+  return (
+    <section {...solve('stored-here')}>
+      <h5 {...part('title')}>存放的物品<small>{rows.length}</small></h5>
+      <ul>{rows.map(r => <li key={r.who + r.item}><RefChip id={r.who} /><span {...part('item')}><span {...part('glyph')} aria-hidden="true"><Mono name={m.entityName(r.item)} src={m.picture(r.item)} /></span>{m.entityName(r.item)}</span><b>×{r.n.toLocaleString('zh-CN')}</b></li>)}</ul>
     </section>
   );
 }

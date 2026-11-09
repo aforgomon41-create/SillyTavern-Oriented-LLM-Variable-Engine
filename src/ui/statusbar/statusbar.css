@@ -781,3 +781,39 @@
 [data-solve="pending"] [data-solve-part="last"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-solve="pending"][open] [data-solve-part="last"] { visibility: hidden; }
 [data-solve="pending"] > ol { margin: var(--k-space-1) 0 var(--k-space-2); padding-left: 2.2em; display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow: auto; }
+[data-solve="inventory"] > [data-solve-part="group"] [data-solve-part="title"] [data-solve="ref"] { font-size: inherit; }
+[data-solve="inventory"] [data-solve="slot"][data-kind="货币"] [data-solve-part="count"] { font-variant-numeric: tabular-nums; }
+[data-solve="inventory"] > [data-solve-part="detail"] > [data-solve-part="note"] { margin: 0; color: var(--k-on-muted); font-size: var(--k-fs-sm); }
+[data-solve="inventory"] > [data-solve-part="detail"] > [data-solve-part="kept"] { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--k-space-1) var(--k-space-3); font-size: var(--k-fs-sm); }
+[data-solve="inventory"] > [data-solve-part="detail"] > [data-solve-part="kept"] > [data-solve-part="label"] { color: var(--k-on-muted); }
+[data-solve="actions"] textarea { width: 100%; resize: vertical; line-height: var(--k-lh); min-height: 32px; box-sizing: border-box; padding: var(--k-space-1) var(--k-space-2); font: inherit; font-size: 16px;
+  color: var(--k-on); background: var(--k-surface-1); border: var(--k-border-w, 1px) solid var(--k-divider); border-radius: var(--k-r-md); }
+[data-solve="actions"] textarea:focus-visible { outline: none; box-shadow: var(--k-focus-ring); }
+[data-solve="actions"] [data-solve-part="field"] small { color: var(--k-on-sunken-subtle); }
+[data-solve="checklist"][data-list] > li { align-items: flex-start; flex-wrap: nowrap; }
+[data-solve="checklist"][data-list] > li[data-editing] { flex-wrap: wrap; }
+[data-solve="checklist"][data-list] > li > [data-solve-part="text"] { flex: 1 1 0; min-width: 0; padding-top: 2px; }
+[data-solve="checklist"][data-list] > li > [data-solve-part="tools"] { flex: none; display: inline-flex; gap: 2px; margin-inline-start: auto; }
+[data-solve="checklist"] > li > [data-solve="editor"] { flex: 1 1 100%; }
+[data-solve="edit-btn"][data-tone="danger"] { font-size: 16px; }
+[data-solve="edit-btn"][data-tone="danger"]:hover { color: var(--k-danger); background: color-mix(in srgb, var(--k-danger) 12%, transparent); }
+[data-solve="add-row"] { display: flex; gap: var(--k-space-2); margin-top: var(--k-space-2); }
+[data-solve="add-row"] > input { flex: 1 1 0; min-width: 0; min-height: 32px; box-sizing: border-box; padding: var(--k-space-1) var(--k-space-2); font: inherit; font-size: 16px;
+  color: var(--k-on); background: var(--k-surface-1); border: var(--k-border-w, 1px) dashed var(--k-divider); border-radius: var(--k-r-md); }
+[data-solve="add-row"] > input:focus-visible { outline: none; box-shadow: var(--k-focus-ring); border-style: solid; }
+[data-solve="editable"] { display: inline; }
+[data-solve="editable"] > [data-solve="edit-btn"] { vertical-align: middle; margin-inline-start: 2px; }
+[data-solve="inner-voice"] [data-solve="editable"] { display: flex; align-items: flex-start; gap: var(--k-space-1); }
+[data-solve="inner-voice"] [data-solve="editable"] > blockquote { flex: 1 1 0; min-width: 0; }
+[data-solve="abilities"] [data-solve-part="progress"] { margin-top: var(--k-space-2); max-width: 360px; }
+[data-solve="stored-here"] { margin-top: var(--k-space-3); }
+[data-solve="stored-here"] > [data-solve-part="title"] { margin: 0 0 var(--k-space-2); font-size: var(--k-fs-sm); color: var(--k-on-muted); display: flex; gap: var(--k-space-2); }
+[data-solve="stored-here"] > ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--k-space-1); }
+[data-solve="stored-here"] > ul > li { display: flex; align-items: center; gap: var(--k-space-2); font-size: var(--k-fs-sm); }
+[data-solve="stored-here"] [data-solve-part="item"] { display: inline-flex; align-items: center; gap: var(--k-space-1); min-width: 0; }
+[data-solve="stored-here"] [data-solve-part="glyph"] { width: 22px; height: 22px; flex: none; display: inline-grid; border-radius: var(--k-r-sm, 4px); overflow: hidden; }
+[data-solve="stored-here"] li > b { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+/* quest-log rows are a grid (mark | text); editable plans add a tools column, the editor spans text + tools */
+[data-solve="quests"] [data-solve="checklist"][data-list] > li { grid-template-columns: auto minmax(0, 1fr) auto; }
+[data-solve="quests"] [data-solve="checklist"][data-list] > li > [data-solve="editor"] { grid-column: 2 / -1; }
+[data-solve="quests"] [data-solve="checklist"][data-list] > li > [data-solve-part="text"] { padding-top: 0; }

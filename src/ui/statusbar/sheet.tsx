@@ -15,7 +15,10 @@ import { artOf } from './model.js';
 
 export interface SheetItem {
   sheet: string; id: string; subtitle?: string; badges?: string[]; tags?: string; vitals?: string; status?: string;
-  effects?: string; currency?: string; pages: { label: string; paths: string[]; as?: string }[];
+  effects?: string; currency?: string;
+  /** With `currency` pointing at holdings (`items`): the item type counted as money; amounts are what the character carries. */
+  currencyType?: string;
+  pages: { label: string; paths: string[]; as?: string }[];
 }
 const rel = (s: string): Path => s.split('.');
 
@@ -41,7 +44,13 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
   const name: string = v.name ?? path.at(-1);
   const vitals = on(item.vitals) ? Object.entries(at(item.vitals) as Record<string, unknown>) : [];
   const effects = on(item.effects) ? Object.entries(at(item.effects) as Record<string, any>) : [];
-  const money = on(item.currency) ? Object.entries(at(item.currency) as Record<string, unknown>) : [];
+  const money: [string, unknown][] = !on(item.currency) ? [] : !item.currencyType ? Object.entries(at(item.currency) as Record<string, unknown>)
+    : Object.entries((at(item.currency) ?? {}) as Record<string, any>).flatMap(([id, own]) => {
+      const where = m.locate(id), inst = where ? m.value(where) : undefined;
+      if (inst?.type !== item.currencyType) return [];
+      const count = own?.count;
+      return typeof count === 'number' && count > 0 ? [[inst.name ?? id, count] as [string, unknown]] : own?.note ? [[inst.name ?? id, own.note] as [string, unknown]] : [];
+    });
   const art = artOf(v);
   return (
     <section {...solve('hero', { art: art ? '' : undefined })} data-k-level="surface-1">
@@ -62,7 +71,7 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
           <ul>{effects.map(([k, e]) => <li key={k}><b>{k}</b><span>{e?.desc}{e?.until ? <small>（直到{e.until}）</small> : null}</span></li>)}</ul>
         </div>
       ) : null}
-      {money.length ? <div {...part('money')}><CurrencyList entries={money} label={m.label([...path, ...rel(item.currency!)])} /></div> : null}
+      {money.length ? <div {...part('money')}><CurrencyList entries={money} label={item.currencyType ?? m.label([...path, ...rel(item.currency!)])} /></div> : null}
     </section>
   );
 }

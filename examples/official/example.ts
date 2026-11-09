@@ -12,7 +12,7 @@ import { art, MUSIC, thumb } from './media.js';
 const pics = (k: Parameters<typeof art>[0]) => ({ thumb: thumb(k), image: art(k) });
 
 /** Modules switched on for this example (others keep their defaults). */
-export const exampleModules: Record<string, boolean> = { attr_dnd: false, attr_wod: true, factions: true, estates: true };
+export const exampleModules: Record<string, boolean> = { attr_dnd: false, attr_wod: true, factions: true, buildings: true };
 
 export const exampleData: Record<string, Json> = {
   meta: {
@@ -37,15 +37,18 @@ export const exampleData: Record<string, Json> = {
         rank: '铜阶',
         attributes: { wod: { str: 23, dex: 6, sta: 8, int: 3, wits: 4, res: 5, pre: 2, man: 2, com: 3 } },
         special: { 契约之力: '残响' },
-        abilities: { night_vision: {}, indomitable: {}, shield_bash: { level: 2 }, echo_slash: { level: 1 } },
+        abilities: { night_vision: {}, indomitable: {}, shield_bash: { level: 2, progress: 60 }, echo_slash: { level: 1, progress: 15 } },
         gauges: { 生命: { value: 72, max: 100 }, 体力: { value: 30, max: 50 }, 理智: { value: 88, max: 100 }, 饥饿: '一天没吃东西，肚子在叫' },
         effects: { 淋湿: { desc: '敏捷检定略受影响', until: '烤干衣物' }, 契约低语: { desc: '偶尔听见契约者的声音', source: '契约' } },
       },
       items: {
         iron_sword: { count: 1, equipped: true }, round_shield: { count: 1, equipped: true },
         healing_draught: { count: 2, equipped: false }, sealed_letter: { count: 1, equipped: false }, grey_mare: { count: 1, equipped: false },
+        gold: { count: 140, stored: { royal_bank: 500 } }, silver: { count: 37 }, copper: { count: 58 },
+        pawn_ticket: { count: 1, note: '押着家传戒指' },
+        // Kept at home, not carried.
+        father_armor: { count: 0, stored: { old_manor: 1 } },
       },
-      funds: { 金币: 140, 银币: 37, 铜币: 58, 当票: '一张押着家传戒指的当票' },
     },
     mira: {
       name: '米拉', ...pics('mira'), role: '核心角色', age: '看不出', intro: '游走各地的吟游诗人，对王都的传闻无所不知。',
@@ -61,8 +64,7 @@ export const exampleData: Record<string, Json> = {
         special: { 情报网: 60 }, abilities: { perfect_pitch: {}, lullaby: { level: 3 }, night_vision: {} },
         gauges: { 生命: { value: 45, max: 60 } }, effects: {},
       },
-      items: { lute: { count: 1, equipped: true }, healing_draught: { count: 1, equipped: false } },
-      funds: { 银币: 12 },
+      items: { lute: { count: 1, equipped: true }, healing_draught: { count: 1, equipped: false }, silver: { count: 12 } },
     },
     ash: {
       name: '灰烬', ...pics('ash'), role: '次要配角', age: '死去多年', intro: '徘徊在酒馆地窖的亡灵骑士，只记得自己的誓言。',
@@ -75,7 +77,7 @@ export const exampleData: Record<string, Json> = {
         special: { 幽火: '燃烧中' }, abilities: { undying: {}, night_vision: {} },
         gauges: { 魂火: { value: 64, max: 100 } }, effects: {},
       },
-      items: {}, funds: {},
+      items: {},
     },
     cassius: {
       name: '卡修斯', ...pics('cassius'), role: '主要配角', age: '四十余岁', intro: '银枝骑士团团长，亲手将艾琳逐出骑士团。',
@@ -84,12 +86,17 @@ export const exampleData: Record<string, Json> = {
       relations: { erin: { affection: 10, labels: ['前部下'], impression: '太过天真', promises: [], keyEvents: [] } },
       rp: { rank: '金阶', attributes: { wod: { str: 9, dex: 7, sta: 8, int: 5, wits: 6, res: 8, pre: 6, man: 4, com: 7 } },
         special: {}, abilities: { shield_bash: { level: 4 } }, gauges: { 生命: { value: 140, max: 140 } }, effects: {} },
-      items: {}, funds: { 金币: 900 },
+      items: { gold: { count: 900 } },
     },
   },
   items: {
     iron_sword: { name: '铁剑', ...pics('iron_sword'), type: '装备', desc: '普通的制式铁剑' },
     round_shield: { name: '圆盾', ...pics('round_shield'), type: '装备', desc: '边缘有凹痕的木盾' },
+    gold: { name: '金币', type: '货币', desc: '王国铸造的金币' },
+    silver: { name: '银币', type: '货币', desc: '日常交易用的银币' },
+    copper: { name: '铜币', type: '货币', desc: '零钱' },
+    pawn_ticket: { name: '当票', type: '关键', unique: true, desc: '下城区当铺开出的当票' },
+    father_armor: { name: '父亲的板甲', type: '装备', unique: true, desc: '老式的骑士板甲，胸口有银枝纹章' },
     healing_draught: { name: '治疗药剂', ...pics('healing_draught'), type: '消耗', desc: '散发苦味的红色药水，能止血' },
     sealed_letter: { name: '封蜡信', ...pics('sealed_letter'), type: '关键', unique: true, desc: '盖着骑士团火漆的信', truth: '火漆是伪造的' },
     grey_mare: { name: '灰马', ...pics('grey_mare'), type: '座驾', unique: true, desc: '温顺的老母马', condition: '拴在酒馆马厩' },
@@ -118,8 +125,9 @@ export const exampleData: Record<string, Json> = {
     fog_marsh: { name: '雾沼', ...pics('fog_marsh'), bgm: 'dark_fog', kind: '区域', parent: null, links: ['capital', 'marsh_hut'], desc: '终年不散的浓雾与沼泽。', discovered: true },
     marsh_hut: { name: '沼泽小屋', ...pics('marsh_hut'), kind: '地点', parent: 'fog_marsh', links: ['fog_marsh'], desc: '艾琳救下米拉的地方。', discovered: true },
   },
-  estates: {
-    old_manor: { name: '艾琳的旧宅', owner: 'erin', place: 'lower_town', desc: '破旧的两层小楼，被骑士团查封后无人打理。', developments: { 地下室: '藏着父亲留下的铠甲' } },
+  buildings: {
+    old_manor: { name: '艾琳的旧宅', kind: '住宅', owner: 'erin', place: 'lower_town', desc: '破旧的两层小楼，被骑士团查封后无人打理。', developments: { 地下室: '藏着父亲留下的铠甲' } },
+    royal_bank: { name: '王都银行', kind: '银行', owner: null, place: 'capital', vault: true, desc: '石砌的老银行，收费寄存钱币与贵重物品。', developments: {} },
   },
   factions: {
     silver_branch: {

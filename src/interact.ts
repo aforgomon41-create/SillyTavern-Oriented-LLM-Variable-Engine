@@ -13,19 +13,23 @@
 import { fail } from './json.js';
 import type { Json } from './types.js';
 
-export type Compare = { eq?: Json; ne?: Json; gt?: Json; gte?: Json; lt?: Json; lte?: Json; in?: Json[]; exists?: boolean };
+export type Compare = { eq?: Json; ne?: Json; gt?: Json; gte?: Json; lt?: Json; lte?: Json; in?: Json[]; exists?: boolean; empty?: boolean };
 /** Field of the entry (`count`), or an absolute path prefixed with `@` (`@meta.location`); a plain value means equality. */
 export type Cond = Record<string, Json | Compare>;
 export interface AskSpec {
   label: string;
-  /** Choose an entity from this collection (e.g. `characters`). */
+  /** Choose a key of the record at this path (placeholders allowed): an entity collection (`characters`) or a keyed record (`{self}.stored`). */
   pick?: string;
+  /** Keep only candidates (entities) matching any of these conditions, e.g. `[{ owner: '{holderId}' }, { vault: true }]`. */
+  filter?: Cond[];
   /** Limit the choice to the IDs listed at this path (e.g. `meta.present`); falls back to the whole collection when empty. */
   within?: string;
   /** Leave this ID out (e.g. `{holderId}`). */
   not?: string;
   /** Ask for a number. */
   number?: { min?: Json; max?: Json; default?: Json };
+  /** Ask for a sentence (how, why …); `optional` lets it stay empty. */
+  text?: { placeholder?: string; optional?: boolean };
   /** Only ask when this holds; otherwise the answer is `default` (or 1). */
   when?: Cond;
 }
@@ -39,6 +43,8 @@ export interface ActionSpec {
   when?: Cond;
   /** `user`: only on entries under the player's character. */
   owner?: 'user';
+  /** Shown only while this module is on (e.g. storage needs `buildings`). */
+  module?: string;
   ask?: Record<string, AskSpec>;
   /** Ask for confirmation first (destructive actions). */
   confirm?: string;
@@ -48,7 +54,7 @@ export interface ActionSpec {
 }
 export interface EditSpec { owner?: 'user'; narrate?: string | [string, string] }
 
-const COMPARE = new Set(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'exists']);
+const COMPARE = new Set(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'exists', 'empty']);
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const pairOrString = (v: unknown) => typeof v === 'string' || (Array.isArray(v) && v.length === 2 && v.every(x => typeof x === 'string'));
 
@@ -83,7 +89,7 @@ export function checkEdit(at: string, edit: unknown, type: string): EditSpec {
 /** Validate an `actions` declaration. */
 export function checkActions(at: string, actions: unknown): Record<string, ActionSpec> {
   if (!isObj(actions)) fail('STRUCTURE_INVALID', `${at}：actions 必须是对象`, at);
-  const known = ['label', 'toggle', 'ops', 'when', 'owner', 'ask', 'confirm', 'narrate', 'tone'];
+  const known = ['label', 'toggle', 'ops', 'when', 'owner', 'module', 'ask', 'confirm', 'narrate', 'tone'];
   for (const [name, a] of Object.entries(actions)) {
     const where = `${at} 动作 ${name}`;
     if (!isObj(a)) fail('STRUCTURE_INVALID', `${where}：必须是对象`, at);
@@ -97,13 +103,15 @@ export function checkActions(at: string, actions: unknown): Record<string, Actio
     if (a.owner !== undefined && a.owner !== 'user') fail('STRUCTURE_INVALID', `${where}：owner 只能是 user`, at);
     if (a.confirm !== undefined && typeof a.confirm !== 'string') fail('STRUCTURE_INVALID', `${where}：confirm 是一句提示`, at);
     if (a.narrate !== undefined && !pairOrString(a.narrate)) fail('STRUCTURE_INVALID', `${where}：narrate 是字符串或两句`, at);
+    if (a.module !== undefined && typeof a.module !== 'string') fail('STRUCTURE_INVALID', `${where}：module 是模块名`, at);
     if (a.tone !== undefined && a.tone !== 'danger') fail('STRUCTURE_INVALID', `${where}：tone 只能是 danger`, at);
     if (a.ask !== undefined) {
       if (!isObj(a.ask)) fail('STRUCTURE_INVALID', `${where}：ask 必须是对象`, at);
       for (const [key, q] of Object.entries(a.ask)) {
         if (!/^[A-Za-z_]\w*$/u.test(key)) fail('STRUCTURE_INVALID', `${where}：ask 键 ${key} 只能是字母数字`, at);
-        if (!isObj(q) || typeof q.label !== 'string' || (q.pick === undefined) === (q.number === undefined)) fail('STRUCTURE_INVALID', `${where}：ask.${key} 需要 label，并且 pick / number 二选一`, at);
+        if (!isObj(q) || typeof q.label !== 'string' || [q.pick, q.number, q.text].filter(x => x !== undefined).length !== 1) fail('STRUCTURE_INVALID', `${where}：ask.${key} 需要 label，并且 pick / number / text 三选一`, at);
         if (q.when !== undefined) checkCond(where, q.when);
+        if (q.filter !== undefined) { if (!Array.isArray(q.filter) || !q.pick) fail('STRUCTURE_INVALID', `${where}：ask.${key}.filter 是条件数组，只用于 pick`, at); q.filter.forEach((c: unknown) => checkCond(where, c)); }
       }
     }
   }
@@ -128,11 +136,16 @@ export function fill(template: Json, vars: Vars): Json {
   if (isObj(template)) return Object.fromEntries(Object.entries(template).map(([k, v]) => [String(fill(k, vars)), fill(v as Json, vars)]));
   return template;
 }
+/** Nothing there: missing, null, '', 0, [] or {}. */
+function isEmptyValue(v: unknown): boolean {
+  return v === undefined || v === null || v === '' || v === 0 || (Array.isArray(v) && !v.length) || (isObj(v) && !Object.keys(v).length);
+}
 const num = (v: unknown) => typeof v === 'number' ? v : Number.NaN;
 function compare(value: Json | undefined, c: Json | Compare): boolean {
   if (!isObj(c)) return JSON.stringify(value ?? null) === JSON.stringify(c);
   const same = (x: Json | undefined) => JSON.stringify(value ?? null) === JSON.stringify(x ?? null);
   if ('exists' in c && (value !== undefined && value !== null) !== c.exists) return false;
+  if ('empty' in c && isEmptyValue(value) !== c.empty) return false;
   if ('eq' in c && !same(c.eq)) return false;
   if ('ne' in c && same(c.ne)) return false;
   if ('gt' in c && !(num(value) > num(c.gt))) return false;

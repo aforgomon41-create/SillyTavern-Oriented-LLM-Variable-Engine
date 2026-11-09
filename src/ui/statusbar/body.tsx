@@ -8,7 +8,7 @@ import { isEmpty, type Path, type StatusModel } from './model.js';
 import { Field, RelationRow, Section, useModel } from './fields.js';
 import { Abilities, Inventory } from './inventory.js';
 import { Checklist, part, solve } from './widgets.js';
-import { TickList } from './interact.js';
+import { EditableText, TickList, editFor, useInteract } from './interact.js';
 
 export interface PageSpec { label: string; paths: string[]; as?: string }
 const rel = (s: string): Path => s.split('.');
@@ -88,7 +88,9 @@ function Part({ path, as }: { path: Path; as?: string }) {
 
 /** Quest log: objective groups as quest entries, a sentence as the inner voice, checklists as steps. */
 function QuestLog({ paths }: { paths: Path[] }) {
-  const m = useModel();
+  const m = useModel(), live = useInteract();
+  // Editable lines stay visible while empty, so the player can fill them in.
+  const open = (p: Path, v: unknown) => !isEmpty(v) || (!!live && !!editFor(m, p));
   const rows: React.ReactNode[] = [];
   const walk = (p: Path) => {
     const meta = m.meta(p), v = m.value(p);
@@ -97,13 +99,16 @@ function QuestLog({ paths }: { paths: Path[] }) {
       const kids = m.children(p);
       if (kids.every(k => m.meta([...p, k])?.type === 'string')) {
         rows.push(<section key={p.join('.')} {...solve('quests')}><h5 {...part('title')}>{m.label(p)}</h5>
-          <Guard path={p}><ul>{kids.filter(k => !isEmpty(v[k])).map((k, i) => <li key={k} data-tier={i}><span {...part('tier')}>{m.label([...p, k])}</span><span {...part('text')}>{v[k]}</span></li>)}</ul></Guard></section>);
+          <Guard path={p}><ul>{kids.filter(k => open([...p, k], v?.[k])).map((k, i) => <li key={k} data-tier={i}><span {...part('tier')}>{m.label([...p, k])}</span>
+            <span {...part('text')}><EditableText path={[...p, k]}>{isEmpty(v?.[k]) ? <span {...solve('none')}>未填写</span> : v[k]}</EditableText></span></li>)}</ul></Guard></section>);
       } else kids.forEach(k => walk([...p, k]));
-    } else if (meta?.type === 'array' && Array.isArray(v) && v.some(x => x && typeof x === 'object' && 'text' in x)) {
-      const done = v.filter((x: any) => x.done).length;
+    } else if (meta?.type === 'array' && Array.isArray(v) && m.children([...p, '0']).includes('text')) {
+      const done = v.filter((x: any) => x?.done).length;
+      if (!v.length && !open(p, v)) return;
       rows.push(<section key={p.join('.')} {...solve('quests')}><h5 {...part('title')}>{m.label(p)}<small>{done}/{v.length}</small></h5><Guard path={p}><TickList path={p} items={v} /></Guard></section>);
-    } else if (typeof v === 'string') {
-      rows.push(<figure key={p.join('.')} {...solve('inner-voice')}><figcaption>{m.label(p)}</figcaption><Guard path={p}><blockquote>{v}</blockquote></Guard></figure>);
+    } else if (typeof v === 'string' || (v === undefined && open(p, v))) {
+      if (!open(p, v)) return;
+      rows.push(<figure key={p.join('.')} {...solve('inner-voice')}><figcaption>{m.label(p)}</figcaption><Guard path={p}><EditableText path={p}>{isEmpty(v) ? <span {...solve('none')}>未填写</span> : <blockquote>{v}</blockquote>}</EditableText></Guard></figure>);
     } else rows.push(<Field key={p.join('.')} path={p} />);
   };
   paths.forEach(walk);

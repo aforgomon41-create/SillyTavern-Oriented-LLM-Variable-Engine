@@ -6,7 +6,9 @@ import type { ActionSpec } from '../interact.js';
  * Keys are English; labels and enum values are Chinese.
  */
 const text = (label: string, extra: Partial<FieldNode> = {}): FieldNode => ({ type: 'string', label, ...extra });
-const goals = (spoiler?: FieldNode['spoiler']): FieldNode => ({ type: 'object', label: '目标', ...(spoiler ? { spoiler } : {}), fields: { long: text('远期'), short: text('近期') } });
+/** Player-editable on their own character (the player's mind is theirs to write). */
+const mine = { owner: 'user' as const };
+const goals = (spoiler?: FieldNode['spoiler']): FieldNode => ({ type: 'object', label: '目标', ...(spoiler ? { spoiler } : {}), fields: { long: text('远期', { edit: mine }), short: text('近期', { edit: mine }) } });
 const attribute = (label: string, node: Partial<FieldNode>): FieldNode => ({ type: 'int', label, nullable: true, ...node } as FieldNode);
 const ladder = (label: string, values: string[]): FieldNode => ({ type: 'ladder', label, values, nullable: true });
 const FATE = ['F', 'F+', 'E', 'E+', 'D', 'D+', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+', 'EX'];
@@ -33,21 +35,45 @@ export const OFFICIAL_LISTS = {
  * the engine validates them like any write, and `narrate` tells the model on the next turn. Spec: src/interact.ts.
  */
 const ITEM_ACTIONS: Record<string, ActionSpec> = {
-  equip: { label: ['装备', '卸下'], toggle: 'equipped', owner: 'user', when: { type: '装备' }, narrate: ['{holder}装备了{name}', '{holder}卸下了{name}'] },
-  use: { label: '使用', owner: 'user', when: { type: '消耗' }, narrate: '{holder}使用了{name}',
-    ops: [{ $if: { count: { gt: 1 } }, then: [{ $inc: { '{self}.count': -1 } }], else: [{ $unset: '{self}' }] }] },
-  give: { label: '交给…', owner: 'user', narrate: '{holder}把{name}×{n}交给了{to.name}',
+  equip: { label: ['装备', '卸下'], toggle: 'equipped', owner: 'user', when: { type: '装备', count: { gt: 0 } }, narrate: ['{holder}装备了{name}', '{holder}卸下了{name}'] },
+  use: { label: '使用', owner: 'user', when: { type: '消耗', count: { gt: 0 } }, narrate: '{holder}使用了{name}',
+    ops: [{ $if: { count: { gt: 1 } }, then: [{ $inc: { '{self}.count': -1 } }], else: [
+      { $if: { stored: { empty: true } }, then: [{ $unset: '{self}' }], else: [{ $set: { '{self}.count': 0 } }] }] }] },
+  give: { label: '交给…', owner: 'user', when: { count: { gt: 0 } }, narrate: '{holder}把{name}×{n}交给了{to.name}',
     ask: { to: { label: '交给谁', pick: 'characters', within: 'meta.present', not: '{holderId}' },
       n: { label: '数量', number: { min: 1, max: '{count}', default: 1 }, when: { count: { gt: 1 }, unique: { ne: true } } } },
     ops: [
       { $if: { unique: true }, then: [{ $move: { '{self}': 'characters.{to}.items.{id}' } }], else: [
-        { $if: { count: { gt: '{n}' } }, then: [{ $inc: { '{self}.count': '-{n}' } }], else: [{ $unset: '{self}' }] },
-        { $if: { '@characters.{to}.items.{id}': { exists: true } },
-          then: [{ $inc: { 'characters.{to}.items.{id}.count': '{n}' } }],
-          else: [{ $set: { 'characters.{to}.items.{id}': { count: '{n}' } } }] },
+        { $transfer: { '{self}.count': { 'characters.{to}.items.{id}.count': '{n}' } } },
+        { $if: { count: { lte: '{n}' }, stored: { empty: true } }, then: [{ $unset: '{self}' }] },
       ] },
     ] },
-  drop: { label: '丢弃', owner: 'user', tone: 'danger', confirm: '丢弃{name}？', narrate: '{holder}丢弃了{name}', ops: [{ $unset: '{self}' }] },
+  // Storage: into a building the holder owns, or one that takes deposits from anyone (a bank, a rented warehouse).
+  deposit: { label: '存入…', owner: 'user', module: 'buildings', when: { count: { gt: 0 } }, narrate: '{holder}把{name}×{n}存进了{at.name}',
+    ask: { at: { label: '存到哪里', pick: 'buildings', filter: [{ owner: '{holderId}' }, { vault: true }] },
+      n: { label: '数量', number: { min: 1, max: '{count}', default: '{count}' }, when: { count: { gt: 1 } } } },
+    ops: [
+      { $transfer: { '{self}.count': { '{self}.stored.{at}': '{n}' } } },
+      { $if: { count: { lte: '{n}' }, equipped: true }, then: [{ $set: { '{self}.equipped': false } }] },
+    ] },
+  withdraw: { label: '取出…', owner: 'user', module: 'buildings', when: { stored: { empty: false } }, narrate: '{holder}从{from.name}取出了{name}×{n}',
+    ask: { from: { label: '从哪里取', pick: '{self}.stored' },
+      n: { label: '数量', number: { min: 1, max: '{from.value}', default: '{from.value}' } } },
+    ops: [
+      { $transfer: { '{self}.stored.{from}': { '{self}.count': '{n}' } } },
+      { $if: { '@{self}.stored.{from}': { lte: '{n}' } }, then: [{ $unset: '{self}.stored.{from}' }] },
+    ] },
+  drop: { label: '丢弃', owner: 'user', tone: 'danger', when: { count: { gt: 0 } }, confirm: '丢弃身上的{name}？', narrate: '{holder}丢弃了{name}',
+    ops: [{ $if: { stored: { empty: true } }, then: [{ $unset: '{self}' }], else: [{ $set: { '{self}.count': 0, '{self}.equipped': false } }] }] },
+};
+/** Abilities: the player declares what their character does; the model narrates the outcome and moves 熟练度 / 等级. */
+const ABILITY_ACTIONS: Record<string, ActionSpec> = {
+  use: { label: '使用', owner: 'user', when: { kind: '技能' }, ops: [], narrate: '{holder}使用{name}：{how}',
+    ask: { how: { label: '怎么用、对谁用', text: { placeholder: '例如：对门口的狂信徒使用', optional: true } } } },
+  train: { label: '锻炼', owner: 'user', ops: [], narrate: '{holder}花时间锻炼{name}：{how}',
+    ask: { how: { label: '怎么锻炼', text: { placeholder: '例如：在后院对着木桩练习一下午', optional: true } } } },
+  develop: { label: '开发', owner: 'user', ops: [], narrate: '{holder}尝试开发{name}的新用法：{idea}',
+    ask: { idea: { label: '想开发什么', text: { placeholder: '例如：把盾击和冲锋结合起来' } } } },
 };
 /** Moving the party: the current location follows the player's choice on the map. */
 const PLACE_ACTIONS: Record<string, ActionSpec> = {
@@ -66,15 +92,15 @@ const character: FieldNode = {
     // Which prefab / template this character was spawned from (by $from); the codex lists them under it.
     origin: text('原型', { optional: true }),
     age: text('年龄'),
-    intro: text('简介', { as: 'paragraph', edit: { owner: 'user' } }),
+    intro: text('简介', { as: 'paragraph', edit: mine }),
     tags: { type: 'array', label: '身份', of: { type: 'string' }, list: OFFICIAL_LISTS.tags, as: 'tags' },
-    appearance: text('外貌', { as: 'paragraph', edit: { owner: 'user' } }),
+    appearance: text('外貌', { as: 'paragraph', edit: mine }),
     condition: text('当前状态'),
     drive: {
       type: 'object', label: '驱动力', module: 'drive', fields: {
         goals: goals('spoiler'),
-        thoughts: text('想法', { spoiler: 'spoiler' }),
-        plan: { type: 'array', label: '规划', spoiler: 'spoiler', list: OFFICIAL_LISTS.plan, as: 'checklist',
+        thoughts: text('想法', { spoiler: 'spoiler', edit: mine }),
+        plan: { type: 'array', label: '规划', spoiler: 'spoiler', list: OFFICIAL_LISTS.plan, as: 'checklist', edit: mine,
           of: { type: 'object', fields: { text: text('内容', { required: true }),
             done: { type: 'bool', label: '完成', edit: { owner: 'user', narrate: ['{holder}完成了规划：{text}', '{holder}的规划「{text}」重新标为未完成'] } } } } },
       },
@@ -115,8 +141,12 @@ const character: FieldNode = {
         },
         special: { type: 'record', label: '特殊属性', module: 'rp_attributes', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
         // Abilities live once in the root `abilities`; a character only references them (with its own level).
-        abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities',
-          of: { type: 'object', fields: { level: { type: 'int', label: '等级', min: 0, optional: true } } } },
+        abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities', actions: ABILITY_ACTIONS,
+          of: { type: 'object', fields: {
+            level: { type: 'int', label: '等级', min: 0, optional: true },
+            // Practice toward the next level (0–100); reaching 100 raises the level and starts again.
+            progress: { type: 'int', label: '熟练度', min: 0, max: 100, optional: true },
+          } } },
         gauges: { type: 'record', label: '量表', module: 'rp_status', as: 'meters', of: { type: 'oneOf', variants: [gauge(), { type: 'string' }] } },
         effects: { type: 'record', label: '效果', module: 'rp_status', as: 'chips',
           of: { type: 'object', fields: { desc: text('描述'), source: text('来源', { optional: true }), until: text('持续到', { optional: true }) } } },
@@ -124,9 +154,15 @@ const character: FieldNode = {
     },
     // Items live once in the root `items`; a character only references them (with its own count / equipped).
     // Unique items (unique: true) have one holder: giving one to someone takes it from its previous holder.
+    // Money is an item of type 货币 (金币, 银两 …): counted, given and deposited like anything else.
     items: { type: 'record', label: '物品', module: 'assets', keys: 'item', uniqueBy: 'unique', as: 'inventory', actions: ITEM_ACTIONS,
-      of: { type: 'object', fields: { count: { type: 'int', label: '数量', min: 0, default: 1 }, equipped: { type: 'bool', label: '已装备' } } } },
-    funds: { type: 'record', label: '资金', module: 'assets', as: 'currency', of: { type: 'oneOf', variants: [{ type: 'int', min: 0 }, { type: 'string' }] } },
+      of: { type: 'object', fields: {
+        count: { type: 'int', label: '数量', min: 0, default: 1 },
+        equipped: { type: 'bool', label: '已装备' },
+        // Amounts kept in buildings (keyed by building ID); `count` is what the character carries.
+        stored: { type: 'record', label: '存放', module: 'buildings', keys: 'building', optional: true, of: { type: 'int', min: 0 } },
+        note: text('备注', { optional: true }),
+      } } },
     nsfw: {
       type: 'object', label: 'NSFW', module: 'nsfw', fields: {
         libido: text('性欲'), experience: text('性经验'),
@@ -179,7 +215,7 @@ export const officialStructure: StructureDescription = {
       type: 'record', label: '物品', entity: 'item', module: 'assets',
       of: { type: 'object', fields: {
         name: text('物品名', { required: true }),
-        type: { type: 'enum', label: '类型', values: ['装备', '道具', '消耗', '关键', '杂物', '座驾'], default: '杂物' },
+        type: { type: 'enum', label: '类型', values: ['装备', '道具', '消耗', '货币', '关键', '杂物', '座驾'], default: '杂物' },
         unique: { type: 'bool', label: '独一无二' },
         thumb: media('缩略图', 'image'),
         image: media('图片', 'image'),
@@ -199,12 +235,17 @@ export const officialStructure: StructureDescription = {
         truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
       } },
     },
-    estates: {
-      type: 'record', label: '不动产', entity: 'estate', module: 'estates',
+    // Buildings: homes and shops one owns, and places that keep things for anyone (banks, rented warehouses).
+    buildings: {
+      type: 'record', label: '建筑', entity: 'building', module: 'buildings',
       of: { type: 'object', fields: {
         name: text('名称', { required: true }),
+        kind: { type: 'enum', label: '类别', values: ['住宅', '商铺', '银行', '仓库', '据点', '其他'], default: '住宅' },
         owner: { type: 'ref', label: '产权人', to: ['character', 'faction'], nullable: true },
         place: { type: 'ref', label: '位置', to: 'place', nullable: true },
+        vault: { type: 'bool', label: '可寄存', optional: true },
+        thumb: media('缩略图', 'image'),
+        image: media('图片', 'image'),
         desc: text('描述'), truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
         developments: { type: 'record', label: '建设', of: { type: 'string' } },
       } },
@@ -241,12 +282,12 @@ export const officialStructure: StructureDescription = {
     attr_wod: { label: 'WOD', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'WOD 属性为不小于 0 的整数，没有上限；每超过 5 点获得 1 点超凡（由引擎计算，不要写入）。' },
     attr_fate: { label: 'FATE', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FATE 技能使用阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX。' },
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FU 属性只用四档：弱/普通/优秀/卓越。' },
-    rp_abilities: { label: '能力', parent: 'rp', guide: '能力：能力本体只在根节点 abilities 建一次（{name, kind: 特质|技能, desc, levels}），角色的 rp.abilities 以能力 ID 为键引用它，只写本人的 {level}。有等级的能力在 levels 里写每一级的效果，键是等级数字（如 {"1": "…", "3": "…"}，可以跳级，持有者按不超过自身等级的最高一级生效），每级效果要有实际差别。多人共有同一能力时引用同一个 ID；新能力先建实体再引用。' },
+    rp_abilities: { label: '能力', parent: 'rp', guide: '能力：能力本体只在根节点 abilities 建一次（{name, kind: 特质|技能, desc, levels}），角色的 rp.abilities 以能力 ID 为键引用它，只写本人的 {level}。有等级的能力在 levels 里写每一级的效果，键是等级数字（如 {"1": "…", "3": "…"}，可以跳级，持有者按不超过自身等级的最高一级生效），每级效果要有实际差别。多人共有同一能力时引用同一个 ID；新能力先建实体再引用。角色的能力可以记 progress（熟练度 0～100）：锻炼、实战运用会让它增长，满 100 时等级加一并从 0 重新累计。玩家说要「开发」能力时，依剧情决定成果：可以为该能力补充更高等级的效果，或新建一个衍生能力。' },
     rp_status: { label: '状态', parent: 'rp', guide: '状态：gauges 为量表，名称与数量依世界观和剧情决定；需要精确数值时写 {value, max}，叙事化的状态直接写一句话（如「伤口在渗血，勉强能走」）。effects 为效果，剧情上结束后移除，可用 until 写结束条件。' },
-    assets: { label: '资产', guide: '资产：物品本体只在根节点 items 建一次（{name, type, desc, condition}），角色的 items 以物品 ID 为键引用它，只写本人的 {count, equipped}。独一无二的物品（具名武器、信物、钥匙、座驾等世上只有一件的东西）设 unique: true，同一时间只能在一个角色名下：转手时直接在新持有者的 items 下加上该 ID，引擎会自动从原持有者处移除（也可以用 $move）。普通物品（制式装备、药剂、杂物）不设 unique，多人可以各自持有同一 ID 并各记数量。funds 的币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元）；清楚数额时写整数，转账用 $transfer 保证总数守恒；说不清数额时写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
+    assets: { label: '资产', guide: '资产：物品本体只在根节点 items 建一次（{name, type, desc, condition}），角色的 items 以物品 ID 为键引用它，只写本人的 {count, equipped, note}。独一无二的物品（具名武器、信物、钥匙、座驾等世上只有一件的东西）设 unique: true，同一时间只能在一个角色名下：转手时直接在新持有者的 items 下加上该 ID，引擎会自动从原持有者处移除（也可以用 $move）。普通物品（制式装备、药剂、杂物）不设 unique，多人可以各自持有同一 ID 并各记数量。钱也是物品，类型为「货币」，币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元），各建一个物品实体，持有者用 count 记数量；付钱、交易用 $transfer 在双方的 count 之间转移（对方还没有这种货币时会自动新建），保证总数守恒；说不清数额时在 note 写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
     nsfw: { label: 'NSFW', enabled: false },
     map: { label: '地图', guide: '地图：地点用 parent 表示层级（区域 → 地点），用 links 记录相通的地点；新发现的地点 discovered 设为 true。' },
-    estates: { label: '不动产', enabled: false },
+    buildings: { label: '建筑', enabled: false, guide: '建筑：住宅、商铺、银行、仓库等。owner 为产权人；vault 为 true 表示任何人都能寄存（银行、出租仓库）。物品存放在建筑里时写在持有者自己的 items.<物品ID>.stored.<建筑ID>（数量），count 只记随身携带的数量；存取用 $transfer 在 count 与 stored 之间转移，取空的 stored 条目删除。' },
     factions: { label: '势力', enabled: false, guide: '势力：只为有分量的组织建实体；声望每次变化不超过 ±10。' },
   },
   groups: { attributes: { label: '属性体系' } },
@@ -277,7 +318,7 @@ export const officialStructure: StructureDescription = {
     layout: [
       { tab: '角色', items: [{
         sheet: 'characters', id: '$user', subtitle: 'alias', badges: ['rp.rank', 'role'], tags: 'tags',
-        vitals: 'rp.gauges', status: 'condition', effects: 'rp.effects', currency: 'funds',
+        vitals: 'rp.gauges', status: 'condition', effects: 'rp.effects', currency: 'items', currencyType: '货币',
         pages: [
           { label: '属性', paths: ['rp.attributes', 'rp.special'] },
           { label: '能力', paths: ['rp.abilities'] },
@@ -296,7 +337,7 @@ export const officialStructure: StructureDescription = {
             { label: '动机', paths: ['drive'], as: 'quests' },
             { label: '关系', paths: ['relations'] },
             { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
-            { label: '物品', paths: ['items', 'funds'], as: 'inventory' },
+            { label: '物品', paths: ['items'], as: 'inventory' },
             { label: '私密', paths: ['nsfw'] },
           ] },
       ] },
@@ -308,7 +349,7 @@ export const officialStructure: StructureDescription = {
           pages: [
             { label: '概况', paths: ['condition', 'age', 'tags', 'intro', 'appearance'] },
             { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
-            { label: '物品', paths: ['items', 'funds'], as: 'inventory' },
+            { label: '物品', paths: ['items'], as: 'inventory' },
           ] },
         { collection: 'items', label: '物品', group: 'type', holders: ['characters.*.items'] },
         { collection: 'abilities', label: '能力', group: 'kind', holders: ['characters.*.rp.abilities'] },
@@ -324,7 +365,7 @@ export const officialStructure: StructureDescription = {
             { label: '外交', paths: ['diplomacy'] },
           ] },
       ] },
-      { tab: '不动产', module: 'estates', items: [{ list: 'estates', title: '不动产' }] },
+      { tab: '建筑', module: 'buildings', items: [{ list: 'buildings', title: '建筑', badges: ['kind'], stored: { holders: 'characters.*.items', field: 'stored' } }] },
     ],
   },
   initialData: {},

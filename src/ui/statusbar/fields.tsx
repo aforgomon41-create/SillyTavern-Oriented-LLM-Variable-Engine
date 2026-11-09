@@ -48,8 +48,10 @@ export function Value({ path, value }: { path: Path; value: any }) {
 
 /** A labelled field as a block: picks the richest widget for its type. */
 export function Field({ path, compact = false }: { path: Path; compact?: boolean }) {
-  const m = useModel(), K = useKit(), editing = useEditing(path), live = useInteract();
+  const m = useModel(), K = useKit(), editable = useEditing(path), live = useInteract();
   const value = m.value(path), meta = m.meta(path), as = m.widget(path), label = m.label(path);
+  // Lists have their own editors (checklists); the generic pencil is for single values.
+  const editing = meta?.type === 'array' || meta?.type === 'refs' ? { ...editable, edit: undefined } : editable;
   if (m.dormant(path) || m.spoiler(path) === 'hidden') return null;
   if (value === undefined && !editing.edit) return null;
   if (compact && isEmpty(value) && !editing.edit) return null;

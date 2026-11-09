@@ -57,7 +57,7 @@ function gallery(): void {
       ${MUSIC.map(t => `<li><code>${t.id}</code> 「${t.title}」 · CC BY 4.0${t.moods.length ? ' · 情绪：' + t.moods.join('、') : ''}</li>`).join('')}</ul>
     </details>
     <p class="note audio-note">四个窗口默认静音；点窗口右上角 ♪ 打开播放，或 <a class="solo" target="_blank" rel="noopener">在新窗口单独打开</a>（点一下页面就开始播放当前场景的配乐）。</p>
-    <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '图鉴', '势力'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav></header>
+    <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '图鉴', '势力', '建筑'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav></header>
     <section class="frames">
       <figure class="pc"><figcaption>电脑 1440 · 浅色</figcaption><div class="box"><iframe data-scheme="light" data-w="1440" data-h="900"></iframe></div></figure>
       <figure class="pc"><figcaption>电脑 1440 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="1440" data-h="900"></iframe></div></figure>
@@ -134,6 +134,8 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
     React.useEffect(() => { if (pick.url && audio.src !== pick.url) { const was = !audio.paused; audio.src = pick.url; if (was) void audio.play().catch(() => undefined); } }, [pick.url]);
     const interact = React.useMemo<Interact>(() => ({
       async run({ ops, narrate }) {
+        // Narration only (use / train / develop an ability): nothing changes until the model answers.
+        if (!ops.length) { setHistory(h => [...h, { state, ...(narrate ? { narrate } : {}) }]); return { ok: true }; }
         const result = await core.execute([{ $group: ops }] as never, state, { source: 'user' });
         const errors = result.feedback.filter(f => f.level === 'L3');
         if (errors.length) return { ok: false, error: errors.map(f => f.message).join('；') };

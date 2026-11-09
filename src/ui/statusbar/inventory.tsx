@@ -6,9 +6,10 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { artOf, isEmpty, thumbOf, type Path, type StatusModel } from './model.js';
 import { Field, NavigateContext, RefChip, useModel } from './fields.js';
-import { Art, Mono, part, solve } from './widgets.js';
+import { Art, Meter, Mono, part, solve } from './widgets.js';
 import { ActionBar } from './interact.js';
 import { LevelNow, LevelPips, steps } from './levels.js';
+import { CurrencyIcon } from './currency.js';
 
 interface Held { id: string; at?: Path; data: Record<string, any> }
 /** Join each referenced id with its root instance. */
@@ -29,38 +30,60 @@ function others(m: StatusModel, path: Path, id: string): string[] {
 }
 const nameOf = (h: Held) => h.data.name ?? h.id;
 
+/** Item type shown as money (counted coins with their own icons) rather than as bag tiles. */
+const MONEY = '货币';
+/** The holding field that records amounts kept elsewhere: a record keyed by entity references (官方结构：stored → 建筑). */
+function storageKey(m: StatusModel, path: Path, sample?: string): string | undefined {
+  if (!sample) return undefined;
+  return m.children([...path, sample]).find(k => { const meta = m.meta([...path, sample, k]); return meta?.type === 'record' && !!meta.keys; });
+}
+
 export function Inventory({ path }: { path: Path }) {
   const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
   const list = held(m, path);
-  const equipped = list.filter(h => h.data.equipped), bag = list.filter(h => !h.data.equipped);
+  const store = storageKey(m, path, list[0]?.id);
+  const carried = (h: Held) => typeof h.data.count !== 'number' || h.data.count > 0;
+  const kept = (h: Held): Record<string, number> => (store && h.data[store] && typeof h.data[store] === 'object' && !m.dormant([...path, h.id, store]) ? h.data[store] : {});
+  const money = list.filter(h => carried(h) && h.data.type === MONEY);
+  const equipped = list.filter(h => carried(h) && h.data.equipped && h.data.type !== MONEY);
+  const bag = list.filter(h => carried(h) && !h.data.equipped && h.data.type !== MONEY);
+  const places = [...new Set(list.flatMap(h => Object.keys(kept(h))))];
   const [sel, setSel] = React.useState<string | undefined>(list[0]?.id);
   const it = list.find(h => h.id === sel) ?? list[0];
-  const tile = (h: Held) => (
-    <button key={h.id} type="button" {...solve('slot', { kind: h.data.type, equipped: h.data.equipped ? '' : undefined })} aria-pressed={h.id === it?.id} onClick={() => setSel(h.id)} title={nameOf(h)}>
-      <span {...part('glyph')} aria-hidden="true"><Mono name={nameOf(h)} src={thumbOf(h.data)} /></span>
+  const tile = (h: Held, count = h.data.count, where = '') => (
+    <button key={h.id + where} type="button" {...solve('slot', { kind: h.data.type, equipped: h.data.equipped && !where ? '' : undefined })} aria-pressed={h.id === it?.id} onClick={() => setSel(h.id)} title={nameOf(h)}>
+      <span {...part('glyph')} aria-hidden="true">{h.data.type === MONEY && !thumbOf(h.data) ? <CurrencyIcon name={nameOf(h)} size={28} /> : <Mono name={nameOf(h)} src={thumbOf(h.data)} />}</span>
       <span {...part('name')}>{nameOf(h)}</span>
-      {typeof h.data.count === 'number' && h.data.count !== 1 ? <span {...part('count')}>×{h.data.count}</span> : null}
+      {typeof count === 'number' && (count !== 1 || h.data.type === MONEY) ? <span {...part('count')}>{h.data.type === MONEY ? count.toLocaleString('zh-CN') : `×${count}`}</span> : null}
     </button>
   );
-  const fixed = ['name', 'type', 'count', 'equipped', 'desc', 'unique', 'image', 'thumb'];
+  const fixed = ['name', 'type', 'count', 'equipped', 'desc', 'unique', 'image', 'thumb', 'note', ...(store ? [store] : [])];
   const detail = it?.at ? m.children(it.at).filter(k => !fixed.includes(k) && !isEmpty(it.data[k]) && m.spoiler([...it.at!, k]) !== 'hidden') : [];
+  const section = (key: string, title: React.ReactNode, items: React.ReactNode[], empty?: string) => (
+    <section key={key} {...part(key === 'bag' ? 'bag' : key === 'equipped' ? 'equipped' : 'group')}><h5 {...part('title')}>{title}<small>{items.length}</small></h5>
+      {items.length ? <div {...part('grid')}>{items}</div> : <span {...solve('none')}>{empty}</span>}</section>
+  );
+  const keptHere = it ? Object.entries(kept(it)).filter(([, n]) => typeof n === 'number' && n > 0) : [];
   return (
     <div {...solve('inventory')}>
-      {equipped.length ? <section {...part('equipped')}><h5 {...part('title')}>装备中<small>{equipped.length}</small></h5><div {...part('grid')}>{equipped.map(tile)}</div></section> : null}
-      <section {...part('bag')}><h5 {...part('title')}>背包<small>{bag.length}</small></h5>
-        {bag.length ? <div {...part('grid')}>{bag.map(tile)}</div> : <span {...solve('none')}>空空如也</span>}</section>
+      {equipped.length ? section('equipped', '装备中', equipped.map(h => tile(h))) : null}
+      {section('bag', '背包', bag.map(h => tile(h)), '空空如也')}
+      {money.length ? section('money', MONEY, money.map(h => tile(h))) : null}
+      {places.map(b => section('kept-' + b, <>存放于 <RefChip id={b} /></>, list.filter(h => (kept(h)[b] ?? 0) > 0).map(h => tile(h, kept(h)[b], b))))}
       {it ? (
         <div {...part('detail')} aria-live="polite">
           {artOf(it.data) ? <Art key={it.id} src={artOf(it.data)!} alt={nameOf(it)} variant="item" /> : null}
           <div {...part('head')}>
-            {artOf(it.data) ? null : <span {...part('glyph')} aria-hidden="true"><Mono name={nameOf(it)} src={thumbOf(it.data)} /></span>}
+            {artOf(it.data) ? null : <span {...part('glyph')} aria-hidden="true">{it.data.type === MONEY && !thumbOf(it.data) ? <CurrencyIcon name={nameOf(it)} size={28} /> : <Mono name={nameOf(it)} src={thumbOf(it.data)} />}</span>}
             <b>{nameOf(it)}</b>
             {it.data.type ? <K.Badge tone="neutral">{it.data.type}</K.Badge> : null}
             {it.data.unique ? <K.Badge tone="warning">独一无二</K.Badge> : null}
             {it.data.equipped ? <K.Badge tone="accent">已装备</K.Badge> : null}
-            {typeof it.data.count === 'number' && it.data.count !== 1 ? <span {...part('count')}>×{it.data.count}</span> : null}
+            {typeof it.data.count === 'number' && (it.data.count !== 1 || keptHere.length) ? <span {...part('count')}>{keptHere.length ? '随身 ' : ''}×{it.data.count}</span> : null}
           </div>
           {it.data.desc ? <p {...part('desc')}>{it.data.desc}</p> : null}
+          {it.data.note ? <p {...part('note')}>{it.data.note}</p> : null}
+          {keptHere.length ? <div {...part('kept')}><span {...part('label')}>{m.label([...path, it.id, store!])}</span>{keptHere.map(([b, n]) => <span key={b}><RefChip id={b} /> ×{n}</span>)}</div> : null}
           <ActionBar path={[...path, it.id]} />
           {detail.map(k => <Field key={k} path={[...it.at!, k]} compact />)}
           {!it.at ? <span {...solve('none')}>这件物品的资料缺失</span> : <div {...part('more')}><K.Button size="sm" variant="ghost" onClick={() => go(it.at!)}>在图鉴中查看</K.Button></div>}
@@ -95,6 +118,8 @@ export function Abilities({ path }: { path: Path }) {
                   </div>
                   {h.data.desc ? <p {...part('desc')}>{h.data.desc}</p> : null}
                   <LevelNow levels={h.data.levels} level={typeof h.data.level === 'number' ? h.data.level : undefined} />
+                  {typeof h.data.progress === 'number' ? <div {...part('progress')}><Meter label={`${m.label([...path, h.id, 'progress'])}（满 100 升一级）`} value={h.data.progress} min={0} max={100} /></div> : null}
+                  <ActionBar path={[...path, h.id]} />
                   {share.length ? <div {...part('share')}>同样拥有：{share.map((id, i) => <React.Fragment key={id}>{i ? '、' : ''}<RefChip id={id} /></React.Fragment>)}</div> : null}
                 </li>
               );

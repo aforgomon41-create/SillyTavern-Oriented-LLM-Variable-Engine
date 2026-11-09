@@ -12,6 +12,7 @@ import type { Path, StatusModel } from './model.js';
 import { part, solve } from './widgets.js';
 import { ModelContext } from './fields.js';
 
+/** `ops` may be empty: the action only tells the model something (use / train an ability) and changes nothing yet. */
 export interface InteractRequest { ops: Json[]; title: string; narrate?: string }
 export type InteractResult = { ok: true } | { ok: false; error: string };
 export interface Interact {
@@ -115,7 +116,7 @@ export function actionsFor(m: StatusModel, parts: Path): Bound[] {
   const all = { ...(fromParent ?? {}), ...(own ?? {}) };
   if (!Object.keys(all).length || m.dormant(parts)) return [];
   const view = viewOf(m, parts), vars = varsOf(m, parts, view);
-  return Object.entries(all).filter(([, a]) => ownerOk(m, parts, a.owner) && holds(a.when, view, vars, read(m))).map(([name, spec]) => {
+  return Object.entries(all).filter(([, a]) => ownerOk(m, parts, a.owner) && m.moduleOn(a.module) && holds(a.when, view, vars, read(m))).map(([name, spec]) => {
     const on = spec.toggle ? !view[spec.toggle] : true;
     return { name, spec, on, label: String(fill(pick(spec.label, on) ?? name, vars)) };
   });
@@ -142,27 +143,42 @@ export function ActionBar({ path }: { path: Path }) {
   if (!list.length) return null;
   const view = viewOf(m, path), base = varsOf(m, path, view);
   const asks = (a: Bound) => Object.entries(a.spec.ask ?? {}).filter(([, q]) => holds(q.when, view, base, read(m)));
-  const defaults = (a: Bound): Record<string, Json> => Object.fromEntries(Object.entries(a.spec.ask ?? {}).map(([k, q]) => [k, q.number ? fill(q.number.default ?? 1, base) : (choices(m, q, base)[0] ?? null)]));
-  const go = async (a: Bound, given: Record<string, Json>) => {
-    const vars: Vars = { ...base };
-    for (const [k, v] of Object.entries({ ...defaults(a), ...given })) {
-      vars[k] = v;
-      if (Object.keys(a.spec.ask?.[k] ?? {}).includes('pick') && typeof v === 'string') vars[`${k}.name`] = m.entityName(v);
+  // Answers in declaration order, so a later ask can use an earlier one (the amount to take out of the chosen building).
+  const resolve = (a: Bound, given: Record<string, Json>): { vars: Vars; answers: Record<string, Json> } => {
+    const vars: Vars = { ...base }, answers: Record<string, Json> = {};
+    for (const [k, q] of Object.entries(a.spec.ask ?? {})) {
+      let v = given[k];
+      if (q.number) {
+        const { min, max } = bounds(q, vars);
+        v = Math.min(max, Math.max(min, typeof v === 'number' ? v : Number(fill(q.number.default ?? 1, vars))));
+      } else if (q.text) v = typeof v === 'string' ? v : '';
+      else { const options = choices(m, q, vars); if (typeof v !== 'string' || !options.includes(v)) v = options[0] ?? null; }
+      answers[k] = v as Json; vars[k] = v as Json;
+      if (q.pick && typeof v === 'string') {
+        vars[`${k}.name`] = m.entityName(v);
+        const at = m.value([...String(fill(q.pick, base)).split('.'), v]);
+        if (at === null || ['string', 'number', 'boolean'].includes(typeof at)) vars[`${k}.value`] = at;
+      }
     }
+    return { vars, answers };
+  };
+  const go = async (a: Bound, given: Record<string, Json>) => {
+    const { vars } = resolve(a, given);
     const ops = a.spec.toggle ? [{ $set: { [`${key}.${a.spec.toggle}`]: a.on } }] : expand(a.spec.ops ?? [], view, vars, read(m));
     const narrate = pick(a.spec.narrate, a.on);
     setBusy(true); setError(undefined);
-    const result = await live.perform({ ops, title: a.label, ...(narrate ? { narrate: String(fill(narrate, vars)) } : {}) });
+    const result = await live.perform({ ops, title: a.label, ...(narrate ? { narrate: String(fill(narrate, vars)).replace(/[：:，,]\s*$/u, '') } : {}) });
     setBusy(false);
     if (result.ok) setOpen(undefined); else setError(result.error);
   };
   const click = (a: Bound) => {
     setError(undefined);
-    if (asks(a).length || a.spec.confirm) { setAnswers(defaults(a)); setOpen(open === a.name ? undefined : a.name); return; }
+    if (asks(a).length || a.spec.confirm) { setAnswers(resolve(a, {}).answers); setOpen(open === a.name ? undefined : a.name); return; }
     void go(a, {});
   };
   const current = list.find(a => a.name === open);
-  const missing = current ? asks(current).some(([k, q]) => q.pick && !answers[k]) : false;
+  const live_ = current ? resolve(current, answers) : undefined;
+  const missing = current ? asks(current).some(([k, q]) => (q.pick && !live_!.answers[k]) || (q.text && !q.text.optional && !String(live_!.answers[k] ?? '').trim())) : false;
   return (
     <div {...solve('actions')}>
       <div {...part('row')}>
@@ -174,7 +190,7 @@ export function ActionBar({ path }: { path: Path }) {
       {current ? (
         <form {...part('ask')} onSubmit={e => { e.preventDefault(); if (!missing) void go(current, answers); }}>
           {current.spec.confirm ? <p {...part('confirm')}>{String(fill(current.spec.confirm, base))}</p> : null}
-          {asks(current).map(([k, q]) => <AskField key={k} q={q} vars={base} value={answers[k]} onChange={v => setAnswers(s => ({ ...s, [k]: v }))} />)}
+          {asks(current).map(([k, q]) => <AskField key={k} q={q} vars={live_!.vars} value={live_!.answers[k]} onChange={v => setAnswers(s => ({ ...s, [k]: v }))} />)}
           <div {...part('row')}>
             <K.Button type="submit" size="sm" variant={current.spec.tone === 'danger' ? 'danger' : 'primary'} disabled={busy || missing || !!live.locked}>{current.spec.confirm && !asks(current).length ? '确定' : current.label.replace(/…$/u, '')}</K.Button>
             <K.Button type="button" size="sm" variant="ghost" onClick={() => setOpen(undefined)}>取消</K.Button>
@@ -188,16 +204,31 @@ export function ActionBar({ path }: { path: Path }) {
 }
 function choices(m: StatusModel, q: AskSpec, vars: Vars): string[] {
   if (!q.pick) return [];
-  const all = Object.keys(m.value(q.pick.split('.')) ?? {});
+  const at = String(fill(q.pick, vars)).split('.');
+  const record = m.value(at) ?? {};
+  const all = Object.keys(record);
   const within = q.within ? m.value(q.within.split('.')) : undefined;
   const not = q.not ? String(fill(q.not, vars)) : undefined;
   const pool = Array.isArray(within) && within.length ? all.filter(id => within.includes(id)) : all;
-  return pool.filter(id => id !== not);
+  // Entity candidates (a collection): filter on their fields; keyed records: on the entity the key points to.
+  const entity = (id: string) => { const own = record[id]; if (own && typeof own === 'object') return own; const p = m.locate(id); return p ? m.value(p) ?? {} : {}; };
+  return pool.filter(id => id !== not && (!q.filter?.length || q.filter.some(c => holds(c, entity(id), vars, read(m)))));
+}
+function bounds(q: AskSpec, vars: Vars): { min: number; max: number } {
+  const min = Number(fill(q.number?.min ?? 1, vars)), max = Number(fill(q.number?.max ?? 99, vars));
+  return { min: Number.isFinite(min) ? min : 1, max: Number.isFinite(max) ? Math.max(max, Number.isFinite(min) ? min : 1) : 99 };
 }
 function AskField({ q, vars, value, onChange }: { q: AskSpec; vars: Vars; value: Json | undefined; onChange: (v: Json) => void }) {
   const m = useModelSafe()!;
+  if (q.text) {
+    return (
+      <label {...part('field')}><span>{q.label}{q.text.optional ? <small>（可不填）</small> : null}</span>
+        <textarea rows={2} value={String(value ?? '')} placeholder={q.text.placeholder ? String(fill(q.text.placeholder, vars)) : undefined} onChange={e => onChange(e.target.value)} />
+      </label>
+    );
+  }
   if (q.number) {
-    const min = Number(fill(q.number.min ?? 1, vars)), max = Number(fill(q.number.max ?? 99, vars));
+    const { min, max } = bounds(q, vars);
     return (
       <label {...part('field')}><span>{q.label}</span>
         <span {...solve('stepper')}>
@@ -244,28 +275,64 @@ async function saveValue(m: StatusModel, live: Live, path: Path, v: Json, edit: 
   const result = await live.perform({ ops: [{ $set: { [path.join('.')]: v } }], title: `修改${m.label(path)}`, ...(narrate ? { narrate: String(fill(narrate, vars)) } : {}) });
   return result.ok ? undefined : result.error;
 }
-/** A checklist ({text, done}[]) whose `done` the player may tick, when declared editable. */
+/**
+ * A checklist ({text, done}[]): `done` ticks when that field is editable; with the list itself editable
+ * the player can also reword, remove and add entries (saved as one $set of the whole list).
+ */
 export function TickList({ path, items }: { path: Path; items: { text: string; done?: boolean }[] }) {
-  const m = useModelSafe(), live = useInteract();
+  const m = useModelSafe(), live = useInteract(), K = useKit();
   const [error, setError] = React.useState<string | undefined>();
   const [busy, setBusy] = React.useState(false);
-  const edit = m && live && items.length ? editFor(m, [...path, '0', 'done']) : undefined;
-  const tick = async (i: number) => {
-    if (!m || !live || !edit) return;
-    setBusy(true); setError(await saveValue(m, live, [...path, String(i), 'done'], !items[i]!.done, edit)); setBusy(false);
-  };
+  const [editing, setEditing] = React.useState<number | undefined>();
+  const [draft, setDraft] = React.useState('');
+  const [adding, setAdding] = React.useState('');
+  const tickEdit = m && live ? editFor(m, [...path, '0', 'done']) : undefined;
+  const listEdit = m && live ? editFor(m, path) : undefined;
+  const locked = busy || !!live?.locked;
+  const run = async (f: () => Promise<string | undefined>) => { setBusy(true); const e = await f(); setBusy(false); setError(e); return !e; };
+  const tick = (i: number) => m && live && tickEdit ? run(() => saveValue(m, live, [...path, String(i), 'done'], !items[i]!.done, tickEdit)) : undefined;
+  const saveList = (next: { text: string; done?: boolean }[]) => run(() => saveValue(m!, live!, path, next as unknown as Json, listEdit!));
+  const reword = async (i: number) => { if (draft.trim() && await saveList(items.map((it, k) => k === i ? { ...it, text: draft.trim() } : it))) setEditing(undefined); };
+  const add = async (e: React.FormEvent) => { e.preventDefault(); if (adding.trim() && await saveList([...items, { text: adding.trim(), done: false }])) setAdding(''); };
   return (
     <>
-      <ul {...solve('checklist', { editable: edit ? '' : undefined })}>{items.map((item, i) => (
-        <li key={i} data-done={item.done ? '' : undefined}>
-          {edit ? <button type="button" {...part('mark')} role="checkbox" aria-checked={!!item.done} aria-label={item.text} disabled={busy || !!live?.locked} onClick={() => void tick(i)} />
+      <ul {...solve('checklist', { editable: tickEdit ? '' : undefined, list: listEdit ? '' : undefined })}>{items.map((item, i) => (
+        <li key={i} data-done={item.done ? '' : undefined} data-editing={editing === i ? '' : undefined}>
+          {tickEdit ? <button type="button" {...part('mark')} role="checkbox" aria-checked={!!item.done} aria-label={item.text} disabled={locked} onClick={() => void tick(i)} />
             : <span {...part('mark')} aria-label={item.done ? '已完成' : '未完成'} />}
-          {item.text}
+          {editing === i ? (
+            <form {...solve('editor', { inline: '' })} onSubmit={e => { e.preventDefault(); void reword(i); }} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setEditing(undefined); } }}>
+              <input type="text" value={draft} onChange={e => setDraft(e.target.value)} aria-label="规划内容" autoFocus />
+              <div {...part('row')}>
+                <K.Button type="submit" size="sm" variant="primary" disabled={locked || !draft.trim()}>保存</K.Button>
+                <K.Button type="button" size="sm" variant="ghost" onClick={() => setEditing(undefined)}>取消</K.Button>
+              </div>
+            </form>
+          ) : <span {...part('text')}>{item.text}</span>}
+          {listEdit && editing !== i ? (
+            <span {...part('tools')}>
+              <EditButton label="这一条" disabled={locked} onClick={() => { setDraft(item.text); setEditing(i); }} />
+              <button type="button" {...solve('edit-btn', { tone: 'danger' })} aria-label={`删除：${item.text}`} title="删除" disabled={locked} onClick={() => void saveList(items.filter((_, k) => k !== i))}>×</button>
+            </span>
+          ) : null}
         </li>
       ))}</ul>
+      {listEdit ? (
+        <form {...solve('add-row')} onSubmit={e => void add(e)}>
+          <input type="text" value={adding} placeholder="添加一条…" aria-label="添加一条" onChange={e => setAdding(e.target.value)} />
+          <K.Button type="submit" size="sm" disabled={locked || !adding.trim()}>添加</K.Button>
+        </form>
+      ) : null}
       {error ? <p {...solve('inline-error')} role="alert">没有保存：{error}</p> : null}
     </>
   );
+}
+/** A single text value with a pencil (quest-log lines, inner voice); renders `children` while not editing. */
+export function EditableText({ path, children }: { path: Path; children: React.ReactNode }) {
+  const e = useEditing(path), live = useInteract(), m = useModelSafe();
+  if (!e.edit || !m) return <>{children}</>;
+  if (e.editing) return <Editor path={path} onSave={e.save} onCancel={e.stop} />;
+  return <span {...solve('editable')}>{children}<EditButton label={m.label(path)} onClick={e.start} disabled={!!live?.locked} /></span>;
 }
 export function EditButton({ label, onClick, disabled, title }: { label: string; onClick: () => void; disabled?: boolean; title?: string }) {
   return <button type="button" {...solve('edit-btn')} aria-label={`编辑${label}`} title={title ?? `编辑${label}`} disabled={disabled} onClick={onClick}>✎</button>;

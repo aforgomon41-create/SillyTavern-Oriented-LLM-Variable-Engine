@@ -168,15 +168,27 @@ test('数值或文字（oneOf）：量表、资金、特殊属性两种写法都
   assert.equal(data(inc.state).characters.erin.rp.gauges.生命.value, 82);
   const max = await core.execute({ $set: { '@erin.rp.gauges.生命.max': -5 } }, state);
   assert.equal(data(max.state).characters.erin.rp.gauges.生命.max, 0, '数值形式里的下限照常截断');
-  const swap = await core.execute({ $set: { '@erin.rp.gauges.生命': '重伤，失血不止', '@erin.funds.金币': '所剩无几', '@erin.rp.special.契约之力': { value: 3, max: 10 } } }, state);
+  const swap = await core.execute({ $set: { '@erin.rp.gauges.生命': '重伤，失血不止', '@erin.rp.special.契约之力': { value: 3, max: 10 } } }, state);
   assert.equal(data(swap.state).characters.erin.rp.gauges.生命, '重伤，失血不止');
-  assert.equal(data(swap.state).characters.erin.funds.金币, '所剩无几');
   assert.deepEqual(data(swap.state).characters.erin.rp.special.契约之力, { value: 3, max: 10 });
   const bad = await core.execute({ $set: { '@erin.rp.gauges.生命': true } }, state);
   assert.deepEqual(data(bad.state).characters.erin.rp.gauges.生命, { value: 72, max: 100 }, '两种形式都不是时拒绝');
   assert.ok(bad.feedback.some(f => f.code === 'SCHEMA_REJECTED'));
-  const pay = await core.execute({ $transfer: { '@erin.funds.银币': { '@mira.funds.银币': 7 } } }, state);
-  assert.equal(data(pay.state).characters.mira.funds.银币, 19);
+});
+
+test('货币是物品：$transfer 付钱，对方没有该币种时自动新建；存放在建筑里', async () => {
+  const { core, state } = await official();
+  const pay = await core.execute({ $transfer: { '@erin.items.silver.count': { '@mira.items.silver.count': 7 } } }, state);
+  assert.equal(data(pay.state).characters.mira.items.silver.count, 19);
+  assert.equal(data(pay.state).characters.erin.items.silver.count, 30);
+  const tip = await core.execute({ $transfer: { '@erin.items.gold.count': { '@ash.items.gold.count': 5 } } }, state);
+  assert.ok(!tip.feedback.some(f => f.level === 'L3'), JSON.stringify(tip.feedback));
+  assert.equal(data(tip.state).characters.ash.items.gold.count, 5, '对方没有金币时从 0 开始');
+  const typo = await core.execute({ $transfer: { '@erin.items.gold.count': { '@ash.items.nope.count': 5 } } }, state);
+  assert.ok(typo.feedback.some(f => f.level === 'L3'), '不存在的物品不会被凭空建出');
+  assert.equal(data(state).characters.erin.items.gold.stored.royal_bank, 500);
+  const gone = await core.execute({ $deleteEntity: ['@royal_bank'] }, state);
+  assert.equal(data(gone.state).characters.erin.items.gold.stored.royal_bank, undefined, '建筑删除后存放条目随之移除');
 });
 
 test('oneOf 结构描述：至少两种且 JSON 类型不同', () => {
@@ -309,4 +321,22 @@ test('交互：声明写错时编译报错', () => {
   assert.throws(bad({ type: 'object', fields: {}, edit: true }), /edit 只能用于单个值/u);
   assert.throws(bad({ type: 'string', edit: { narrate: ['a', 'b'] } }), /两句 narrate 只用于 bool/u);
   assert.throws(bad({ type: 'int', actions: {} }), /actions 只能用于/u);
+});
+test('交互：存入与取出建筑，货币与物品同样处理', async () => {
+  const dep = await act('deposit', 'erin', 'gold', { at: 'royal_bank', n: 40 });
+  assert.equal(data(dep.state).characters.erin.items.gold.count, 100);
+  assert.equal(data(dep.state).characters.erin.items.gold.stored.royal_bank, 540);
+  const home = await act('deposit', 'erin', 'iron_sword', { at: 'old_manor', n: 1 });
+  assert.equal(data(home.state).characters.erin.items.iron_sword.count, 0);
+  assert.equal(data(home.state).characters.erin.items.iron_sword.equipped, false, '全部存起来的装备自动卸下');
+  assert.equal(data(home.state).characters.erin.items.iron_sword.stored.old_manor, 1, '没有存放记录时自动新建');
+  const all = await act('withdraw', 'erin', 'gold', { from: 'royal_bank', n: 500 });
+  assert.equal(data(all.state).characters.erin.items.gold.count, 640);
+  assert.equal(data(all.state).characters.erin.items.gold.stored.royal_bank, undefined, '取空后删除存放条目');
+  const armor = await act('withdraw', 'erin', 'father_armor', { from: 'old_manor', n: 1 });
+  assert.equal(data(armor.state).characters.erin.items.father_armor.count, 1);
+  assert.equal((await act('give', 'erin', 'father_armor', { to: 'mira' })).visible, false, '没带在身上的东西不能交给别人');
+  const paid = await act('give', 'erin', 'gold', { to: 'ash', n: 40 });
+  assert.equal(data(paid.state).characters.ash.items.gold.count, 40, '付钱给没有金币的人');
+  assert.equal(data(paid.state).characters.erin.items.gold.stored.royal_bank, 500, '交出随身的钱不动存款');
 });

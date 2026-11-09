@@ -60,7 +60,11 @@ export class SolveCore {
           if (Object.hasOwn(parent.value, leaf)) continue;
           const path = [...parent.parts, leaf];
           const value = await parseInput(def, next, path, undefined, true, feedback);
-          if (value === undefined) fail('MODULE_DEFAULT_REQUIRED', '模块启用缺少默认值', pointer(path));
+          if (value === undefined) {
+            // Optional fields may stay absent.
+            if ((schemaAt(def.schema, path) as any)?.safeParse?.(undefined)?.success) continue;
+            fail('MODULE_DEFAULT_REQUIRED', '模块启用缺少默认值', pointer(path));
+          }
           write(next.data, path, value);
         }
       }
@@ -317,11 +321,20 @@ class Runner {
         const amount = number(this.value(raw, state, graph));
         if (amount < 0) fail('TRANSFER_AMOUNT', '转移数量必须非负');
         total += amount;
-        changes.push([destination, number(at(state.data, destination)) + amount]);
+        // A missing destination starts at 0 (paying someone who holds none of that coin yet); the schema still checks the path.
+        const current = at(state.data, destination, false);
+        changes.push([destination, (current === undefined ? 0 : number(current)) + amount]);
       }
       if (!Number.isFinite(total)) fail('INVALID_NUMBER', '转移总额溢出');
       changes.unshift([parts, source - total]);
-      for (const [p, value] of changes) write(state.data, p, clamp(this.def, p, value, true, notes));
+      for (const [p, value] of changes) {
+        const amount = clamp(this.def, p, value, true, notes);
+        const k = p.findIndex((_, i) => at(state.data, p.slice(0, i + 1), false) === undefined);
+        if (k < 0 || k === p.length - 1) { write(state.data, p, amount); continue; }
+        // The destination's container is missing: build it through the schema so its other fields get their defaults.
+        const base = p.slice(0, k + 1), nested = p.slice(k + 1).reduceRight<unknown>((v, key) => ({ [key]: v }), amount);
+        write(state.data, base, await parseInput(this.def, state, base, nested, strict, notes));
+      }
       return;
     }
     if (!Array.isArray(old)) fail('NOT_ARRAY', '目标必须为数组');
