@@ -67,9 +67,11 @@ const character: FieldNode = {
         rank: text('位阶'),
         attributes: {
           type: 'object', label: '属性', module: 'rp_attributes', fields: {
-            dnd: { type: 'object', label: 'DND', module: 'attr_dnd', fields: {
+            dnd: { type: 'object', label: 'DND', module: 'attr_dnd',
+              sections: [{ label: '身体', keys: ['str', 'dex', 'con'] }, { label: '心智', keys: ['int', 'wis', 'cha'] }], fields: {
               str: dnd('力量'), dex: dnd('敏捷'), con: dnd('体质'), int: dnd('智力'), wis: dnd('感知'), cha: dnd('魅力') } },
-            wod: { type: 'object', label: 'WOD', module: 'attr_wod', fields: {
+            wod: { type: 'object', label: 'WOD', module: 'attr_wod',
+              sections: [{ label: '身体', keys: ['str', 'dex', 'sta'] }, { label: '心智', keys: ['int', 'wits', 'res'] }, { label: '社交', keys: ['pre', 'man', 'com'] }], fields: {
               str: wod('力量'), dex: wod('敏捷'), sta: wod('耐力'),
               int: wod('智力'), wits: wod('感知'), res: wod('决心'),
               pre: wod('风度'), man: wod('操控'), com: wod('沉着') } },

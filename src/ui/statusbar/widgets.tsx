@@ -44,7 +44,7 @@ export function Stat({ label, value, computed }: { label: string; value: number 
       {modifier && !empty ? <span {...part('modifier')}>{modifier.value >= 0 ? '+' : ''}{modifier.value}</span> : null}
       {transcend && !empty ? (
         <>
-          {transcend.value > 0 ? <span {...part('transcend')} title={`${transcend.label} ${transcend.value}`}>✦{transcend.value}</span> : null}
+          {transcend.value > 0 ? <span {...part('transcend')} title={`${transcend.label} ${transcend.value}：每满 5 点属性获得 1 点`}><i aria-hidden="true">✦</i>{transcend.label} {transcend.value}</span> : null}
           <span {...part('steps')} aria-label={`距下一点${transcend.label}还差 ${6 - step} 点`} title={`距下一点${transcend.label}还差 ${6 - step} 点`}>
             {[1, 2, 3, 4, 5].map(i => <i key={i} data-on={i <= step ? '' : undefined} />)}
           </span>

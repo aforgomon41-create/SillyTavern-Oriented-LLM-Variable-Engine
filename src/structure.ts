@@ -45,6 +45,8 @@ export interface FieldNode {
   spoiler?: SpoilerLevel;
   /** widget override from the fixed renderer list */
   as?: string;
+  /** object: presentation-only grouping of the children, e.g. WOD 身体 / 心智 / 社交 (every key at most once) */
+  sections?: { label: string; keys: string[] }[];
   readonly?: boolean;
   internal?: boolean;
 }
@@ -95,7 +97,7 @@ function problem(path: string, message: string): never { return fail('STRUCTURE_
 function build(node: FieldNode, path: string[], out: Collected, modules: Set<string>, inModule: boolean): { schema: z.ZodType; hasDefault: boolean } {
   const at = path.join('.');
   if (!node || typeof node !== 'object' || !TYPES.has(node.type)) problem(at, '未知字段类型');
-  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal'];
+  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal'];
   const extra = Object.keys(node).filter(key => !known.includes(key));
   if (extra.length) problem(at, `未知属性：${extra.join(', ')}`);
   if (node.module !== undefined) {
@@ -118,6 +120,15 @@ function build(node: FieldNode, path: string[], out: Collected, modules: Set<str
   if (node.entity !== undefined) meta.entity = node.entity;
   if (node.keys !== undefined) meta.keys = node.keys;
   if (node.stamp) meta.stamp = true;
+  if (node.sections !== undefined) {
+    if (node.type !== 'object' || !Array.isArray(node.sections)) problem(at, 'sections 只能用于 object');
+    const seen = new Set<string>();
+    for (const s of node.sections) {
+      if (!s || typeof s.label !== 'string' || !Array.isArray(s.keys)) problem(at, 'sections 每项需要 label 与 keys');
+      for (const k of s.keys) { if (!node.fields?.[k] || seen.has(k)) problem(at, `sections 中的 ${k} 不存在或重复`); seen.add(k); }
+    }
+    meta.sections = clone(node.sections) as unknown as Json;
+  }
   if (path.length) out.fields[at] = meta;
 
   let schema: z.ZodType, hasDefault = false, fallback: Json | undefined;

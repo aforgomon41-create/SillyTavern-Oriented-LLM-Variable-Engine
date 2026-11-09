@@ -105,7 +105,7 @@ export function Section({ path, title }: { path: Path; title?: React.ReactNode }
   const stats = children.filter(key => m.meta([...path, key])?.type === 'object' && m.children([...path, key]).every(k => scalar([...path, key, k])));
   if (children.length && stats.length === children.length) {
     // e.g. attributes → only the active system object
-    return <>{stats.map(key => <Block key={key} title={`${label} · ${m.label([...path, key])}`} path={[...path, key]}><div {...solve('stats')}>{m.children([...path, key]).map(k => <Field key={k} path={[...path, key, k]} />)}</div></Block>)}</>;
+    return <>{stats.map(key => <Block key={key} title={`${label} · ${m.label([...path, key])}`} path={[...path, key]}><StatGroups path={[...path, key]} /></Block>)}</>;
   }
   const allStats = children.length > 0 && children.every(key => { const mm = m.meta([...path, key]); return mm?.type === 'ladder' || mm?.type === 'int' || mm?.type === 'number'; });
   return (
@@ -207,3 +207,26 @@ export function Mixed({ entries }: { entries: [string, unknown][] }) {
     </div>
   );
 }
+
+/** An attribute block: grouped into its declared sections (WOD 身体 / 心智 / 社交), with a note on derived values. */
+function StatGroups({ path }: { path: Path }) {
+  const m = useModel();
+  const keys = m.children(path);
+  const sections = (m.meta(path)?.sections ?? []).map(s => ({ ...s, keys: s.keys.filter(k => keys.includes(k)) })).filter(s => s.keys.length);
+  const rest = keys.filter(k => !sections.some(s => s.keys.includes(k)));
+  const formulas = new Set(keys.flatMap(k => m.computed([...path, k], m.value([...path, k])).map(c => c.formula)));
+  const grid = (ks: string[]) => <div {...solve('stats')}>{ks.map(k => <Field key={k} path={[...path, k]} />)}</div>;
+  return (
+    <div {...solve('stat-groups', { sections: sections.length ? String(sections.length) : undefined })}>
+      {sections.length ? (
+        <div {...part('columns')}>
+          {sections.map(s => <section key={s.label} {...part('group')}><h5 {...part('title')}>{s.label}</h5>{grid(s.keys)}</section>)}
+          {rest.length ? <section {...part('group')}>{grid(rest)}</section> : null}
+        </div>
+      ) : grid(keys)}
+      {formulas.has('wodTranscend') ? <p {...part('note')}><b>✦ 超凡</b>：属性每满 5 点获得 1 点超凡（由引擎计算）；圆点是距离下一点超凡的进度。</p> : null}
+      {formulas.has('dndModifier') ? <p {...part('note')}><b>调整值</b>：（属性 − 10）÷ 2 向下取整，用于检定加减。</p> : null}
+    </div>
+  );
+}
+

@@ -685,3 +685,18 @@
   width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .08); color: #fff; font-size: 16px; cursor: pointer;
 }
 @keyframes solve-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Attribute blocks grouped into sections (WOD 身体 / 心智 / 社交): one labelled row per section, like a WoD sheet. */
+[data-solve="stat-groups"] { display: flex; flex-direction: column; gap: var(--k-space-3); }
+[data-solve="stat-groups"] > [data-solve-part="columns"] { display: flex; flex-direction: column; gap: var(--k-space-3); }
+[data-solve="stat-groups"] [data-solve-part="group"] { min-width: 0; }
+[data-solve="stat-groups"] [data-solve-part="group"] > [data-solve-part="title"] {
+  margin: 0 0 var(--k-space-1); font-size: var(--k-fs-xs); font-weight: var(--k-fw-strong); letter-spacing: .12em; color: var(--k-accent);
+  display: flex; align-items: center; gap: var(--k-space-2);
+}
+[data-solve="stat-groups"] [data-solve-part="group"] > [data-solve-part="title"]::after { content: ''; flex: 1; height: 1px; background: var(--k-divider); }
+}
+[data-solve="stat-groups"] > [data-solve-part="note"] { margin: 0; font-size: var(--k-fs-xs); line-height: var(--k-lh); color: var(--k-on-sunken-muted, var(--k-on-muted)); }
+[data-solve="stat-groups"] > [data-solve-part="note"] b { color: var(--k-accent); font-weight: var(--k-fw-strong); }
+[data-solve="stat"] > [data-solve-part="transcend"] { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+[data-solve="stat"] > [data-solve-part="transcend"] > i { font-style: normal; }

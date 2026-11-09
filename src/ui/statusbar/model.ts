@@ -7,7 +7,7 @@ import { computedFor } from '../../features.js';
 import type { CompiledDefinition, Json, LogicalState } from '../../types.js';
 
 export type Path = string[];
-export interface FieldMeta { type: string; desc?: string; values?: string[]; min?: number; max?: number; to?: string | string[]; entity?: string; keys?: string; stamp?: boolean }
+export interface FieldMeta { type: string; desc?: string; values?: string[]; min?: number; max?: number; to?: string | string[]; entity?: string; keys?: string; stamp?: boolean; sections?: { label: string; keys: string[] }[] }
 export type Spoiler = 'public' | 'spoiler' | 'hidden';
 export interface Exempt { collection: string; field: string; equals: Json }
 
