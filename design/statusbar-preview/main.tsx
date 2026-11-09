@@ -97,7 +97,7 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
   const kit = DS as unknown as Kit;
   // Launcher position, remembered per device class (the host does this in the tavern too).
   const key = 'solve.launcher.v1.' + (window.innerWidth > 1000 ? 'desktop' : 'mobile');
-  let launcher: { pos?: { x: number; y: number } } = {};
+  let launcher: { pos?: { x: number; y: number }; tab?: string } = {};
   try { launcher = JSON.parse(localStorage.getItem(key) ?? '{}') ?? {}; } catch { launcher = {}; }
   const remember = (patch: object) => { try { launcher = { ...launcher, ...patch }; localStorage.setItem(key, JSON.stringify(launcher)); } catch { /* storage unavailable */ } };
   function App() {
@@ -105,7 +105,7 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
     const mode = view === '横条' ? 'bar' : view === '按钮' ? 'dot' : 'panel';
     return (
       <KitProvider value={kit}>
-        <StatusBar model={model} defaultMode={mode} {...(mode === 'panel' ? { defaultTab: view } : {})}
+        <StatusBar model={model} defaultMode={mode} {...(mode === 'panel' ? { defaultTab: view } : launcher.tab ? { defaultTab: launcher.tab } : {})} onTabChange={tab => remember({ tab })}
           {...(launcher.pos ? { position: launcher.pos } : {})} onPositionChange={pos => remember({ pos })}
           bgm={{ title: '雨夜酒馆（示例曲目）', source: '按场景情绪「日常」选曲', playing: bgm.enabled, enabled: bgm.enabled, volume: bgm.volume, onToggle: v => setBgm(b => ({ ...b, enabled: v })), onVolume: v => setBgm(b => ({ ...b, volume: v })) }} />
       </KitProvider>

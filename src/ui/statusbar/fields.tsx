@@ -131,7 +131,7 @@ function Entry({ path }: { path: Path }) {
   );
 }
 /** keyed-by-reference rows (relations, reputation): target, meter, tags, details. */
-function RelationRow({ path }: { path: Path }) {
+export function RelationRow({ path, title }: { path: Path; title?: React.ReactNode }) {
   const m = useModel(), value = m.value(path) ?? {};
   const keys = m.children(path);
   const meterKey = keys.find(k => typeof value[k] === 'number');
@@ -140,7 +140,7 @@ function RelationRow({ path }: { path: Path }) {
   return (
     <div {...solve('relation')}>
       <div {...part('head')}>
-        <RefChip id={path.at(-1)!} />
+        {title ?? <RefChip id={path.at(-1)!} />}
         {meterKey && meterMeta?.min !== undefined && meterMeta.max !== undefined ? <CenterMeter label={m.label([...path, meterKey])} value={value[meterKey]} min={meterMeta.min} max={meterMeta.max} /> : null}
       </div>
       <div {...part('body')}>{rest.map(k => <Field key={k} path={[...path, k]} compact />)}</div>

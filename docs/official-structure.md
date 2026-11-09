@@ -299,7 +299,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | 键 | 含义 |
 | --- | --- |
 | `bar` | 悬浮概览横条显示的字段路径（也是展开后面板的标题栏），可用 `$user` 指玩家角色。官方结构为 地点 · 时间 · 天气 · 场景情绪 · 在场角色；手机上只保留地点、时间、天气。横条的位置由宿主按设备（电脑 / 手机）记住，收起、展开、刷新后都不变 |
-| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`）；`{ map }` 力导向地图（`current/parent/links/discovered`） |
+| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`；`pages` 把展开后的卡片分成小页签，`relations.$user` 这类「以玩家为键」的条目显示为醒目的「对你」块，`as: 'quests'` 显示为任务日志，`as: 'inventory'` 显示为背包）；`{ map }` 力导向地图（`current/parent/links/discovered`） |
 | `spoilerExempt` | 不受剧透遮挡的实体（官方结构：玩家角色） |
 
 

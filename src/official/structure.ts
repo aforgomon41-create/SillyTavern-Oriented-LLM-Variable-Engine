@@ -229,13 +229,28 @@ export const officialStructure: StructureDescription = {
       { tab: '社交', items: [
         { graph: 'characters', module: 'social', title: '关系图', edges: 'relations', weight: 'affection', label: 'labels', present: 'meta.present', size: 'role', badges: ['role'],
           legend: { positive: '友好', neutral: '一般', negative: '敌意' } },
-        { list: 'characters', title: '人物', exclude: '$user', present: 'meta.present', order: 'role', badges: ['role'], score: 'relations.$user.affection', scoreLabel: '♥' },
+        { list: 'characters', title: '人物', exclude: '$user', present: 'meta.present', order: 'role', badges: ['role'], score: 'relations.$user.affection', scoreLabel: '♥',
+          // An NPC card reads in layers: how they see you first, then motives, other ties, abilities, belongings.
+          pages: [
+            { label: '概况', paths: ['relations.$user', 'condition', 'age', 'tags', 'intro', 'appearance'] },
+            { label: '动机', paths: ['drive'], as: 'quests' },
+            { label: '关系', paths: ['relations'] },
+            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.traits', 'rp.skills'] },
+            { label: '物品', paths: ['items', 'funds'], as: 'inventory' },
+            { label: '私密', paths: ['nsfw'] },
+          ] },
       ] },
       { tab: '地图', items: [{ map: 'places', current: 'meta.location' }] },
       { tab: '势力', module: 'factions', items: [
         { graph: 'factions', title: '势力关系图', edges: 'diplomacy', tone: 'stance', label: 'stance', size: 'tier', badges: ['tier'],
           tones: { 盟友: 'positive', 敌对: 'negative', 冷淡中立: 'neutral', 臣服依附: 'info' }, legend: { positive: '盟友', negative: '敌对', neutral: '中立', info: '依附' } },
-        { list: 'factions', title: '势力', order: 'tier', badges: ['tier'], score: 'reputation.$user.value', scoreLabel: '声望' },
+        { list: 'factions', title: '势力', order: 'tier', badges: ['tier'], score: 'reputation.$user.value', scoreLabel: '声望',
+          pages: [
+            { label: '概况', paths: ['reputation.$user', 'leader', 'base', 'territory', 'intro'] },
+            { label: '目标', paths: ['goals', 'plan'], as: 'quests' },
+            { label: '声望', paths: ['reputation'] },
+            { label: '外交', paths: ['diplomacy'] },
+          ] },
       ] },
       { tab: '不动产', module: 'estates', items: [{ list: 'estates', title: '不动产' }] },
     ],

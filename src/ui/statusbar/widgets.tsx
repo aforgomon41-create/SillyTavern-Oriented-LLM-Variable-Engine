@@ -72,15 +72,11 @@ export function Chips({ items, tone }: { items: React.ReactNode[]; tone?: 'neutr
   const K = useKit();
   return <span {...solve('chips')}>{items.map((item, i) => <K.Badge key={i} tone={tone ?? 'neutral'}>{item}</K.Badge>)}</span>;
 }
-/** Spoiler: content blurred until the player reveals it. */
+/** Spoiler: a small inline tag until the player reveals it (no blurred blocks cluttering the card). */
 export function Spoiler({ children, label = '剧透' }: { children: React.ReactNode; label?: string }) {
   const [shown, setShown] = React.useState(false);
-  return (
-    <span {...solve('spoiler', { state: shown ? 'shown' : 'hidden' })}>
-      <span {...part('content')} aria-hidden={!shown}>{children}</span>
-      {!shown ? <button type="button" {...part('reveal')} onClick={() => setShown(true)}>{label} · 点击查看</button> : null}
-    </span>
-  );
+  if (shown) return <span {...solve('spoiler', { state: 'shown' })}>{children}</span>;
+  return <button type="button" {...solve('spoiler', { state: 'hidden' })} onClick={() => setShown(true)} aria-label={`${label}内容，点击查看`}><i aria-hidden="true" />{label} · 点击查看</button>;
 }
 export function Timeline({ entries }: { entries: { round: number; text: string }[] }) {
   return <ol {...solve('timeline')}>{entries.map((e, i) => <li key={i}><span {...part('round')}>#{e.round}</span><span {...part('text')}>{e.text}</span></li>)}</ol>;

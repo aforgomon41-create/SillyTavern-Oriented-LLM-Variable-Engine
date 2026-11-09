@@ -6,8 +6,9 @@
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
-import { isEmpty, type Path } from './model.js';
-import { Field, Mixed, Section, useModel } from './fields.js';
+import { type Path } from './model.js';
+import { Mixed, useModel } from './fields.js';
+import { Pages, visible } from './body.js';
 import { CurrencyList } from './currency.js';
 import { part, solve } from './widgets.js';
 
@@ -17,40 +18,19 @@ export interface SheetItem {
 }
 const rel = (s: string): Path => s.split('.');
 
-export function PlayerSheet({ item }: { item: SheetItem }) {
+export function PlayerSheet({ item, page, onPage }: { item: SheetItem; page?: string; onPage?: (p: string) => void }) {
   const m = useModel(), K = useKit();
   const id = item.id === '$user' ? m.userId : item.id;
   const path = id ? [...rel(item.sheet), id] : undefined;
-  const pages = path ? item.pages.filter(p => p.paths.some(r => visible(m, [...path, ...rel(r)]))) : [];
-  const [page, setPage] = React.useState(pages[0]?.label ?? '');
   if (!path || !m.value(path)) return <K.Empty title="还没有玩家角色" description="角色定位为「用户角色」的角色会显示在这里。" />;
-  const current = pages.find(p => p.label === page) ?? pages[0];
   return (
     <div {...solve('sheet')}>
       <div {...part('layout')}>
         <Hero path={path} item={item} />
-        <div {...part('pages')}>
-          {pages.length > 1 ? (
-            K.Segmented
-              ? <div {...part('switch')}><K.Segmented label="角色页" value={current?.label ?? ''} onValueChange={setPage} options={pages.map(p => ({ value: p.label, label: p.label }))} /></div>
-              : <div {...part('switch')} role="tablist">{pages.map(p => <button key={p.label} type="button" role="tab" aria-selected={p === current} onClick={() => setPage(p.label)}>{p.label}</button>)}</div>
-          ) : null}
-          {current ? <div {...part('page')} data-page={current.as ?? 'default'}>{current.paths.map(r => <PagePart key={r} path={[...path, ...rel(r)]} as={current.as} />)}</div> : null}
-        </div>
+        <Pages base={path} pages={item.pages} label="角色页" {...(page !== undefined ? { page } : {})} {...(onPage ? { onPage } : {})} />
       </div>
     </div>
   );
-}
-function visible(m: ReturnType<typeof useModel>, path: Path): boolean {
-  return m.meta(path) !== undefined && !m.dormant(path) && m.spoiler(path) !== 'hidden' && !isEmpty(m.value(path));
-}
-function PagePart({ path, as }: { path: Path; as?: string }) {
-  const m = useModel();
-  if (!visible(m, path)) return null;
-  const meta = m.meta(path);
-  if (as === 'inventory' && meta?.type === 'record') return <Inventory path={path} />;
-  if (meta?.type === 'object' || meta?.type === 'record') return <Section path={path} />;
-  return <Field path={path} />;
 }
 
 function Hero({ path, item }: { path: Path; item: SheetItem }) {
@@ -84,32 +64,3 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
   );
 }
 
-/** Inventory: equipped slots, bag grid and an item description box. */
-function Inventory({ path }: { path: Path }) {
-  const m = useModel(), K = useKit(), items: Record<string, any> = m.value(path) ?? {};
-  const ids = Object.keys(items);
-  const equipped = ids.filter(id => items[id]?.equipped), bag = ids.filter(id => !items[id]?.equipped);
-  const [sel, setSel] = React.useState<string | undefined>(ids[0]);
-  const it = sel ? items[sel] : undefined;
-  const tile = (id: string) => (
-    <button key={id} type="button" {...solve('slot', { kind: items[id]?.type, equipped: items[id]?.equipped ? '' : undefined })} aria-pressed={id === sel} onClick={() => setSel(id)}>
-      <span {...part('glyph')} aria-hidden="true">{[...(items[id]?.name ?? id)][0]}</span>
-      <span {...part('name')}>{items[id]?.name ?? id}</span>
-      {typeof items[id]?.count === 'number' && items[id].count !== 1 ? <span {...part('count')}>×{items[id].count}</span> : null}
-    </button>
-  );
-  const detailKeys = it ? m.children([...path, sel!]).filter(k => !['name', 'type', 'count', 'equipped'].includes(k) && !isEmpty(it[k])) : [];
-  return (
-    <div {...solve('inventory')}>
-      {equipped.length ? <section {...part('equipped')}><h4 {...part('title')}>装备中</h4><div {...part('grid')}>{equipped.map(tile)}</div></section> : null}
-      <section {...part('bag')}><h4 {...part('title')}>{m.label(path)}<small>{bag.length}</small></h4>
-        {bag.length ? <div {...part('grid')}>{bag.map(tile)}</div> : <span {...solve('none')}>空</span>}</section>
-      {it ? (
-        <div {...part('detail')} aria-live="polite">
-          <div {...part('head')}><b>{it.name ?? sel}</b>{it.type ? <K.Badge tone="neutral">{it.type}</K.Badge> : null}{it.equipped ? <K.Badge tone="accent">已装备</K.Badge> : null}{typeof it.count === 'number' ? <span {...part('count')}>数量 {it.count}</span> : null}</div>
-          {detailKeys.map(k => <Field key={k} path={[...path, sel!, k]} compact />)}
-        </div>
-      ) : null}
-    </div>
-  );
-}

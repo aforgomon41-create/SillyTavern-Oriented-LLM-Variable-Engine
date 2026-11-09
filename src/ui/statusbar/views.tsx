@@ -7,14 +7,17 @@
 import * as React from 'react';
 import { useKit } from '../kit.js';
 import { isEmpty, StatusModel, type Path } from './model.js';
-import { Field, ModelContext, NavigateContext, RefChip, Section, useModel } from './fields.js';
+import { ModelContext, NavigateContext, RefChip, Section, useModel } from './fields.js';
+import { EntityBody, Pages, type PageSpec } from './body.js';
 import { GraphView, type GraphEdge, type GraphNode, type Tone } from './graph.js';
 import { PlayerSheet, type SheetItem } from './sheet.js';
 import { part, solve } from './widgets.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
 export interface StatusBarProps {
-  model: StatusModel; bgm?: BgmView; defaultTab?: string;
+  model: StatusModel; bgm?: BgmView;
+  /** Last open tab; the host persists it through onTabChange. */
+  defaultTab?: string; onTabChange?: (tab: string) => void;
   /** Starting state of the launcher (the host restores the last one). */
   defaultMode?: Mode; onModeChange?: (mode: Mode) => void;
   /** Saved launcher position; the host persists it. */
@@ -23,10 +26,11 @@ export interface StatusBarProps {
 export type Mode = 'bar' | 'dot' | 'panel';
 const rel = (s: string): Path => s.split('.');
 
-export function StatusBar({ model, bgm, defaultTab, defaultMode = 'bar', onModeChange, position, onPositionChange }: StatusBarProps) {
+export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = 'bar', onModeChange, position, onPositionChange }: StatusBarProps) {
   const K = useKit();
   const tabs = model.layout.filter((t: any) => model.moduleOn(t.module));
-  const [tab, setTab] = React.useState<string>(defaultTab ?? tabs[0]?.tab ?? '');
+  const [tab, setTabState] = React.useState<string>(tabs.some((t: any) => t.tab === defaultTab) ? defaultTab! : tabs[0]?.tab ?? '');
+  const setTab = (t: string) => { setTabState(t); onTabChange?.(t); };
   const [focus, setFocus] = React.useState<{ path: Path; at: number } | undefined>();
   const hasData = barItems(model).length > 0;
   const [mode, setModeState] = React.useState<Mode>(defaultMode);
@@ -43,8 +47,8 @@ export function StatusBar({ model, bgm, defaultTab, defaultMode = 'bar', onModeC
       return typeof base === 'string' && key.startsWith(base + '.') && !(item.exclude === '$user' && path[rel(base).length] === model.userId) && !item.graph;
     };
     const target = tabs.find((t: any) => t.items.some(hit));
-    if (target) { setTab(target.tab); setFocus({ path, at: Date.now() }); setModeState('panel'); }
-  }, [tabs, model]);
+    if (target) { setTabState(target.tab); onTabChange?.(target.tab); setFocus({ path, at: Date.now() }); setModeState('panel'); }
+  }, [tabs, model]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const content = (
     <K.TooltipProvider>
@@ -117,9 +121,10 @@ function Launcher({ mode, canBar, pos, onMove, onMoved, onOpen, onMode }: {
     <div ref={ref} {...solve('launcher', { mode, placed: pos ? '' : undefined })} style={style}
       onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { drag.current = null; }}>
       {mode === 'bar' ? (
-        <div {...solve('bar')} data-k-level="surface-1" role="button" tabIndex={0} aria-label="展开状态栏"
+        <div {...solve('bar')} data-k-level="surface-1" role="button" tabIndex={0} aria-label="展开状态栏" title="点击展开 · 按住拖动"
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(ref.current!.getBoundingClientRect()); } }}>
           <Overview model={m} where="bar" />
+          <span {...part('open')} aria-hidden="true">▾</span>
           <button type="button" {...part('shrink')} aria-label="收起为按钮" title="收起为按钮" onClick={e => { e.stopPropagation(); onMode('dot'); }}>‹</button>
         </div>
       ) : (
@@ -152,12 +157,12 @@ function Overview({ model: m, where }: { model: StatusModel; where: 'bar' | 'tit
   const round = m.def.round ? m.value(rel(m.def.round)) : undefined;
   return (
     <span {...solve('overview', { where })}>
-      {barItems(m).map(item => <BarPiece key={item.path} item={item} path={resolve(m, item.path)!} />)}
+      {barItems(m).map(item => <BarPiece key={item.path} item={item} path={resolve(m, item.path)!} where={where} />)}
       {typeof round === 'number' ? <span {...part('round')}>第 {round} 轮</span> : null}
     </span>
   );
 }
-function BarPiece({ item, path }: { item: BarItem; path: Path }) {
+function BarPiece({ item, path, where }: { item: BarItem; path: Path; where: 'bar' | 'title' }) {
   const m = useModel(), value = m.value(path), meta = m.meta(path);
   if (meta?.type === 'ref') {
     const chain: string[] = [];
@@ -171,8 +176,22 @@ function BarPiece({ item, path }: { item: BarItem; path: Path }) {
         <span {...part('label')}>{k}</span><span {...part('track')}><i style={{ width: `${Math.max(0, Math.min(1, g.value / g.max)) * 100}%` }} /></span><span {...part('value')}>{g.value}</span>
       </span>))}</span>;
   }
-  if (meta?.type === 'refs') return <span {...part('people')} title={(value as string[]).map(id => m.entityName(id)).join('、')}>{(value as string[]).slice(0, 4).map(id => <i key={id}>{[...m.entityName(id)][0]}</i>)}{value.length > 4 ? <small>+{value.length - 4}</small> : null}</span>;
+  if (meta?.type === 'refs') return <People ids={value as string[]} label={m.label(path)} where={where} />;
   return <span {...part('chip')} title={m.label(path)}>{String(value)}</span>;
+}
+/** Present characters as avatars; in the panel title each one opens that character. */
+function People({ ids, label, where }: { ids: string[]; label: string; where: 'bar' | 'title' }) {
+  const m = useModel(), go = React.useContext(NavigateContext);
+  const names = ids.map(id => m.entityName(id));
+  const shown = ids.slice(0, where === 'title' ? 6 : 4);
+  return (
+    <span {...part('people')} title={`${label}：${names.join('、')}`} aria-label={`${label}：${names.join('、')}`}>
+      {shown.map(id => where === 'title'
+        ? <button key={id} type="button" onClick={() => { const p = m.locate(id); if (p) go(p); }} aria-label={`查看${m.entityName(id)}`} title={m.entityName(id)}>{[...m.entityName(id)][0]}</button>
+        : <i key={id}>{[...m.entityName(id)][0]}</i>)}
+      {ids.length > shown.length ? <small>+{ids.length - shown.length}</small> : null}
+    </span>
+  );
 }
 function formatTime(t: any, short = false): string {
   if (!t || typeof t !== 'object') return '';
@@ -199,20 +218,27 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
   const present = new Set<string>(item.present ? m.value(rel(item.present)) ?? [] : []);
   const orderMeta = item.order ? m.meta([...path, '*', item.order]) : undefined;
   const rank = (id: string) => orderMeta?.values ? orderMeta.values.indexOf(value[id]?.[item.order]) : 0;
-  const ids = Object.keys(value).filter(id => !(item.exclude === '$user' && id === m.userId))
+  const all = Object.keys(value).filter(id => !(item.exclude === '$user' && id === m.userId))
     .sort((a, b) => Number(present.has(b)) - Number(present.has(a)) || rank(a) - rank(b));
+  const here = all.filter(id => present.has(id));
+  const [only, setOnly] = React.useState<'all' | 'present'>('all');
+  const ids = only === 'present' ? here : all;
   const [open, setOpen] = React.useState<Set<string>>(new Set());
   const refs = React.useRef(new Map<string, HTMLDivElement>());
   React.useEffect(() => {
     if (!focus || focus.path.slice(0, path.length).join('.') !== path.join('.')) return;
     const id = focus.path[path.length]; if (!id || !value[id]) return;
-    setOpen(s => new Set(s).add(id));
+    setOnly('all'); setOpen(s => new Set(s).add(id));
     requestAnimationFrame(() => refs.current.get(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
   }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!ids.length) return <K.Empty title={`还没有${item.title ?? m.label(path)}`} />;
+  if (!all.length) return <K.Empty title={`还没有${item.title ?? m.label(path)}`} />;
   return (
     <section {...solve('group')}>
-      <h4 {...part('title')}>{item.title ?? m.label(path)}<small>{ids.length}</small></h4>
+      <div {...solve('list-head')}>
+        <h4 {...part('title')}>{item.title ?? m.label(path)}<small>{all.length}</small></h4>
+        {here.length && here.length < all.length && K.Segmented ? <K.Segmented size="sm" label="筛选" value={only} onValueChange={v => setOnly(v as 'all' | 'present')}
+          options={[{ value: 'all', label: `全部 ${all.length}` }, { value: 'present', label: `在场 ${here.length}` }]} /> : null}
+      </div>
       <div {...solve('stack')}>
         {ids.map(id => {
           const v = value[id] ?? {}, score = item.score ? resolve(m, item.score) : undefined;
@@ -226,7 +252,8 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
                   {(item.badges ?? []).map((b: string) => v[b] ? <K.Badge key={b} tone="neutral">{String(v[b])}</K.Badge> : null)}
                   {typeof s === 'number' ? <span {...part('score')} data-sign={s > 0 ? 'positive' : s < 0 ? 'negative' : 'zero'} title={`${item.scoreLabel ?? sMeta?.desc ?? ''}`}>{item.scoreLabel ?? ''} {s > 0 ? '+' : ''}{s}</span> : null}
                 </span>}>
-                {open.has(id) ? <EntityBody path={[...path, id]} skip={item.badges} /> : null}
+                {open.has(id) ? (item.pages ? <Pages base={[...path, id]} pages={item.pages as PageSpec[]} label={`${v.name ?? id}的资料`} compact />
+                  : <EntityBody path={[...path, id]} skip={item.badges} />) : null}
               </K.CollapseCard>
             </div>
           );
@@ -327,40 +354,6 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
         </K.Card>
       ) : null}
     </div>
-  );
-}
-
-/** Full entity: facts, paragraphs, then sections; composite groups (e.g. roleplay) are flattened one level. */
-export function EntityBody({ path, skip = [] }: { path: Path; skip?: string[] }) {
-  const m = useModel(), v = m.value(path) ?? {};
-  const keys = m.children(path).filter(k => !skip.includes(k) && !m.dormant([...path, k]) && m.spoiler([...path, k]) !== 'hidden' && !isEmpty(v[k]));
-  const type = (k: string) => m.meta([...path, k])?.type ?? '';
-  const isStringList = (k: string) => type(k) === 'array' && !m.meta([...path, k])?.stamp && (v[k] ?? []).every((x: unknown) => typeof x === 'string');
-  const scalar = keys.filter(k => ['string', 'enum', 'int', 'number', 'bool', 'ref', 'refs', 'ladder'].includes(type(k)) || isStringList(k));
-  const composite = keys.filter(k => !scalar.includes(k));
-  const paragraphs = scalar.filter(k => m.widget([...path, k]) === 'paragraph');
-  const facts = scalar.filter(k => !paragraphs.includes(k) && k !== 'name' && k !== 'alias');
-  const flatten = (k: string) => type(k) === 'object' && m.children([...path, k]).some(c => ['object', 'record'].includes(m.meta([...path, k, c])?.type ?? '') && m.children([...path, k, c]).length > 1 || m.meta([...path, k, c])?.type === 'record');
-  return (
-    <div {...solve('entity')}>
-      {facts.length ? <div {...solve('fields')}>{facts.map(k => <Field key={k} path={[...path, k]} compact />)}</div> : null}
-      {paragraphs.map(k => <Field key={k} path={[...path, k]} compact />)}
-      {composite.map(k => flatten(k) ? <Group key={k} path={[...path, k]} />
-        : ['object', 'record'].includes(type(k)) ? <Section key={k} path={[...path, k]} /> : <Field key={k} path={[...path, k]} />)}
-    </div>
-  );
-}
-function Group({ path }: { path: Path }) {
-  const m = useModel();
-  const keys = m.children(path).filter(k => !m.dormant([...path, k]) && !isEmpty(m.value([...path, k])));
-  const scalar = keys.filter(k => ['string', 'enum', 'int', 'number', 'ladder'].includes(m.meta([...path, k])?.type ?? ''));
-  return (
-    <section {...solve('group')}>
-      <h4 {...part('title')}>{m.label(path)}</h4>
-      {scalar.length ? <div {...solve('fields')}>{scalar.map(k => <Field key={k} path={[...path, k]} compact />)}</div> : null}
-      {keys.filter(k => !scalar.includes(k)).map(k => ['object', 'record'].includes(m.meta([...path, k])?.type ?? '')
-        ? <Section key={k} path={[...path, k]} /> : <Field key={k} path={[...path, k]} />)}
-    </section>
   );
 }
 
