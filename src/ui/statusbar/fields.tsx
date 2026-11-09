@@ -7,6 +7,7 @@ import { useKit } from '../kit.js';
 import { isEmpty, type Path, type StatusModel } from './model.js';
 import { CenterMeter, Checklist, Chips, Facts, Ladder, Meter, Spoiler, Stat, Timeline, part, solve } from './widgets.js';
 import { CurrencyList } from './currency.js';
+import { Abilities, Inventory } from './inventory.js';
 
 export const ModelContext = React.createContext<StatusModel | null>(null);
 export const useModel = (): StatusModel => { const m = React.useContext(ModelContext); if (!m) throw new Error('缺少状态模型'); return m; };
@@ -86,6 +87,8 @@ export function Section({ path, title }: { path: Path; title?: React.ReactNode }
     let content: React.ReactNode;
     if (!keys.length) content = <span {...solve('none')}>暂无</span>;
     else if (meta.entity) content = <EntityGrid path={path} grid={as === 'grid'} />;
+    else if (meta.keys && as === 'inventory') content = <Inventory path={path} />;
+    else if (meta.keys && as === 'abilities') content = <Abilities path={path} />;
     else if (meta.keys) content = <div {...solve('relations')}>{keys.map(key => <RelationRow key={key} path={[...path, key]} />)}</div>;
     else if (as === 'currency') content = <CurrencyList entries={keys.map(key => [key, value[key]])} label={String(label)} />;
     else if (as === 'meters' || element?.type === 'oneOf' || keys.every(key => isGauge(value[key]))) content = <Mixed entries={keys.map(key => [key, value[key]])} />;

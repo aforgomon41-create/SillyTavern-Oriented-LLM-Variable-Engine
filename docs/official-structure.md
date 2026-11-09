@@ -80,8 +80,7 @@
 | `rank` | 位阶 | 文字 | 由操作 LLM 依世界观推断 |
 | `attributes` | 属性 | 见 4.4，四种体系互斥 | 属性 |
 | `special` | 特殊属性 | 字典 `名称 → 文字、数字或 { value, max }` | 属性 |
-| `traits` | 特质（被动） | 字典 `名称 → desc` | 能力 |
-| `skills` | 技能（主动） | 字典 `名称 → { desc, level? }` | 能力 |
+| `abilities` | 能力 | 引用字典 `能力 ID → { level? }` | 能力。能力本体在根节点 `abilities`（见 5.4），这里只写本人的等级；多人共有同一能力时引用同一个 ID |
 | `gauges` | 量表 | 字典 `名称 → { value, max } 或一句描述` | 状态 |
 | `effects` | 效果 | 字典 `名称 → { desc, source?, until? }` | 状态 |
 
@@ -105,13 +104,7 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 
 | 键 | 名称 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| `items.<itemId>` | 物品 | 实体集合 | 角色之间用 `$move` 转移 |
-| ↳ `name` `count` | 物品名、数量 | 文字、整数 ≥0 | |
-| ↳ `type` | 类型 | 枚举 | 装备/道具/消耗/关键/杂物/座驾 |
-| ↳ `desc` | 描述 | 文字 | 用户视角的描述 |
-| ↳ `truth` | 真实描述 | 文字，可选 | 只写与 `desc` 不同之处；默认隐藏 |
-| ↳ `equipped` | 已装备 | 布尔 | |
-| ↳ `condition` | 状态 | 文字，可选 | 主要给座驾用 |
+| `items` | 物品 | 引用字典 `物品 ID → { count, equipped }` | 物品本体在根节点 `items`（见 5.4），这里只写本人的数量与是否装备。转手：从原持有者删去该键，在新持有者下加上同一 ID；同类消耗品多人持有时各自记数量 |
 | `funds` | 资金 | 字典 `货币 → 整数或一句描述` | 货币种类由模型依世界观定义；数额清楚时写整数，转账用 `$transfer` 保证守恒；说不清时写描述（如「一小袋碎银」）。状态栏内置常见货币图标：金币、银币、铜币、文、银两、美元、人民币、日元，其他名称显示通用硬币 |
 
 ### 4.6 NSFW `nsfw`（默认关闭）
@@ -172,6 +165,17 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 | `reputation.<charId>` | 声望 | `{ value −100～100, title, keyEvents[{round,text}] }` | `value` 单次变化上限 ±10 |
 | `diplomacy.<factionId>` | 外交 | `{ stance, moves }` | stance：盟友/敌对/冷淡中立/臣服依附；`moves` 默认剧透 |
 
+### 5.4 物品与能力 `items` / `abilities`（实例）
+
+物品和能力都是实例：本体只在根节点存一份，角色那边只是引用（以 ID 为键），附上本人才有的状态。引用必须指向存在的同类实体；删除实例时，所有持有者的引用自动清理。
+
+| 键 | 名称 | 类型 | 说明 |
+| --- | --- | --- | --- |
+| `items.<itemId>` | 物品 | 实体集合 | `name`、`type`（装备/道具/消耗/关键/杂物/座驾）、`desc`、`truth?`（默认隐藏）、`condition?`（主要给座驾用） |
+| `abilities.<abilityId>` | 能力 | 实体集合 | `name`、`kind`（特质/技能）、`desc`、`truth?` |
+
+投影：只有在场角色持有或掌握的物品、能力完整交给模型，其余只留名称与类别（规则 `kind: 'referenced'`），模型仍知道已有哪些 ID，不会重复建。
+
 ## 6. 需要新增的引擎能力
 
 | # | 能力 | 说明 |
@@ -220,12 +224,11 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
       "rp": {
         "rank": "铜阶",
         "attributes": { "wod": { "str": 11, "dex": 6, "sta": null, "int": 3, "wits": 4, "res": 5, "pre": 2, "man": 2, "com": 3 } },
-        "traits": { "夜视": "在黑暗中视物如常" },
-        "skills": { "盾击": { "desc": "以盾牌冲撞，使目标失衡", "level": 2 } },
+        "abilities": { "night_vision": {}, "shield_bash": { "level": 2 } },
         "gauges": { "生命": { "value": 72, "max": 100 } },
         "effects": { "淋湿": { "desc": "敏捷检定略受影响", "until": "烤干衣物" } }
       },
-      "items": { "sword": { "name": "铁剑", "count": 1, "type": "装备", "desc": "普通的铁剑", "equipped": true } },
+      "items": { "sword": { "count": 1, "equipped": true } },
       "funds": { "金币": 140 },
       "relations": { "mira": { "affection": 35, "labels": ["旅伴"], "impression": "话多但可靠",
         "promises": [], "keyEvents": [{ "round": 12, "text": "在沼泽救下米拉" }] } }

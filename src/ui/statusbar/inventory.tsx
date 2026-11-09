@@ -1,26 +1,47 @@
-/** Inventory: equipped slots, bag grid and an item description box (shared by the player sheet and NPC cards). */
+/**
+ * Holdings that reference root instances (items, abilities): the instance data lives once at the root,
+ * the holder keeps only its own state (count / equipped, level). Shared by the player sheet and NPC cards.
+ */
 import * as React from 'react';
 import { useKit } from '../kit.js';
-import { isEmpty, type Path } from './model.js';
-import { Field, useModel } from './fields.js';
+import { isEmpty, type Path, type StatusModel } from './model.js';
+import { Field, RefChip, useModel } from './fields.js';
 import { part, solve } from './widgets.js';
 
+interface Held { id: string; at?: Path; data: Record<string, any> }
+/** Join each referenced id with its root instance. */
+function held(m: StatusModel, path: Path): Held[] {
+  const holder: Record<string, any> = m.value(path) ?? {};
+  return Object.keys(holder).map(id => {
+    const at = m.locate(id);
+    const inst = at ? m.value(at) ?? {} : {};
+    return { id, ...(at ? { at } : {}), data: { ...inst, ...(holder[id] && typeof holder[id] === 'object' ? holder[id] : {}) } };
+  });
+}
+/** Other entities of the same collection holding the same instance (e.g. who else knows this ability). */
+function others(m: StatusModel, path: Path, id: string): string[] {
+  const [collection, self, ...rest] = path;
+  if (!collection || !self) return [];
+  const all: Record<string, any> = m.value([collection]) ?? {};
+  return Object.keys(all).filter(k => k !== self && m.value([collection, k, ...rest, id]) !== undefined);
+}
+const nameOf = (h: Held) => h.data.name ?? h.id;
+
 export function Inventory({ path }: { path: Path }) {
-  const m = useModel(), K = useKit(), items: Record<string, any> = m.value(path) ?? {};
-  const ids = Object.keys(items);
-  const equipped = ids.filter(id => items[id]?.equipped), bag = ids.filter(id => !items[id]?.equipped);
-  const [sel, setSel] = React.useState<string | undefined>(ids[0]);
-  const it = sel ? items[sel] : undefined;
-  const tile = (id: string) => (
-    <button key={id} type="button" {...solve('slot', { kind: items[id]?.type, equipped: items[id]?.equipped ? '' : undefined })} aria-pressed={id === sel} onClick={() => setSel(id)}
-      title={items[id]?.name ?? id}>
-      <span {...part('glyph')} aria-hidden="true">{[...(items[id]?.name ?? id)][0]}</span>
-      <span {...part('name')}>{items[id]?.name ?? id}</span>
-      {typeof items[id]?.count === 'number' && items[id].count !== 1 ? <span {...part('count')}>×{items[id].count}</span> : null}
+  const m = useModel(), K = useKit();
+  const list = held(m, path);
+  const equipped = list.filter(h => h.data.equipped), bag = list.filter(h => !h.data.equipped);
+  const [sel, setSel] = React.useState<string | undefined>(list[0]?.id);
+  const it = list.find(h => h.id === sel);
+  const tile = (h: Held) => (
+    <button key={h.id} type="button" {...solve('slot', { kind: h.data.type, equipped: h.data.equipped ? '' : undefined })} aria-pressed={h.id === sel} onClick={() => setSel(h.id)} title={nameOf(h)}>
+      <span {...part('glyph')} aria-hidden="true">{[...nameOf(h)][0]}</span>
+      <span {...part('name')}>{nameOf(h)}</span>
+      {typeof h.data.count === 'number' && h.data.count !== 1 ? <span {...part('count')}>×{h.data.count}</span> : null}
     </button>
   );
   const fixed = ['name', 'type', 'count', 'equipped', 'desc'];
-  const detailKeys = it ? m.children([...path, sel!]).filter(k => !fixed.includes(k) && !isEmpty(it[k]) && m.spoiler([...path, sel!, k]) !== 'hidden') : [];
+  const detail = it?.at ? m.children(it.at).filter(k => !fixed.includes(k) && !isEmpty(it.data[k]) && m.spoiler([...it.at!, k]) !== 'hidden') : [];
   return (
     <div {...solve('inventory')}>
       {equipped.length ? <section {...part('equipped')}><h5 {...part('title')}>装备中<small>{equipped.length}</small></h5><div {...part('grid')}>{equipped.map(tile)}</div></section> : null}
@@ -29,16 +50,51 @@ export function Inventory({ path }: { path: Path }) {
       {it ? (
         <div {...part('detail')} aria-live="polite">
           <div {...part('head')}>
-            <span {...part('glyph')} aria-hidden="true">{[...(it.name ?? sel)][0]}</span>
-            <b>{it.name ?? sel}</b>
-            {it.type ? <K.Badge tone="neutral">{it.type}</K.Badge> : null}
-            {it.equipped ? <K.Badge tone="accent">已装备</K.Badge> : null}
-            {typeof it.count === 'number' && it.count !== 1 ? <span {...part('count')}>×{it.count}</span> : null}
+            <span {...part('glyph')} aria-hidden="true">{[...nameOf(it)][0]}</span>
+            <b>{nameOf(it)}</b>
+            {it.data.type ? <K.Badge tone="neutral">{it.data.type}</K.Badge> : null}
+            {it.data.equipped ? <K.Badge tone="accent">已装备</K.Badge> : null}
+            {typeof it.data.count === 'number' && it.data.count !== 1 ? <span {...part('count')}>×{it.data.count}</span> : null}
           </div>
-          {it.desc ? <p {...part('desc')}>{it.desc}</p> : null}
-          {detailKeys.map(k => <Field key={k} path={[...path, sel!, k]} compact />)}
+          {it.data.desc ? <p {...part('desc')}>{it.data.desc}</p> : null}
+          {detail.map(k => <Field key={k} path={[...it.at!, k]} compact />)}
+          {!it.at ? <span {...solve('none')}>这件物品的资料缺失</span> : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Abilities grouped by kind (traits, skills …): name, own level, description, who else has it. */
+export function Abilities({ path }: { path: Path }) {
+  const m = useModel(), K = useKit();
+  const list = held(m, path);
+  const kindOf = (h: Held) => (typeof h.data.kind === 'string' && h.data.kind) || '能力';
+  const kinds = [...new Set(list.map(kindOf))];
+  const kindValues: string[] = (list[0]?.at ? m.meta([...list[0].at, 'kind'])?.values : undefined) ?? [];
+  kinds.sort((a, b) => (kindValues.indexOf(a) + 1 || 99) - (kindValues.indexOf(b) + 1 || 99));
+  return (
+    <div {...solve('abilities')}>
+      {kinds.map(kind => (
+        <section key={kind} {...part('group')}>
+          <h5 {...part('title')}>{kind}<small>{list.filter(h => kindOf(h) === kind).length}</small></h5>
+          <ul>
+            {list.filter(h => kindOf(h) === kind).map(h => {
+              const share = others(m, path, h.id);
+              return (
+                <li key={h.id} {...solve('ability')}>
+                  <div {...part('head')}>
+                    <b {...part('name')}>{nameOf(h)}</b>
+                    {typeof h.data.level === 'number' ? <K.Badge tone="accent">Lv.{h.data.level}</K.Badge> : null}
+                  </div>
+                  {h.data.desc ? <p {...part('desc')}>{h.data.desc}</p> : null}
+                  {share.length ? <div {...part('share')}>同样拥有：{share.map((id, i) => <React.Fragment key={id}>{i ? '、' : ''}<RefChip id={id} /></React.Fragment>)}</div> : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }

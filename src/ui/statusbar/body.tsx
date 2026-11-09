@@ -6,7 +6,7 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { isEmpty, type Path, type StatusModel } from './model.js';
 import { Field, RelationRow, Section, useModel } from './fields.js';
-import { Inventory } from './inventory.js';
+import { Abilities, Inventory } from './inventory.js';
 import { Checklist, part, solve } from './widgets.js';
 
 export interface PageSpec { label: string; paths: string[]; as?: string }
@@ -71,7 +71,9 @@ function AboutYou({ path }: { path: Path }) {
 }
 function Part({ path, as }: { path: Path; as?: string }) {
   const m = useModel(), meta = m.meta(path);
-  if (meta?.type === 'record' && meta.entity && as === 'inventory') return <Inventory path={path} />;
+  const widget = as ?? m.widget(path);
+  if (meta?.type === 'record' && (meta.entity || meta.keys) && widget === 'inventory') return <Inventory path={path} />;
+  if (meta?.type === 'record' && meta.keys && widget === 'abilities') return <Abilities path={path} />;
   if (meta?.type === 'object') {
     // attribute blocks keep their stat grid; other objects are flattened so cards are not nested in cards
     const kids = m.children(path).filter(k => !m.dormant([...path, k]));

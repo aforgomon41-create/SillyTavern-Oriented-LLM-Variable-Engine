@@ -233,6 +233,17 @@ export function applyProjectionRules(rules: ProjectionRule[] | undefined, data: 
         if (!found.value || typeof found.value !== 'object' || Array.isArray(found.value)) continue;
         for (const key of Object.keys(found.value)) if (!visible.has(key)) delete found.value[key];
       }
+    } else if (rule.kind === 'referenced') {
+      const collection = valueAt(out, rule.collection) as Record<string, any> | undefined;
+      if (!collection || typeof collection !== 'object') continue;
+      const used = new Set<string>();
+      for (const from of rule.from) for (const found of expand(out, from)) {
+        const v = found.value;
+        if (typeof v === 'string') used.add(v);
+        else if (Array.isArray(v)) v.forEach(x => typeof x === 'string' && used.add(x));
+        else if (v && typeof v === 'object') Object.keys(v).forEach(k => used.add(k));
+      }
+      for (const [key, item] of Object.entries(collection)) if (!used.has(key)) collection[key] = keepFields(item, rule.keep);
     } else {
       const collection = valueAt(out, rule.collection) as Record<string, any> | undefined;
       const current = valueAt(out, rule.current);

@@ -73,28 +73,17 @@ const character: FieldNode = {
           },
         },
         special: { type: 'record', label: '特殊属性', module: 'rp_attributes', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
-        traits: { type: 'record', label: '特质', module: 'rp_abilities', of: { type: 'string', label: '描述' } },
-        skills: { type: 'record', label: '技能', module: 'rp_abilities',
-          of: { type: 'object', fields: { desc: text('描述'), level: { type: 'int', label: '等级', min: 0, optional: true } } } },
+        // Abilities live once in the root `abilities`; a character only references them (with its own level).
+        abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities',
+          of: { type: 'object', fields: { level: { type: 'int', label: '等级', min: 0, optional: true } } } },
         gauges: { type: 'record', label: '量表', module: 'rp_status', as: 'meters', of: { type: 'oneOf', variants: [gauge(), { type: 'string' }] } },
         effects: { type: 'record', label: '效果', module: 'rp_status', as: 'chips',
           of: { type: 'object', fields: { desc: text('描述'), source: text('来源', { optional: true }), until: text('持续到', { optional: true }) } } },
       },
     },
-    items: {
-      type: 'record', label: '物品', module: 'assets', entity: 'item', as: 'grid',
-      of: {
-        type: 'object', fields: {
-          name: text('物品名', { required: true }),
-          count: { type: 'int', label: '数量', min: 0, default: 1 },
-          type: { type: 'enum', label: '类型', values: ['装备', '道具', '消耗', '关键', '杂物', '座驾'], default: '杂物' },
-          desc: text('描述'),
-          truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
-          equipped: { type: 'bool', label: '已装备' },
-          condition: text('状态', { optional: true }),
-        },
-      },
-    },
+    // Items live once in the root `items`; a character only references them (with its own count / equipped).
+    items: { type: 'record', label: '物品', module: 'assets', keys: 'item', as: 'inventory',
+      of: { type: 'object', fields: { count: { type: 'int', label: '数量', min: 0, default: 1 }, equipped: { type: 'bool', label: '已装备' } } } },
     funds: { type: 'record', label: '资金', module: 'assets', as: 'currency', of: { type: 'oneOf', variants: [{ type: 'int', min: 0 }, { type: 'string' }] } },
     nsfw: {
       type: 'object', label: 'NSFW', module: 'nsfw', fields: {
@@ -143,6 +132,25 @@ export const officialStructure: StructureDescription = {
         bgm: text('背景音乐', { optional: true }),
       } },
     },
+    items: {
+      type: 'record', label: '物品', entity: 'item', module: 'assets',
+      of: { type: 'object', fields: {
+        name: text('物品名', { required: true }),
+        type: { type: 'enum', label: '类型', values: ['装备', '道具', '消耗', '关键', '杂物', '座驾'], default: '杂物' },
+        desc: text('描述'),
+        truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
+        condition: text('状态', { optional: true }),
+      } },
+    },
+    abilities: {
+      type: 'record', label: '能力', entity: 'ability', module: 'rp_abilities',
+      of: { type: 'object', fields: {
+        name: text('能力名', { required: true }),
+        kind: { type: 'enum', label: '类别', values: ['特质', '技能'], default: '技能' },
+        desc: text('描述'),
+        truth: text('真实描述', { optional: true, spoiler: 'hidden' }),
+      } },
+    },
     estates: {
       type: 'record', label: '不动产', entity: 'estate', module: 'estates',
       of: { type: 'object', fields: {
@@ -185,9 +193,9 @@ export const officialStructure: StructureDescription = {
     attr_wod: { label: 'WOD', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'WOD 属性为不小于 0 的整数，没有上限；每超过 5 点获得 1 点超凡（由引擎计算，不要写入）。' },
     attr_fate: { label: 'FATE', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FATE 技能使用阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX。' },
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FU 属性只用四档：弱/普通/优秀/卓越。' },
-    rp_abilities: { label: '能力', parent: 'rp', guide: '能力：traits 为被动特质（名称→描述），skills 为主动技能（名称→{desc, level}）。' },
+    rp_abilities: { label: '能力', parent: 'rp', guide: '能力：能力本体只在根节点 abilities 建一次（{name, kind: 特质|技能, desc}），角色的 rp.abilities 以能力 ID 为键引用它，只写本人的 {level}。多人共有同一能力时引用同一个 ID；新能力先建实体再引用。' },
     rp_status: { label: '状态', parent: 'rp', guide: '状态：gauges 为量表，名称与数量依世界观和剧情决定；需要精确数值时写 {value, max}，叙事化的状态直接写一句话（如「伤口在渗血，勉强能走」）。effects 为效果，剧情上结束后移除，可用 until 写结束条件。' },
-    assets: { label: '资产', guide: '资产：物品在角色之间转移用 $move。funds 的币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元）；清楚数额时写整数，转账用 $transfer 保证总数守恒；说不清数额时写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
+    assets: { label: '资产', guide: '资产：物品本体只在根节点 items 建一次（{name, type, desc, condition}），角色的 items 以物品 ID 为键引用它，只写本人的 {count, equipped}。物品转手：从原持有者的 items 删去该键，再在新持有者的 items 下加上同一 ID；同类消耗品多人持有时各自记数量。funds 的币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元）；清楚数额时写整数，转账用 $transfer 保证总数守恒；说不清数额时写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
     nsfw: { label: 'NSFW', enabled: false },
     map: { label: '地图', guide: '地图：地点用 parent 表示层级（区域 → 地点），用 links 记录相通的地点；新发现的地点 discovered 设为 true。' },
     estates: { label: '不动产', enabled: false },
@@ -197,7 +205,7 @@ export const officialStructure: StructureDescription = {
   guide: [
     '用 <solve_operate> 输出 JSON 操作来更新变量，只写本回合实际发生的变化。',
     'meta.round（轮次）由引擎维护，不要修改。推进时间时用 $set 整体写入 meta.time（clock 格式 HH:MM）。',
-    '只为 用户角色/核心角色/主要配角/次要配角 建立角色实体，路人与龙套不建。实体 ID 用简短英文或拼音，全局唯一（角色、物品、地点、势力之间也不能重名）。',
+    '只为 用户角色/核心角色/主要配角/次要配角 建立角色实体，路人与龙套不建。实体 ID 用简短英文或拼音，全局唯一（角色、物品、能力、地点、势力之间也不能重名）。',
     '角色登场或离场时更新 meta.present；当前地点写入 meta.location（地点实体 ID）。',
     '清单类条目（身份、关系、约定、关键事件等）有上限；收到整理提示时先合并或删除旧条目。',
   ].join('\n'),
@@ -205,6 +213,8 @@ export const officialStructure: StructureDescription = {
     { kind: 'present', collection: 'characters', list: 'meta.present', keep: ['name', 'alias', 'role', 'intro', 'tags', 'condition'], always: { field: 'role', equals: '用户角色' } },
     { kind: 'related', path: 'characters.*.relations', collection: 'characters', list: 'meta.present', always: { field: 'role', equals: '用户角色' } },
     { kind: 'related', path: 'factions.*.reputation', collection: 'characters', list: 'meta.present', always: { field: 'role', equals: '用户角色' } },
+    { kind: 'referenced', collection: 'items', from: ['characters.*.items'], keep: ['name', 'type'] },
+    { kind: 'referenced', collection: 'abilities', from: ['characters.*.rp.abilities'], keep: ['name', 'kind'] },
     { kind: 'neighborhood', collection: 'places', current: 'meta.location', parent: 'parent', links: 'links', keep: ['name', 'kind', 'parent'] },
   ],
   bgm: { mood: 'meta.mood', location: 'meta.location', places: 'places', field: 'bgm', parent: 'parent', library: [] },
@@ -219,8 +229,8 @@ export const officialStructure: StructureDescription = {
         sheet: 'characters', id: '$user', subtitle: 'alias', badges: ['rp.rank', 'role'], tags: 'tags',
         vitals: 'rp.gauges', status: 'condition', effects: 'rp.effects', currency: 'funds',
         pages: [
-          { label: '属性', paths: ['rp.attributes', 'rp.special', 'rp.traits'] },
-          { label: '技能', paths: ['rp.skills'] },
+          { label: '属性', paths: ['rp.attributes', 'rp.special'] },
+          { label: '能力', paths: ['rp.abilities'] },
           { label: '背包', paths: ['items'], as: 'inventory' },
           { label: '任务', paths: ['drive'], as: 'quests' },
           { label: '档案', paths: ['age', 'intro', 'appearance', 'nsfw'] },
@@ -235,7 +245,7 @@ export const officialStructure: StructureDescription = {
             { label: '概况', paths: ['relations.$user', 'condition', 'age', 'tags', 'intro', 'appearance'] },
             { label: '动机', paths: ['drive'], as: 'quests' },
             { label: '关系', paths: ['relations'] },
-            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.traits', 'rp.skills'] },
+            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
             { label: '物品', paths: ['items', 'funds'], as: 'inventory' },
             { label: '私密', paths: ['nsfw'] },
           ] },
