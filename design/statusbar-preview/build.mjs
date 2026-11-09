@@ -26,7 +26,7 @@ const result = await esbuild.build(withRadixPatches({
   entryPoints: [path.join(HERE, 'main.tsx')], bundle: true, write: false, format: 'iife', minify: true,
   target: ['es2020', 'chrome108', 'safari16'], jsx: 'automatic', legalComments: 'none', charset: 'utf8',
   loader: { '.css': 'text', '.png': 'dataurl', '.json': 'json' },
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', __BUILD__: JSON.stringify(new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })) },
   // One React for both the Kami runtime and the SOLVE components.
   alias: {
     'kami': path.join(KAMI, 'src'), 'kami-skins': skins,

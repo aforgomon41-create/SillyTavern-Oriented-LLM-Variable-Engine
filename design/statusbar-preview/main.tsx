@@ -21,6 +21,7 @@ import statusCss from '../../src/ui/statusbar/statusbar.css';
 import solveManifest from './solve-skin.json';
 import solveSkinCss from './solve-skin.css';
 
+declare const __BUILD__: string;
 const PICK = ['suiguang', 'quest', 'neon'];
 const entries: SkinEntry[] = [
   ...(kamiSkins as unknown as SkinEntry[]).filter(e => PICK.includes(e.manifest.id)),
@@ -42,7 +43,7 @@ function gallery(): void {
   const nameOf = (id: string) => entries.find(e => e.manifest.id === id)?.manifest.name ?? id;
   const root = document.createElement('div');
   root.id = 'gallery';
-  root.innerHTML = `<header><h1>SOLVE 状态栏 · 设计预览</h1>
+  root.innerHTML = `<header><h1>SOLVE 状态栏 · 设计预览 <small class="build">构建于 ${__BUILD__}</small></h1>
     <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。数据是官方数据结构的示例：王都酒馆、第 42 轮、WOD 属性体系。有数据时浮着一条概览横条（电脑在上方、手机在输入框上方，可拖动，‹ 收成圆按钮），点一下展开面板，横条变成面板标题栏；× 收回横条。四个窗口都是可操作的真页面。</p>
     <nav class="skins" aria-label="皮肤">${order.map(id => `<button type="button" data-id="${id}">${nameOf(id)}${id === 'solve' ? '<small>独立</small>' : '<small>卡密</small>'}</button>`).join('')}</nav>
     <p class="note"></p>
