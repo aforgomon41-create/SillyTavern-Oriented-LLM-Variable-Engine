@@ -6,6 +6,8 @@
  * 构建：node design/statusbar-preview/build.mjs（需要卡密预设仓库，KAMI_ROOT 指定位置）。
  */
 import * as React from 'react';
+import { createRoot } from 'react-dom/client';
+import { CurrencyIcon } from '../../src/ui/statusbar/currency';
 import { createRuntime } from 'kami/frontend/runtime/index';
 import { SkinManager, type SkinEntry, type StoredSettings } from 'kami/frontend/skin-engine/manager';
 import * as DS from 'kami/frontend/ds';
@@ -44,6 +46,7 @@ function gallery(): void {
     <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。数据是官方数据结构的示例：王都酒馆、第 42 轮、WOD 属性体系。有数据时浮着一条概览横条（电脑在上方、手机在输入框上方，可拖动，‹ 收成圆按钮），点一下展开面板，横条变成面板标题栏；× 收回横条。四个窗口都是可操作的真页面。</p>
     <nav class="skins" aria-label="皮肤">${order.map(id => `<button type="button" data-id="${id}">${nameOf(id)}${id === 'solve' ? '<small>独立</small>' : '<small>卡密</small>'}</button>`).join('')}</nav>
     <p class="note"></p>
+    <div class="coins" aria-label="货币图标"></div>
     <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '势力'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav></header>
     <section class="frames">
       <figure class="pc"><figcaption>电脑 1440 · 浅色</figcaption><div class="box"><iframe data-scheme="light" data-w="1440" data-h="900"></iframe></div></figure>
@@ -52,6 +55,8 @@ function gallery(): void {
       <figure class="mobile"><figcaption>手机 390 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="390" data-h="844"></iframe></div></figure>
     </section>`;
   document.body.appendChild(root);
+  const coins = ['金币', '银币', '铜币', '文', '银两', '美元', '人民币', '日元', '灵石'];
+  createRoot(root.querySelector('.coins')!).render(<>{coins.map(c => <span key={c}><CurrencyIcon name={c} size={24} />{c}{c === '灵石' ? <small>（未识别→通用）</small> : null}</span>)}</>);
   let skin = order[0]!, tab = '横条';
   const frames = Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe'));
   const load = () => {
@@ -90,12 +95,18 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
   const core = new SolveCore(def);
   const model = new StatusModel(def, await exampleState(core));
   const kit = DS as unknown as Kit;
+  // Launcher position, remembered per device class (the host does this in the tavern too).
+  const key = 'solve.launcher.v1.' + (window.innerWidth > 1000 ? 'desktop' : 'mobile');
+  let launcher: { pos?: { x: number; y: number } } = {};
+  try { launcher = JSON.parse(localStorage.getItem(key) ?? '{}') ?? {}; } catch { launcher = {}; }
+  const remember = (patch: object) => { try { launcher = { ...launcher, ...patch }; localStorage.setItem(key, JSON.stringify(launcher)); } catch { /* storage unavailable */ } };
   function App() {
     const [bgm, setBgm] = React.useState({ enabled: true, volume: 0.5 });
     const mode = view === '横条' ? 'bar' : view === '按钮' ? 'dot' : 'panel';
     return (
       <KitProvider value={kit}>
         <StatusBar model={model} defaultMode={mode} {...(mode === 'panel' ? { defaultTab: view } : {})}
+          {...(launcher.pos ? { position: launcher.pos } : {})} onPositionChange={pos => remember({ pos })}
           bgm={{ title: '雨夜酒馆（示例曲目）', source: '按场景情绪「日常」选曲', playing: bgm.enabled, enabled: bgm.enabled, volume: bgm.volume, onToggle: v => setBgm(b => ({ ...b, enabled: v })), onVolume: v => setBgm(b => ({ ...b, volume: v })) }} />
       </KitProvider>
     );

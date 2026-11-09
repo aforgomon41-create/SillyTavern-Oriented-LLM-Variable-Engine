@@ -7,7 +7,7 @@ import type { BgmSpec, CompiledDefinition, ComputedRule, Definition, DisplaySpec
  * Declarative, JSON-serialisable structure description. It is the "standard" that the
  * status bar renders and the structure editor edits; it compiles to an ordinary Definition.
  */
-export type FieldType = 'object' | 'record' | 'array' | 'string' | 'int' | 'number' | 'bool' | 'enum' | 'ladder' | 'ref' | 'refs';
+export type FieldType = 'object' | 'record' | 'array' | 'string' | 'int' | 'number' | 'bool' | 'enum' | 'ladder' | 'ref' | 'refs' | 'oneOf';
 export type SpoilerLevel = 'public' | 'spoiler' | 'hidden';
 export interface FieldNode {
   type: FieldType;
@@ -17,6 +17,8 @@ export interface FieldNode {
   fields?: Record<string, FieldNode>;
   /** record value / array element */
   of?: FieldNode;
+  /** oneOf: the accepted forms, e.g. a number gauge or a natural-language description */
+  variants?: FieldNode[];
   /** record: entity collection of this type */
   entity?: string;
   /** record: keys are references to entities of this type (removed when the target is deleted) */
@@ -62,7 +64,7 @@ export interface StructureDescription {
   bgm?: BgmSpec;
 }
 
-const TYPES = new Set<FieldType>(['object', 'record', 'array', 'string', 'int', 'number', 'bool', 'enum', 'ladder', 'ref', 'refs']);
+const TYPES = new Set<FieldType>(['object', 'record', 'array', 'string', 'int', 'number', 'bool', 'enum', 'ladder', 'ref', 'refs', 'oneOf']);
 const SPOILERS = new Set(['public', 'spoiler', 'hidden']);
 
 interface Collected {
@@ -87,7 +89,7 @@ function problem(path: string, message: string): never { return fail('STRUCTURE_
 function build(node: FieldNode, path: string[], out: Collected, modules: Set<string>, inModule: boolean): { schema: z.ZodType; hasDefault: boolean } {
   const at = path.join('.');
   if (!node || typeof node !== 'object' || !TYPES.has(node.type)) problem(at, '未知字段类型');
-  const known = ['type','label','desc','fields','of','entity','keys','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal'];
+  const known = ['type','label','desc','fields','of','variants','entity','keys','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal'];
   const extra = Object.keys(node).filter(key => !known.includes(key));
   if (extra.length) problem(at, `未知属性：${extra.join(', ')}`);
   if (node.module !== undefined) {
@@ -147,6 +149,24 @@ function build(node: FieldNode, path: string[], out: Collected, modules: Set<str
         schema = z.array(build(node.of, [...path, '*'], out, modules, moduled).schema);
       }
       fallback = [];
+      break;
+    }
+    case 'oneOf': {
+      // Each variant lives at the same path; nested fields (e.g. value/max) are collected as usual.
+      if (!Array.isArray(node.variants) || node.variants.length < 2) problem(at, 'oneOf 需要至少两个 variants');
+      const kinds = new Set<string>();
+      const built = node.variants.map((variant, i) => {
+        if (!variant || ['oneOf', 'ref', 'refs'].includes(variant.type)) problem(at, `oneOf 的第 ${i + 1} 种形式不支持 ${variant?.type}`);
+        const kind = ['int', 'number'].includes(variant.type) ? 'number' : ['enum', 'ladder'].includes(variant.type) ? 'string' : variant.type === 'record' ? 'object' : variant.type;
+        if (kinds.has(kind)) problem(at, 'oneOf 的各种形式必须是不同的 JSON 类型（数字 / 文字 / 对象 / 数组 / 布尔）');
+        kinds.add(kind);
+        return build({ ...variant, label: variant.label ?? node.label }, path, out, modules, moduled).schema;
+      });
+      schema = z.union(built as [z.ZodType, z.ZodType, ...z.ZodType[]]);
+      meta.variants = node.variants.map(v => v.type);
+      if (path.length) out.fields[at] = meta;
+      if (node.label !== undefined) out.labels[at] = node.label;
+      fallback = undefined;
       break;
     }
     case 'string': schema = z.string(); fallback = ''; break;

@@ -33,7 +33,12 @@ export function childSchema(schema: any, key: string): any {
     const left = childSchema(d.left, key), right = childSchema(d.right, key);
     return left && right ? z.intersection(left, right) : left ?? right;
   }
-  if (d?.type === 'union') return undefined; // validate the enclosing union as a whole
+  if (d?.type === 'union') {
+    // Descend only when exactly one option has this child (e.g. a gauge {value, max} or a text);
+    // the enclosing union is still validated as a whole.
+    const found = (d.options as any[]).map(option => childSchema(option, key)).filter(Boolean);
+    return found.length === 1 ? found[0] : undefined;
+  }
   return undefined;
 }
 export function schemaAt(schema: any, parts: string[]): any {

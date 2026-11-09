@@ -14,6 +14,8 @@ const wod = (label: string): FieldNode => attribute(label, { min: 0, computed: [
 const dnd = (label: string): FieldNode => attribute(label, { min: 0, max: 30, computed: [{ label: '调整', formula: 'dndModifier' }] });
 const fate = (label: string): FieldNode => ladder(label, FATE);
 const fu = (label: string): FieldNode => ladder(label, FU);
+/** A numeric gauge; wherever it is used, a natural-language description is accepted too. */
+const gauge = (): FieldNode => ({ type: 'object', fields: { value: { type: 'number', label: '当前' }, max: { type: 'number', label: '上限', min: 0, default: 100 } } });
 
 export const OFFICIAL_LISTS = {
   tags: { max: 10, warn: 8 }, labels: { max: 6, warn: 5 }, promises: { max: 8, warn: 6 }, plan: { max: 8, warn: 6 }, events: { max: 12, warn: 9 },
@@ -70,12 +72,11 @@ const character: FieldNode = {
               might: fu('力量'), dex: fu('敏捷'), insight: fu('洞察'), will: fu('意志') } },
           },
         },
-        special: { type: 'record', label: '特殊属性', module: 'rp_attributes', of: { type: 'string' } },
+        special: { type: 'record', label: '特殊属性', module: 'rp_attributes', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
         traits: { type: 'record', label: '特质', module: 'rp_abilities', of: { type: 'string', label: '描述' } },
         skills: { type: 'record', label: '技能', module: 'rp_abilities',
           of: { type: 'object', fields: { desc: text('描述'), level: { type: 'int', label: '等级', min: 0, optional: true } } } },
-        gauges: { type: 'record', label: '量表', module: 'rp_status', as: 'meters',
-          of: { type: 'object', fields: { value: { type: 'number', label: '当前' }, max: { type: 'number', label: '上限', min: 0, default: 100 } } } },
+        gauges: { type: 'record', label: '量表', module: 'rp_status', as: 'meters', of: { type: 'oneOf', variants: [gauge(), { type: 'string' }] } },
         effects: { type: 'record', label: '效果', module: 'rp_status', as: 'chips',
           of: { type: 'object', fields: { desc: text('描述'), source: text('来源', { optional: true }), until: text('持续到', { optional: true }) } } },
       },
@@ -94,7 +95,7 @@ const character: FieldNode = {
         },
       },
     },
-    funds: { type: 'record', label: '资金', module: 'assets', of: { type: 'int', min: 0 } },
+    funds: { type: 'record', label: '资金', module: 'assets', as: 'currency', of: { type: 'oneOf', variants: [{ type: 'int', min: 0 }, { type: 'string' }] } },
     nsfw: {
       type: 'object', label: 'NSFW', module: 'nsfw', fields: {
         libido: text('性欲'), experience: text('性经验'),
@@ -179,14 +180,14 @@ export const officialStructure: StructureDescription = {
     drive: { label: '驱动力', guide: '驱动力：目标、想法与规划反映角色当下的动机；剧情推进后及时更新，完成的规划标记 done 或移除。' },
     social: { label: '社交', guide: '社交：relations 以对方角色 ID 为键，记录本角色对对方的单向看法。好感度每次变化不超过 ±10。keyEvents、promises 直接写字符串，引擎自动记录轮次。' },
     rp: { label: '角色扮演' },
-    rp_attributes: { label: '属性', parent: 'rp', guide: '属性：只填写当前开启的属性体系；该角色没有的属性填 null（例如亡灵没有体质）。位阶与特殊属性依世界观自行推断。' },
+    rp_attributes: { label: '属性', parent: 'rp', guide: '属性：只填写当前开启的属性体系；该角色没有的属性填 null（例如亡灵没有体质）。位阶与特殊属性依世界观自行推断；特殊属性的值可以是文字、数字或 {value, max}。' },
     attr_dnd: { label: 'DND', parent: 'rp_attributes', exclusive: 'attributes', guide: 'DND 属性为 0～30 的整数，调整值由引擎计算。' },
     attr_wod: { label: 'WOD', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'WOD 属性为不小于 0 的整数，没有上限；每超过 5 点获得 1 点超凡（由引擎计算，不要写入）。' },
     attr_fate: { label: 'FATE', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FATE 技能使用阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX。' },
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FU 属性只用四档：弱/普通/优秀/卓越。' },
     rp_abilities: { label: '能力', parent: 'rp', guide: '能力：traits 为被动特质（名称→描述），skills 为主动技能（名称→{desc, level}）。' },
-    rp_status: { label: '状态', parent: 'rp', guide: '状态：gauges 为量表（名称→{value, max}，名称依世界观决定）；effects 为效果，剧情上结束后移除，可用 until 写结束条件。' },
-    assets: { label: '资产', guide: '资产：物品在角色之间转移用 $move；资金转账用 $transfer 保证总数守恒。座驾是类型为「座驾」的物品。' },
+    rp_status: { label: '状态', parent: 'rp', guide: '状态：gauges 为量表，名称与数量依世界观和剧情决定；需要精确数值时写 {value, max}，叙事化的状态直接写一句话（如「伤口在渗血，勉强能走」）。effects 为效果，剧情上结束后移除，可用 until 写结束条件。' },
+    assets: { label: '资产', guide: '资产：物品在角色之间转移用 $move。funds 的币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元）；清楚数额时写整数，转账用 $transfer 保证总数守恒；说不清数额时写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
     nsfw: { label: 'NSFW', enabled: false },
     map: { label: '地图', guide: '地图：地点用 parent 表示层级（区域 → 地点），用 links 记录相通的地点；新发现的地点 discovered 设为 true。' },
     estates: { label: '不动产', enabled: false },
@@ -211,7 +212,8 @@ export const officialStructure: StructureDescription = {
     // The player's own character is never hidden behind spoilers.
     spoilerExempt: { collection: 'characters', field: 'role', equals: '用户角色' },
     // Floating overview bar (also the panel title once expanded).
-    bar: ['meta.location', 'meta.time', 'meta.weather', 'meta.mood', { path: 'characters.$user.rp.gauges', limit: 2 }, 'meta.present'],
+    // Time, place and weather are always shown; gauges are world-specific and stay in the panel.
+    bar: ['meta.location', 'meta.time', 'meta.weather', 'meta.mood', 'meta.present'],
     layout: [
       { tab: '角色', items: [{
         sheet: 'characters', id: '$user', subtitle: 'alias', badges: ['rp.rank', 'role'], tags: 'tags',

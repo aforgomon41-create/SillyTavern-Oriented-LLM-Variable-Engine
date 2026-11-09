@@ -154,3 +154,29 @@ test('空白新聊天：只靠模型操作就能建立角色和地点', async ()
   assert.equal(data(result.state).meta.round, 1);
   void exampleData;
 });
+
+test('数值或文字（oneOf）：量表、资金、特殊属性两种写法都能存，数值形式仍可增减与截断', async () => {
+  const { core, state, def } = await official();
+  assert.equal((def.display?.fields?.['characters.*.rp.gauges.*'] as any)?.type, 'oneOf');
+  assert.equal(data(state).characters.erin.rp.gauges.饥饿, '一天没吃东西，肚子在叫');
+  const inc = await core.execute({ $inc: { '@erin.rp.gauges.生命.value': 10 } }, state);
+  assert.equal(data(inc.state).characters.erin.rp.gauges.生命.value, 82);
+  const max = await core.execute({ $set: { '@erin.rp.gauges.生命.max': -5 } }, state);
+  assert.equal(data(max.state).characters.erin.rp.gauges.生命.max, 0, '数值形式里的下限照常截断');
+  const swap = await core.execute({ $set: { '@erin.rp.gauges.生命': '重伤，失血不止', '@erin.funds.金币': '所剩无几', '@erin.rp.special.契约之力': { value: 3, max: 10 } } }, state);
+  assert.equal(data(swap.state).characters.erin.rp.gauges.生命, '重伤，失血不止');
+  assert.equal(data(swap.state).characters.erin.funds.金币, '所剩无几');
+  assert.deepEqual(data(swap.state).characters.erin.rp.special.契约之力, { value: 3, max: 10 });
+  const bad = await core.execute({ $set: { '@erin.rp.gauges.生命': true } }, state);
+  assert.deepEqual(data(bad.state).characters.erin.rp.gauges.生命, { value: 72, max: 100 }, '两种形式都不是时拒绝');
+  assert.ok(bad.feedback.some(f => f.code === 'SCHEMA_REJECTED'));
+  const pay = await core.execute({ $transfer: { '@erin.funds.银币': { '@mira.funds.银币': 7 } } }, state);
+  assert.equal(data(pay.state).characters.mira.funds.银币, 19);
+});
+
+test('oneOf 结构描述：至少两种且 JSON 类型不同', () => {
+  const base = { id: 't', version: '1', fields: {} };
+  assert.throws(() => compileStructure({ ...base, fields: { a: { type: 'oneOf', variants: [{ type: 'string' }] } } }), /至少两个/);
+  assert.throws(() => compileStructure({ ...base, fields: { a: { type: 'oneOf', variants: [{ type: 'int' }, { type: 'number' }] } } }), /不同的 JSON 类型/);
+  assert.throws(() => compileStructure({ ...base, fields: { a: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'ref', to: 'x' }] } } }), /不支持 ref/);
+});

@@ -7,8 +7,9 @@
 import * as React from 'react';
 import { useKit } from '../kit.js';
 import { isEmpty, type Path } from './model.js';
-import { Field, Section, useModel } from './fields.js';
-import { Meter, part, solve } from './widgets.js';
+import { Field, Mixed, Section, useModel } from './fields.js';
+import { CurrencyList } from './currency.js';
+import { part, solve } from './widgets.js';
 
 export interface SheetItem {
   sheet: string; id: string; subtitle?: string; badges?: string[]; tags?: string; vitals?: string; status?: string;
@@ -57,9 +58,9 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
   const at = (r?: string) => r ? m.value([...path, ...rel(r)]) : undefined;
   const on = (r?: string) => !!r && visible(m, [...path, ...rel(r)]);
   const name: string = v.name ?? path.at(-1);
-  const vitals = on(item.vitals) ? Object.entries(at(item.vitals) as Record<string, { value: number; max: number }>) : [];
+  const vitals = on(item.vitals) ? Object.entries(at(item.vitals) as Record<string, unknown>) : [];
   const effects = on(item.effects) ? Object.entries(at(item.effects) as Record<string, any>) : [];
-  const money = on(item.currency) ? Object.entries(at(item.currency) as Record<string, number>) : [];
+  const money = on(item.currency) ? Object.entries(at(item.currency) as Record<string, unknown>) : [];
   return (
     <section {...solve('hero')} data-k-level="surface-1">
       <div {...part('top')}>
@@ -70,7 +71,7 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
           {on(item.tags) ? <div {...part('tags')}>{(at(item.tags) as string[]).join(' · ')}</div> : null}
         </div>
       </div>
-      {vitals.length ? <div {...part('vitals')}>{vitals.map(([k, g], i) => <div key={k} data-slot={i % 4}><Meter label={k} value={g.value} max={g.max} /></div>)}</div> : null}
+      {vitals.length ? <div {...part('vitals')}><Mixed entries={vitals} /></div> : null}
       {on(item.status) ? <div {...part('status')}><span {...part('label')}>{m.label([...path, ...rel(item.status!)])}</span><span>{String(at(item.status))}</span></div> : null}
       {effects.length ? (
         <div {...part('effects')}>
@@ -78,7 +79,7 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
           <ul>{effects.map(([k, e]) => <li key={k}><b>{k}</b><span>{e?.desc}{e?.until ? <small>（直到{e.until}）</small> : null}</span></li>)}</ul>
         </div>
       ) : null}
-      {money.length ? <div {...part('currency')} aria-label={m.label([...path, ...rel(item.currency!)])}>{money.map(([k, n]) => <span key={k}><i aria-hidden="true" />{k}<b>{n}</b></span>)}</div> : null}
+      {money.length ? <div {...part('money')}><CurrencyList entries={money} label={m.label([...path, ...rel(item.currency!)])} /></div> : null}
     </section>
   );
 }

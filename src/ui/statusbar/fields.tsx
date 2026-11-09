@@ -6,6 +6,7 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { isEmpty, type Path, type StatusModel } from './model.js';
 import { CenterMeter, Checklist, Chips, Facts, Ladder, Meter, Spoiler, Stat, Timeline, part, solve } from './widgets.js';
+import { CurrencyList } from './currency.js';
 
 export const ModelContext = React.createContext<StatusModel | null>(null);
 export const useModel = (): StatusModel => { const m = React.useContext(ModelContext); if (!m) throw new Error('缺少状态模型'); return m; };
@@ -13,7 +14,7 @@ export const useModel = (): StatusModel => { const m = React.useContext(ModelCon
 export const NavigateContext = React.createContext<(path: Path) => void>(() => undefined);
 
 const FU_DICE: Record<string, string> = { 弱: 'd6', 普通: 'd8', 优秀: 'd10', 卓越: 'd12' };
-const isGauge = (v: any) => v && typeof v === 'object' && !Array.isArray(v) && typeof v.value === 'number' && typeof v.max === 'number';
+export const isGauge = (v: any): boolean => v && typeof v === 'object' && !Array.isArray(v) && typeof v.value === 'number' && typeof v.max === 'number';
 
 export function RefChip({ id }: { id: string }) {
   const m = useModel(), go = React.useContext(NavigateContext);
@@ -86,7 +87,8 @@ export function Section({ path, title }: { path: Path; title?: React.ReactNode }
     if (!keys.length) content = <span {...solve('none')}>暂无</span>;
     else if (meta.entity) content = <EntityGrid path={path} grid={as === 'grid'} />;
     else if (meta.keys) content = <div {...solve('relations')}>{keys.map(key => <RelationRow key={key} path={[...path, key]} />)}</div>;
-    else if (as === 'meters' || keys.every(key => isGauge(value[key]))) content = <div {...solve('meters')}>{keys.map(key => <Meter key={key} label={key} value={value[key].value} max={value[key].max} />)}</div>;
+    else if (as === 'currency') content = <CurrencyList entries={keys.map(key => [key, value[key]])} label={String(label)} />;
+    else if (as === 'meters' || element?.type === 'oneOf' || keys.every(key => isGauge(value[key]))) content = <Mixed entries={keys.map(key => [key, value[key]])} />;
     else if (as === 'chips') content = <span {...solve('chips')}>{keys.map(key => <K.Tooltip key={key} content={<EffectTip value={value[key]} />}><span {...solve('chip')} tabIndex={0}>{key}</span></K.Tooltip>)}</span>;
     else if (element?.type === 'object') content = <div {...solve('entries')}>{keys.map(key => <Entry key={key} path={[...path, key]} />)}</div>;
     else content = <Facts items={keys.map(key => ({ label: key, value: <Value path={[...path, key]} value={value[key]} /> }))} />;
@@ -181,12 +183,22 @@ export function EntityCard({ path, summary, onOpen }: { path: Path; summary?: st
             const full = [...path, ...resolve(rel)], value = m.value(full);
             if (value === undefined || isEmpty(value)) return null;
             const meta = m.meta(full);
-            if (meta?.type === 'record' && Object.values(value).every(isGauge)) return <div key={rel} {...solve('meters')}>{Object.entries(value).slice(0, 2).map(([k, g]: any) => <Meter key={k} label={k} value={g.value} max={g.max} />)}</div>;
+            if (meta?.type === 'record' && (m.widget(full) === 'meters' || Object.values(value).every(isGauge))) return <Mixed key={rel} entries={Object.entries(value).slice(0, 2)} />;
             if (typeof value === 'number' && meta?.min !== undefined && meta.max !== undefined && rel.includes('$user')) return <CenterMeter key={rel} label={`对${m.entityName(user ?? '')}${m.label(full)}`} value={value} min={meta.min} max={meta.max} />;
             return <Field key={rel} path={full} compact />;
           })}
         </div>
       </K.Card>
+    </div>
+  );
+}
+
+/** Named values that may each be a gauge {value, max}, a number or a sentence (oneOf records). */
+export function Mixed({ entries }: { entries: [string, unknown][] }) {
+  return (
+    <div {...solve('meters')}>
+      {entries.map(([key, v], i) => isGauge(v) ? <div key={key} data-slot={i % 4}><Meter label={key} value={(v as any).value} max={(v as any).max} /></div>
+        : <div key={key} {...solve('note', { kind: typeof v === 'number' ? 'number' : 'text' })}><span {...part('label')}>{key}</span><span {...part('value')}>{typeof v === 'string' || typeof v === 'number' ? v : JSON.stringify(v)}</span></div>)}
     </div>
   );
 }

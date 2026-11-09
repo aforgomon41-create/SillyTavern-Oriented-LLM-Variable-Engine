@@ -33,6 +33,8 @@ export function StatusBar({ model, bgm, defaultTab, defaultMode = 'bar', onModeC
   const [rest, setRest] = React.useState<'bar' | 'dot'>(defaultMode === 'dot' ? 'dot' : 'bar');
   const setMode = (next: Mode) => { setModeState(next); if (next !== 'panel') setRest(next); onModeChange?.(next); };
   const anchor = React.useRef<DOMRect | null>(null);
+  // The launcher unmounts while the panel is open, so its position lives here and survives folding.
+  const [pos, setPos] = React.useState(position);
   const navigate = React.useCallback((path: Path) => {
     const key = path.join('.');
     const hit = (item: any) => {
@@ -53,7 +55,7 @@ export function StatusBar({ model, bgm, defaultTab, defaultMode = 'bar', onModeC
             items={tabs.map((t: any) => ({ value: t.tab, label: t.tab, content: <div {...solve('tab')}>{t.items.filter((i: any) => typeof i === 'string' || model.moduleOn(i.module)).map((item: any, i: number) => <LayoutItem key={i} item={item} focus={focus} />)}</div> }))} />
         </K.Panel>
       ) : (
-        <Launcher mode={hasData ? rest : 'dot'} canBar={hasData} position={position} onPositionChange={onPositionChange}
+        <Launcher mode={hasData ? rest : 'dot'} canBar={hasData} pos={pos} onMove={setPos} onMoved={p => onPositionChange?.(p)}
           onOpen={rect => { anchor.current = rect; setMode('panel'); }} onMode={setMode} />
       )}
     </K.TooltipProvider>
@@ -69,13 +71,26 @@ function panelGeometry(r: DOMRect | null): { x: number; y: number; w: number; h:
 }
 
 /* ───────── launcher (floating bar / round button) ───────── */
-function Launcher({ mode, canBar, position, onPositionChange, onOpen, onMode }: {
-  mode: 'bar' | 'dot'; canBar: boolean; position?: { x: number; y: number }; onPositionChange?: (p: { x: number; y: number }) => void;
+type Pos = { x: number; y: number };
+function Launcher({ mode, canBar, pos, onMove, onMoved, onOpen, onMode }: {
+  mode: 'bar' | 'dot'; canBar: boolean; pos?: Pos; onMove: (p: Pos) => void; onMoved: (p: Pos) => void;
   onOpen: (rect: DOMRect) => void; onMode: (m: Mode) => void;
 }) {
   const m = useModel();
   const ref = React.useRef<HTMLDivElement>(null);
-  const [pos, setPos] = React.useState(position);
+  const setPos = onMove;
+  // Keep the saved spot on screen: after mounting, switching bar ↔ button, or resizing the window.
+  React.useLayoutEffect(() => {
+    const fit = () => {
+      const el = ref.current; if (!el || !pos) return;
+      const r = el.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
+      const x = Math.min(Math.max(4, pos.x), Math.max(4, vw - r.width - 4)), y = Math.min(Math.max(4, pos.y), Math.max(4, vh - r.height - 4));
+      if (x !== pos.x || y !== pos.y) setPos({ x, y });
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [pos, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const drag = React.useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
   const down = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('[data-solve-part="shrink"]')) return;
@@ -94,7 +109,7 @@ function Launcher({ mode, canBar, position, onPositionChange, onOpen, onMode }: 
   const up = () => {
     const d = drag.current; drag.current = null;
     if (!d) return;
-    if (d.moved) { if (pos) onPositionChange?.(pos); return; }
+    if (d.moved) { if (pos) onMoved(pos); return; }
     onOpen(ref.current!.getBoundingClientRect());
   };
   const style = pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto', transform: 'none' } as React.CSSProperties : undefined;

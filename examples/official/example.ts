@@ -33,7 +33,7 @@ export const exampleData: Record<string, Json> = {
         special: { 契约之力: '残响' },
         traits: { 夜视: '在黑暗中视物如常', 不屈: '濒死时仍能行动一回合' },
         skills: { 盾击: { desc: '以盾牌冲撞，使目标失衡', level: 2 }, 残响斩: { desc: '借契约之力挥出带回声的斩击', level: 1 } },
-        gauges: { 生命: { value: 72, max: 100 }, 体力: { value: 30, max: 50 }, 理智: { value: 88, max: 100 } },
+        gauges: { 生命: { value: 72, max: 100 }, 体力: { value: 30, max: 50 }, 理智: { value: 88, max: 100 }, 饥饿: '一天没吃东西，肚子在叫' },
         effects: { 淋湿: { desc: '敏捷检定略受影响', until: '烤干衣物' }, 契约低语: { desc: '偶尔听见契约者的声音', source: '契约' } },
       },
       items: {
@@ -43,7 +43,7 @@ export const exampleData: Record<string, Json> = {
         sealed_letter: { name: '封蜡信', count: 1, type: '关键', desc: '盖着骑士团火漆的信', truth: '火漆是伪造的', equipped: false },
         grey_mare: { name: '灰马', count: 1, type: '座驾', desc: '温顺的老母马', equipped: false, condition: '拴在酒馆马厩' },
       },
-      funds: { 金币: 140, 银币: 37 },
+      funds: { 金币: 140, 银币: 37, 铜币: 58, 当票: '一张押着家传戒指的当票' },
     },
     mira: {
       name: '米拉', role: '核心角色', age: '看不出', intro: '游走各地的吟游诗人，对王都的传闻无所不知。',
@@ -56,7 +56,7 @@ export const exampleData: Record<string, Json> = {
       rp: {
         rank: '铁阶',
         attributes: { wod: { str: 2, dex: 5, sta: 2, int: 4, wits: 6, res: 3, pre: 7, man: 6, com: 4 } },
-        special: {}, traits: { 过耳不忘: '听过一次的旋律与对话都能复述' },
+        special: { 情报网: 60 }, traits: { 过耳不忘: '听过一次的旋律与对话都能复述' },
         skills: { 安眠曲: { desc: '用歌声让周围的人昏昏欲睡', level: 3 } },
         gauges: { 生命: { value: 45, max: 60 } }, effects: {},
       },

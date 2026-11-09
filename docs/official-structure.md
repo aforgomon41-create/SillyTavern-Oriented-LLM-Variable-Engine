@@ -79,13 +79,13 @@
 | --- | --- | --- | --- |
 | `rank` | 位阶 | 文字 | 由操作 LLM 依世界观推断 |
 | `attributes` | 属性 | 见 4.4，四种体系互斥 | 属性 |
-| `special` | 特殊属性 | 字典 `名称 → 文字或数字` | 属性 |
+| `special` | 特殊属性 | 字典 `名称 → 文字、数字或 { value, max }` | 属性 |
 | `traits` | 特质（被动） | 字典 `名称 → desc` | 能力 |
 | `skills` | 技能（主动） | 字典 `名称 → { desc, level? }` | 能力 |
-| `gauges` | 量表 | 字典 `名称 → { value, max }` | 状态 |
+| `gauges` | 量表 | 字典 `名称 → { value, max } 或一句描述` | 状态 |
 | `effects` | 效果 | 字典 `名称 → { desc, source?, until? }` | 状态 |
 
-- `gauges` 的名称由模型依世界观决定（生命、体力、法力、理智……），状态栏画成进度条。
+- `gauges` 的名称与数量由模型依世界观和剧情决定（生命、体力、法力、理智……）。需要精确数值时写 `{ value, max }`，状态栏画成进度条；叙事化的状态直接写一句话（如「伤口在渗血，勉强能走」），状态栏显示为文字。两种写法可以混用。
 - `effects` 不计剩余回合。`until` 是可选的文字条件（例如「直到天亮」），模型判断剧情上结束后移除。
 
 ### 4.4 属性体系（互斥组 `attributes`）
@@ -112,7 +112,7 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 | ↳ `truth` | 真实描述 | 文字，可选 | 只写与 `desc` 不同之处；默认隐藏 |
 | ↳ `equipped` | 已装备 | 布尔 | |
 | ↳ `condition` | 状态 | 文字，可选 | 主要给座驾用 |
-| `funds` | 资金 | 字典 `货币 → 整数` | 货币种类由模型依世界观定义；转账用 `$transfer` 保证守恒 |
+| `funds` | 资金 | 字典 `货币 → 整数或一句描述` | 货币种类由模型依世界观定义；数额清楚时写整数，转账用 `$transfer` 保证守恒；说不清时写描述（如「一小袋碎银」）。状态栏内置常见货币图标：金币、银币、铜币、文、银两、美元、人民币、日元，其他名称显示通用硬币 |
 
 ### 4.6 NSFW `nsfw`（默认关闭）
 
@@ -276,7 +276,8 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 
 | 属性 | 含义 |
 | --- | --- |
-| `type` | `object` / `record` / `array` / `string` / `int` / `number` / `bool` / `enum` / `ladder` / `ref` / `refs` |
+| `type` | `object` / `record` / `array` / `string` / `int` / `number` / `bool` / `enum` / `ladder` / `ref` / `refs` / `oneOf` |
+| `variants` | `oneOf` 接受的几种形式（至少两种，JSON 类型各不相同，不能是引用），例如 `[{ type: 'object', fields: { value, max } }, { type: 'string' }]`。数值形式里的字段照常可增减、截断 |
 | `fields` / `of` | 对象的子字段；字典值、数组元素的结构 |
 | `entity` | 字典是实体集合，值为实体类型 |
 | `keys` | 字典的键是指向该类型实体的引用（目标删除时整条移除） |
@@ -292,6 +293,15 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | `readonly` `internal` | 沿用 SOLVE 原有的提示词可见性 |
 
 `display`（布局、渲染开关等）和 `bgm` 只影响前端与播放，不进入定义指纹：修改它们不会让旧聊天失配。
+
+`display` 由结构作者声明状态栏的布局（渲染组件只认这些声明，不认具体字段名）：
+
+| 键 | 含义 |
+| --- | --- |
+| `bar` | 悬浮概览横条显示的字段路径（也是展开后面板的标题栏），可用 `$user` 指玩家角色。官方结构为 地点 · 时间 · 天气 · 场景情绪 · 在场角色；手机上只保留地点、时间、天气。横条的位置由宿主按设备（电脑 / 手机）记住，收起、展开、刷新后都不变 |
+| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`）；`{ map }` 力导向地图（`current/parent/links/discovered`） |
+| `spoilerExempt` | 不受剧透遮挡的实体（官方结构：玩家角色） |
+
 
 ### 11.4 新增的控制器与全局接口
 
