@@ -71,8 +71,10 @@ function gallery(): void {
     root.querySelectorAll<HTMLButtonElement>('.skins button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === skin)));
     root.querySelectorAll<HTMLButtonElement>('.tabs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
     root.querySelector('.note')!.textContent = NOTES[skin] ?? '';
-    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&view=${encodeURIComponent(tab)}&embed=1`;
-    root.querySelector<HTMLAnchorElement>('.solo')!.href = `${location.pathname}?skin=${skin}&scheme=light&view=${encodeURIComponent(tab)}`;
+    // The build stamp keeps the frames from coming out of the browser cache after a new deploy.
+    const stamp = encodeURIComponent(__BUILD__);
+    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&view=${encodeURIComponent(tab)}&embed=1&b=${stamp}`;
+    root.querySelector<HTMLAnchorElement>('.solo')!.href = `${location.pathname}?skin=${skin}&scheme=light&view=${encodeURIComponent(tab)}&b=${stamp}`;
   };
   root.querySelector('.skins')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.id) { skin = b.dataset.id; load(); } });
   root.querySelector('.tabs')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.tab) { tab = b.dataset.tab; load(); } });
