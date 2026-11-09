@@ -364,3 +364,22 @@ test('剧透：社交、能力、物品默认折叠，好感度与已装备物�
   assert.equal(m.spoiler(['characters', 'erin', 'items', 'healing_draught']), 'public', '玩家自己的不遮');
   assert.equal(m.spoiler(['items', 'lute', 'truth']), 'hidden');
 });
+test('设定：玩家可新增、修改与撤回自己写的设定；主角不知道的设定在状态栏里是剧透', async () => {
+  const { def, core, state } = await official();
+  const meta = (def.display as any).fields;
+  assert.deepEqual(meta['lore'].create.fields, ['title', 'kind', 'content']);
+  const added = await core.execute([{ $group: [{ $set: { 'lore.p1': { title: '月亮有两个', kind: '世界观', content: '夜空里有一大一小两个月亮。', source: '玩家', known: true } } }] }] as any, state, { source: 'user' });
+  assert.ok(!added.feedback.some(f => f.level === 'L3'), JSON.stringify(added.feedback));
+  assert.equal(data(added.state).lore.p1.stage, null, '其他字段取默认值');
+  const gone = await core.execute({ $deleteEntity: ['@magic_cost'] }, state, { source: 'user' });
+  assert.equal(data(gone.state).lore.magic_cost, undefined);
+  const { StatusModel } = await import('../src/ui/statusbar/model.js');
+  const { editFor } = await import('../src/ui/statusbar/interact.js');
+  const m = new StatusModel(def, state);
+  assert.ok(editFor(m, ['lore', 'magic_cost', 'content']), '玩家写的设定可以改');
+  assert.equal(editFor(m, ['lore', 'grey_rain', 'content']), undefined, '剧情确立的设定不能改');
+  assert.equal(m.spoiler(['lore', 'forged_seal']), 'spoiler');
+  assert.equal(m.spoiler(['lore', 'grey_rain']), 'public');
+  assert.equal(m.spoiler(['lore', 'lost_score', 'truth']), 'hidden');
+  assert.throws(() => compileStructure({ id: 't', version: '1', fields: { x: { type: 'record', of: { type: 'object', fields: { a: { type: 'string' } } }, create: { label: 'A', fields: ['b'] } } } }), /不存在/u);
+});

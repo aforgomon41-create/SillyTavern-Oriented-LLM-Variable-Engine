@@ -74,9 +74,12 @@ export function Chips({ items, tone }: { items: React.ReactNode[]; tone?: 'neutr
   return <span {...solve('chips')}>{items.map((item, i) => <K.Badge key={i} tone={tone ?? 'neutral'}>{item}</K.Badge>)}</span>;
 }
 /** Spoiler: a small inline tag until the player reveals it (no blurred blocks cluttering the card). */
+/** Inside a revealed spoiler: nested spoilers open too (one click shows the whole entry). */
+export const UnveiledContext = React.createContext(false);
 export function Spoiler({ children, label = '剧透' }: { children: React.ReactNode; label?: string }) {
   const [shown, setShown] = React.useState(false);
-  if (shown) return <span {...solve('spoiler', { state: 'shown' })}>{children}</span>;
+  if (React.useContext(UnveiledContext)) return <>{children}</>;
+  if (shown) return <span {...solve('spoiler', { state: 'shown' })}><UnveiledContext.Provider value={true}>{children}</UnveiledContext.Provider></span>;
   return <button type="button" {...solve('spoiler', { state: 'hidden' })} onClick={() => setShown(true)} aria-label={`${label}内容，点击查看`}><i aria-hidden="true" />{label} · 点击查看</button>;
 }
 export function Timeline({ entries }: { entries: { round: number; text: string }[] }) {

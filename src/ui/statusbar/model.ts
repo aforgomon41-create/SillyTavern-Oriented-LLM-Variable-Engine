@@ -101,7 +101,8 @@ export class StatusModel {
   entityName(id: string): string {
     const path = this.locate(id);
     const entity = path ? this.value(path) : undefined;
-    return typeof entity?.name === 'string' && entity.name ? entity.name : id;
+    // Entities without a name (lore entries) go by their title.
+    return typeof entity?.name === 'string' && entity.name ? entity.name : typeof entity?.title === 'string' && entity.title ? entity.title : id;
   }
   /** The player's character id, from the spoiler exemption rule. */
   get userId(): string | undefined {

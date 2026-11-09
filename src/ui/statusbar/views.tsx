@@ -12,8 +12,8 @@ import { EntityBody, PageBody, Pages, resolveUser, visible, type PageSpec } from
 import { GraphView, type GraphEdge, type GraphGroup, type GraphNode, type Tone } from './graph.js';
 import { PlayerSheet, type SheetItem } from './sheet.js';
 import { Codex, type CodexCategory } from './codex.js';
-import { Art, Mono, part, solve, useWide } from './widgets.js';
-import { ActionBar, InteractLayer, PendingNarration, type Interact } from './interact.js';
+import { Art, Mono, Spoiler, part, solve, useWide } from './widgets.js';
+import { ActionBar, CreateForm, InteractLayer, PendingNarration, type Interact } from './interact.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
 export interface StatusBarProps {
@@ -231,10 +231,10 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
   const [only, setOnly] = React.useState<'all' | 'present'>('all');
   const [query, setQuery] = React.useState('');
   // Search by name, alias and the short tags/labels a reader would remember someone by.
-  const words = (id: string) => [value[id]?.name, value[id]?.alias, ...(Array.isArray(value[id]?.tags) ? value[id].tags : []), ...(item.badges ?? []).map((b: string) => value[id]?.[b])]
+  const words = (id: string) => [value[id]?.name, value[id]?.title, value[id]?.content, value[id]?.alias, ...(Array.isArray(value[id]?.tags) ? value[id].tags : []), ...(item.badges ?? []).map((b: string) => value[id]?.[b])]
     .filter(x => typeof x === 'string').join(' ').toLowerCase();
   const q = query.trim().toLowerCase();
-  const ids = (only === 'present' ? here : all).filter(id => !q || words(id).includes(q) || id.toLowerCase().includes(q));
+  const ids = (only === 'present' ? here : all).filter(id => !q || (m.spoiler([...path, id]) !== 'spoiler' && (words(id).includes(q) || id.toLowerCase().includes(q))));
   const [open, setOpen] = React.useState<Set<string>>(new Set());
   const refs = React.useRef(new Map<string, HTMLDivElement>());
   React.useEffect(() => {
@@ -243,7 +243,7 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
     setOnly('all'); setOpen(s => new Set(s).add(id));
     requestAnimationFrame(() => refs.current.get(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
   }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!all.length) return <K.Empty title={`还没有${item.title ?? m.label(path)}`} />;
+  if (!all.length) return <><CreateForm path={path} /><K.Empty title={`还没有${item.title ?? m.label(path)}`} /></>;
   return (
     <section {...solve('group')}>
       <div {...solve('list-head')}>
@@ -252,21 +252,24 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
           options={[{ value: 'all', label: `全部 ${all.length}` }, { value: 'present', label: `在场 ${here.length}` }]} /> : null}
         {item.search ? <input type="search" {...solve('search')} value={query} onChange={e => setQuery(e.target.value)} placeholder={`搜索${item.title ?? m.label(path)}`} aria-label={`搜索${item.title ?? m.label(path)}`} /> : null}
       </div>
+      <CreateForm path={path} />
       {q && !ids.length ? <span {...solve('none')}>没有找到「{query.trim()}」</span> : null}
       <div {...solve('stack')}>
         {ids.map(id => {
-          const v = value[id] ?? {}, score = item.score ? resolve(m, item.score) : undefined;
+          // A veiled entry keeps its name to itself in the row (the kind badge still shows what sort of thing it is).
+          const veiled = m.spoiler([...path, id]) === 'spoiler';
+          const v = veiled ? { ...(value[id] ?? {}), name: '？？？', title: undefined, thumb: undefined, image: undefined } : value[id] ?? {}, score = item.score ? resolve(m, item.score) : undefined;
           const s = score ? m.value([...path, id, ...score]) : undefined, sMeta = score ? m.meta([...path, id, ...score]) : undefined;
           return (
             <div key={id} ref={el => { if (el) refs.current.set(id, el); else refs.current.delete(id); }} {...solve('entity-row', { present: present.has(id) ? '' : undefined })}>
               <K.CollapseCard open={open.has(id)} onOpenChange={o => setOpen(prev => { const n = new Set(prev); if (o) n.add(id); else n.delete(id); return n; })}
-                title={<span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true"><Mono name={v.name ?? id} src={thumbOf(v)} /></span><span {...part('name')}>{v.name ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>}
+                title={<span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true"><Mono name={v.name ?? v.title ?? id} src={thumbOf(v)} /></span><span {...part('name')}>{v.name ?? v.title ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>}
                 meta={<span {...solve('entity-meta')}>
                   {present.has(id) ? <K.Badge tone="success">在场</K.Badge> : null}
                   {(item.badges ?? []).map((b: string) => v[b] ? <K.Badge key={b} tone="neutral">{String(v[b])}</K.Badge> : null)}
                   {typeof s === 'number' ? <span {...part('score')} data-sign={s > 0 ? 'positive' : s < 0 ? 'negative' : 'zero'} title={`${item.scoreLabel ?? sMeta?.desc ?? ''}`}>{item.scoreLabel ?? ''} {s > 0 ? '+' : ''}{s}</span> : null}
                 </span>}>
-                {open.has(id) ? <CardBody item={item} path={[...path, id]} v={v} /> : null}
+                {open.has(id) ? <CardBody item={item} path={[...path, id]} v={value[id] ?? {}} /> : null}
               </K.CollapseCard>
             </div>
           );
@@ -301,12 +304,14 @@ function StoredHere({ id, spec }: { id: string; spec: { holders: string; field: 
 function CardBody({ item, path, v }: { item: any; path: Path; v: any }) {
   const m = useModel();
   const [ref, wide] = useWide(560);
-  const id = path.at(-1)!, name = v.name ?? id;
+  const id = path.at(-1)!, name = v.name ?? v.title ?? id;
   const aside: { label: string; paths: string[] } | undefined = item.aside;
   const asideShown = !!aside && aside.paths.some(r => visible(m, resolveUser(m, path, r)));
   const pages: PageSpec[] | undefined = item.pages ? (aside && !wide ? [{ label: aside.label, paths: aside.paths }, ...item.pages] : item.pages) : undefined;
   const side = wide && (artOf(v) || asideShown);
-  return (
+  // An entry the player does not know yet (a secret) opens as one spoiler.
+  const veiled = m.spoiler(path) === 'spoiler';
+  const body = (
     <div ref={ref} {...solve('card-body', { art: artOf(v) ? '' : undefined, aside: wide && asideShown ? '' : undefined })}><div {...part('layout')}>
       {side ? (
         <div {...part('side')}>
@@ -316,9 +321,30 @@ function CardBody({ item, path, v }: { item: any; path: Path; v: any }) {
       ) : artOf(v) ? <Art src={artOf(v)!} alt={name} variant="side" /> : null}
       <div {...part('main')}>{pages ? <Pages key={wide ? 'wide' : 'narrow'} base={path} pages={pages} label={`${name}的资料`} compact />
         : <EntityBody path={path} skip={item.badges} />}
-        {item.stored ? <StoredHere id={id} spec={item.stored} /> : null}</div>
+        {item.stored ? <StoredHere id={id} spec={item.stored} /> : null}
+        {item.backrefs ? <Backrefs id={id} specs={item.backrefs} /> : null}
+        <ActionBar path={path} /></div>
     </div></div>
   );
+  return veiled ? <Spoiler label="尚不知晓">{body}</Spoiler> : body;
+}
+
+/** Entries elsewhere that point at this one (lore whose `related` lists it): chips to open them; ones the player doesn't know stay folded. */
+export function Backrefs({ id, specs }: { id: string; specs: { collection: string; field: string; label: string }[] }) {
+  const m = useModel();
+  return <>{specs.map(spec => {
+    const coll = rel(spec.collection), all: Record<string, any> = m.value(coll) ?? {};
+    if (m.dormant(coll)) return null;
+    const hits = Object.keys(all).filter(k => k !== id && Array.isArray(all[k]?.[spec.field]) && all[k][spec.field].includes(id));
+    const open = hits.filter(k => m.spoiler([...coll, k]) === 'public'), folded = hits.length - open.length;
+    if (!hits.length) return null;
+    return (
+      <section key={spec.collection} {...solve('backrefs')}>
+        <h5 {...part('title')}>{spec.label}<small>{hits.length}</small></h5>
+        <div {...part('chips')}>{open.map(k => <RefChip key={k} id={k} />)}{folded ? <span {...part('folded')}>另有 {folded} 条尚不知晓</span> : null}</div>
+      </section>
+    );
+  })}</>;
 }
 
 /** Relationship / diplomacy graph between the entities of one collection, collapsed by default. */
@@ -436,6 +462,7 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
           {known(sel!) ? <PlaceMusic places={places} id={sel!} parentKey={parent} /> : null}
           <ActionBar path={[...path, sel!]} />
           {known(sel!) ? <EntityBody path={[...path, sel!]} skip={['name', 'kind', hidden]} /> : <p {...solve('paragraph')}>这里还没有被探索。</p>}
+          {known(sel!) && item.backrefs ? <Backrefs id={sel!} specs={item.backrefs} /> : null}
           {pickedRegion ? (
             <div {...part('members')}><span {...part('label')}>区域内</span>
               {childrenOf(sel!).map(c => <button key={c} type="button" {...part('member')} data-current={c === here ? '' : undefined} onClick={() => setPicked(c)}>{nameOf(c)}</button>)}

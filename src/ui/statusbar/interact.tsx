@@ -6,7 +6,7 @@
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
-import { expand, fill, holds, pick, type ActionSpec, type AskSpec, type EditSpec, type Vars } from '../../interact.js';
+import { expand, fill, holds, pick, type ActionSpec, type AskSpec, type CreateSpec, type EditSpec, type Vars } from '../../interact.js';
 import type { Json } from '../../types.js';
 import type { Path, StatusModel } from './model.js';
 import { part, solve } from './widgets.js';
@@ -124,7 +124,58 @@ export function actionsFor(m: StatusModel, parts: Path): Bound[] {
 /** The `edit` declaration of a field, if the player may edit it here. */
 export function editFor(m: StatusModel, parts: Path): EditSpec | undefined {
   const edit = (m.meta(parts) as any)?.edit as EditSpec | undefined;
-  return edit && !m.dormant(parts) && ownerOk(m, parts, edit.owner) ? edit : undefined;
+  if (!edit || m.dormant(parts) || !ownerOk(m, parts, edit.owner)) return undefined;
+  if (edit.when) {
+    const parent = parts.slice(0, -1), view = viewOf(m, parent);
+    if (!holds(edit.when, view, varsOf(m, parent, view), read(m))) return undefined;
+  }
+  return edit;
+}
+
+/** The `create` form of a record: a button that opens the declared fields; the entry gets a fresh ID. */
+export function CreateForm({ path }: { path: Path }) {
+  const m = useModelSafe(), live = useInteract(), K = useKit();
+  const spec = (m?.meta(path) as any)?.create as CreateSpec | undefined;
+  const [open, setOpen] = React.useState(false);
+  const [draft, setDraft] = React.useState<Record<string, Json>>({});
+  const [error, setError] = React.useState<string | undefined>();
+  const [busy, setBusy] = React.useState(false);
+  if (!m || !live || !spec || m.dormant(path)) return null;
+  const metaOf = (f: string) => m.meta([...path, '*', f]);
+  const initial = () => Object.fromEntries(spec.fields.map(f => { const t = metaOf(f); return [f, t?.type === 'bool' ? false : t?.type === 'enum' || t?.type === 'ladder' ? t.values?.[0] ?? '' : t?.type === 'int' || t?.type === 'number' ? t.min ?? 0 : '']; }));
+  const required = (f: string) => metaOf(f)?.type === 'string';
+  const missing = spec.fields.some(f => required(f) && !String(draft[f] ?? '').trim());
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); if (missing) return;
+    const id = 'p' + Date.now().toString(36);
+    const value = { ...Object.fromEntries(Object.entries(draft).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v])), ...(spec.set ?? {}) };
+    setBusy(true);
+    const result = await live.perform({ ops: [{ $set: { [[...path, id].join('.')]: value } }], title: spec.label,
+      ...(spec.narrate ? { narrate: String(fill(spec.narrate, value as Vars)) } : {}) });
+    setBusy(false);
+    if (result.ok) { setOpen(false); setError(undefined); } else setError(result.error);
+  };
+  if (!open) return <div {...solve('create')}><K.Button size="sm" disabled={!!live.locked} title={live.locked} onClick={() => { setDraft(initial()); setOpen(true); }}>＋ {spec.label}</K.Button></div>;
+  return (
+    <form {...solve('create', { open: '' })} onSubmit={e => void submit(e)}>
+      {spec.fields.map(f => {
+        const t = metaOf(f), label = m.label([...path, '*', f]), v = draft[f];
+        const set = (x: Json) => setDraft(d => ({ ...d, [f]: x }));
+        const input = t?.type === 'enum' || t?.type === 'ladder' ? <select value={String(v ?? '')} onChange={e => set(e.target.value)}>{(t.values ?? []).map(x => <option key={x} value={x}>{x}</option>)}</select>
+          : t?.type === 'bool' ? <K.Switch checked={!!v} onCheckedChange={set} aria-label={label} />
+          : t?.type === 'int' || t?.type === 'number' ? <input type="number" value={Number(v)} onChange={e => set(Number(e.target.value))} />
+          : m.widgets[m.pattern([...path, '*', f])] === 'paragraph' ? <textarea rows={3} value={String(v ?? '')} onChange={e => set(e.target.value)} />
+          : <input type="text" value={String(v ?? '')} onChange={e => set(e.target.value)} />;
+        return <label key={f} {...part('field')}><span>{label}</span>{input}</label>;
+      })}
+      <div {...part('row')}>
+        <K.Button type="submit" size="sm" variant="primary" disabled={busy || missing || !!live.locked}>{spec.label}</K.Button>
+        <K.Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>取消</K.Button>
+      </div>
+      {spec.narrate ? <p {...part('hint')}>提交后会在下一轮告诉模型。</p> : null}
+      {error ? <p {...part('error')} role="alert">没有添加：{error}</p> : null}
+    </form>
+  );
 }
 
 // ── actions ──

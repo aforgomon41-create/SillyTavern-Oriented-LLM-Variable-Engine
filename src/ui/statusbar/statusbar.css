@@ -849,3 +849,25 @@
 [data-solve="inventory"] [data-solve="spoiler"][data-state="hidden"] { margin-top: var(--k-space-2); }
 [data-solve="abilities"] [data-solve-part="progress-text"] { margin: var(--k-space-2) 0 0; font-size: var(--k-fs-sm); }
 [data-solve="abilities"] [data-solve-part="progress-text"] > span { color: var(--k-on-muted); margin-inline-end: var(--k-space-2); }
+/* Create form above a list (写一条设定) */
+[data-solve="create"] { margin: var(--k-space-2) 0; }
+[data-solve="create"][data-open] {
+  display: flex; flex-direction: column; gap: var(--k-space-2); padding: var(--k-space-3); border-radius: var(--k-r-md);
+  background: var(--k-sunken); color: var(--k-on-sunken);
+}
+[data-solve="create"] [data-solve-part="field"] { display: flex; flex-direction: column; gap: var(--k-space-1); min-width: 0; }
+[data-solve="create"] [data-solve-part="field"] > span { font-size: var(--k-fs-sm); color: var(--k-on-sunken-muted); }
+[data-solve="create"] :is(input, select, textarea) {
+  min-height: 32px; box-sizing: border-box; width: 100%; padding: var(--k-space-1) var(--k-space-2); font: inherit; font-size: 16px; line-height: var(--k-lh);
+  color: var(--k-on); background: var(--k-surface-1); border: var(--k-border-w, 1px) solid var(--k-divider); border-radius: var(--k-r-md);
+}
+[data-solve="create"] select { width: auto; }
+[data-solve="create"] :is(input, select, textarea):focus-visible { outline: none; box-shadow: var(--k-focus-ring); }
+[data-solve="create"] > [data-solve-part="row"] { display: flex; flex-wrap: wrap; gap: var(--k-space-2); }
+[data-solve="create"] [data-solve-part="hint"] { margin: 0; font-size: var(--k-fs-xs); color: var(--k-on-sunken-muted); }
+[data-solve="create"] [data-solve-part="error"] { margin: 0; color: var(--k-danger); font-size: var(--k-fs-sm); }
+/* Related lore under a card */
+[data-solve="backrefs"] { margin-top: var(--k-space-3); }
+[data-solve="backrefs"] > [data-solve-part="title"] { margin: 0 0 var(--k-space-2); font-size: var(--k-fs-sm); color: var(--k-on-muted); display: flex; gap: var(--k-space-2); }
+[data-solve="backrefs"] > [data-solve-part="chips"] { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--k-space-1) var(--k-space-3); }
+[data-solve="backrefs"] [data-solve-part="folded"] { font-size: var(--k-fs-xs); color: var(--k-on-subtle); }

@@ -52,7 +52,21 @@ export interface ActionSpec {
   narrate?: string | [string, string];
   tone?: 'danger';
 }
-export interface EditSpec { owner?: 'user'; narrate?: string | [string, string] }
+export interface EditSpec {
+  owner?: 'user';
+  /** Editable only while the surrounding object matches (e.g. lore the player wrote: `{ source: '玩家' }`). */
+  when?: Cond;
+  narrate?: string | [string, string];
+}
+/** A form above a record to add an entry (lore the player establishes …). */
+export interface CreateSpec {
+  label: string;
+  /** Fields asked in the form, in order (text, paragraph, enum, bool, number). */
+  fields: string[];
+  /** Fixed values written with every new entry, e.g. `{ source: '玩家' }`. */
+  set?: Record<string, Json>;
+  narrate?: string;
+}
 
 const COMPARE = new Set(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'exists', 'empty']);
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -79,12 +93,23 @@ function checkOps(at: string, ops: unknown): void {
 export function checkEdit(at: string, edit: unknown, type: string): EditSpec {
   if (edit === true) return {};
   if (!isObj(edit)) fail('STRUCTURE_INVALID', `${at}：edit 只能是 true 或 {owner, narrate}`, at);
-  const extra = Object.keys(edit).filter(k => !['owner', 'narrate'].includes(k));
+  const extra = Object.keys(edit).filter(k => !['owner', 'narrate', 'when'].includes(k));
+  if (edit.when !== undefined) checkCond(at, edit.when);
   if (extra.length) fail('STRUCTURE_INVALID', `${at}：edit 未知属性 ${extra.join(', ')}`, at);
   if (edit.owner !== undefined && edit.owner !== 'user') fail('STRUCTURE_INVALID', `${at}：edit.owner 只能是 user`, at);
   if (edit.narrate !== undefined && !pairOrString(edit.narrate)) fail('STRUCTURE_INVALID', `${at}：narrate 是字符串或 [开, 关] 两句`, at);
   if (Array.isArray(edit.narrate) && type !== 'bool') fail('STRUCTURE_INVALID', `${at}：两句 narrate 只用于 bool`, at);
   return edit as EditSpec;
+}
+/** Validate a `create` declaration against the entry's fields. */
+export function checkCreate(at: string, create: unknown, fields: Record<string, { type: string }> | undefined): CreateSpec {
+  if (!isObj(create) || typeof create.label !== 'string' || !Array.isArray(create.fields) || !create.fields.length) fail('STRUCTURE_INVALID', `${at}：create 需要 label 与 fields`, at);
+  const extra = Object.keys(create).filter(k => !['label', 'fields', 'set', 'narrate'].includes(k));
+  if (extra.length) fail('STRUCTURE_INVALID', `${at}：create 未知属性 ${extra.join(', ')}`, at);
+  for (const f of create.fields) if (typeof f !== 'string' || !fields?.[f] || !['string', 'enum', 'bool', 'int', 'number', 'ladder'].includes(fields[f]!.type)) fail('STRUCTURE_INVALID', `${at}：create.fields 中的 ${String(f)} 不存在或不是单个值`, at);
+  if (create.set !== undefined && (!isObj(create.set) || Object.keys(create.set).some(k => !fields?.[k]))) fail('STRUCTURE_INVALID', `${at}：create.set 只能写已有字段`, at);
+  if (create.narrate !== undefined && typeof create.narrate !== 'string') fail('STRUCTURE_INVALID', `${at}：narrate 是一句话`, at);
+  return create as unknown as CreateSpec;
 }
 /** Validate an `actions` declaration. */
 export function checkActions(at: string, actions: unknown): Record<string, ActionSpec> {

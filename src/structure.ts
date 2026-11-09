@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { assertJson, clone, fail, safeKey } from './json.js';
 import { EntityGraph } from './entities.js';
-import { checkActions, checkCond, checkEdit, type ActionSpec, type Cond, type EditSpec } from './interact.js';
+import { checkActions, checkCond, checkCreate, checkEdit, type ActionSpec, type Cond, type CreateSpec, type EditSpec } from './interact.js';
 import type { BgmSpec, CompiledDefinition, ComputedRule, Definition, DisplaySpec, EntitySpec, GuideRule, Json, ListLimit, ModuleSpec, NumericRule, ProjectionRule, RefSpec, StampRule } from './types.js';
 
 /**
@@ -57,6 +57,8 @@ export interface FieldNode {
   edit?: true | EditSpec;
   /** Buttons on each entry (record / array) or on this object (see src/interact.ts). */
   actions?: Record<string, ActionSpec>;
+  /** record of objects: a form to add an entry from the status bar (see src/interact.ts). */
+  create?: CreateSpec;
 }
 export interface StructureModule { label?: string; enabled?: boolean; parent?: string; exclusive?: string; guide?: string }
 export interface StructureDescription {
@@ -105,7 +107,7 @@ function problem(path: string, message: string): never { return fail('STRUCTURE_
 function build(node: FieldNode, path: string[], out: Collected, modules: Set<string>, inModule: boolean): { schema: z.ZodType; hasDefault: boolean } {
   const at = path.join('.');
   if (!node || typeof node !== 'object' || !TYPES.has(node.type)) problem(at, '未知字段类型');
-  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal','edit','actions','reveal'];
+  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal','edit','actions','reveal','create'];
   const extra = Object.keys(node).filter(key => !known.includes(key));
   if (extra.length) problem(at, `未知属性：${extra.join(', ')}`);
   if (node.module !== undefined) {
@@ -141,6 +143,10 @@ function build(node: FieldNode, path: string[], out: Collected, modules: Set<str
       for (const k of s.keys) { if (!node.fields?.[k] || seen.has(k)) problem(at, `sections 中的 ${k} 不存在或重复`); seen.add(k); }
     }
     meta.sections = clone(node.sections) as unknown as Json;
+  }
+  if (node.create !== undefined) {
+    if (node.type !== 'record' || node.of?.type !== 'object') problem(at, 'create 只能用于值为对象的 record');
+    meta.create = clone(checkCreate(at, node.create, node.of!.fields as Record<string, { type: string }>)) as unknown as Json;
   }
   if (node.reveal !== undefined) {
     if (node.type !== 'record' || !node.spoiler) problem(at, 'reveal 只能用于带剧透等级的 record');

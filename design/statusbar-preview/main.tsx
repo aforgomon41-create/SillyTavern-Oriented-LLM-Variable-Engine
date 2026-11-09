@@ -57,7 +57,7 @@ function gallery(): void {
       ${MUSIC.map(t => `<li><code>${t.id}</code> 「${t.title}」 · CC BY 4.0${t.moods.length ? ' · 情绪：' + t.moods.join('、') : ''}</li>`).join('')}</ul>
     </details>
     <p class="note audio-note">四个窗口默认静音；点窗口右上角 ♪ 打开播放，或 <a class="solo" target="_blank" rel="noopener">在新窗口单独打开</a>（点一下页面就开始播放当前场景的配乐）。</p>
-    <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '图鉴', '势力', '建筑'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav>
+    <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '图鉴', '势力', '设定', '建筑'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav>
     <nav class="tabs scales" aria-label="量表与熟练度"><span>量表与熟练度：</span><button type="button" data-scales="num">数值</button><button type="button" data-scales="text">描述</button></nav></header>
     <section class="frames">
       <figure class="pc"><figcaption>电脑 1440 · 浅色</figcaption><div class="box"><iframe data-scheme="light" data-w="1440" data-h="900"></iframe></div></figure>
