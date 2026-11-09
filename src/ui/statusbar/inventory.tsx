@@ -6,7 +6,7 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { artOf, isEmpty, thumbOf, type Path, type StatusModel } from './model.js';
 import { Field, NavigateContext, RefChip, useModel } from './fields.js';
-import { Art, Meter, Mono, part, solve } from './widgets.js';
+import { Art, Meter, Mono, Spoiler, part, solve } from './widgets.js';
 import { ActionBar } from './interact.js';
 import { LevelNow, LevelPips, steps } from './levels.js';
 import { CurrencyIcon } from './currency.js';
@@ -48,8 +48,10 @@ export function Inventory({ path }: { path: Path }) {
   const equipped = list.filter(h => carried(h) && h.data.equipped && h.data.type !== MONEY);
   const bag = list.filter(h => carried(h) && !h.data.equipped && h.data.type !== MONEY);
   const places = [...new Set(list.flatMap(h => Object.keys(kept(h))))];
-  const [sel, setSel] = React.useState<string | undefined>(list[0]?.id);
-  const it = list.find(h => h.id === sel) ?? list[0];
+  // Someone else's belongings: only what can be seen from outside (equipped gear) is open; the rest sits behind a spoiler.
+  const open = (h: Held) => m.spoiler([...path, h.id]) === 'public';
+  const [sel, setSel] = React.useState<string | undefined>(list.find(open)?.id);
+  const it = list.find(h => h.id === sel) ?? list.find(open);
   const tile = (h: Held, count = h.data.count, where = '') => (
     <button key={h.id + where} type="button" {...solve('slot', { kind: h.data.type, equipped: h.data.equipped && !where ? '' : undefined })} aria-pressed={h.id === it?.id} onClick={() => setSel(h.id)} title={nameOf(h)}>
       <span {...part('glyph')} aria-hidden="true">{h.data.type === MONEY && !thumbOf(h.data) ? <CurrencyIcon name={nameOf(h)} size={28} /> : <Mono name={nameOf(h)} src={thumbOf(h.data)} />}</span>
@@ -59,17 +61,22 @@ export function Inventory({ path }: { path: Path }) {
   );
   const fixed = ['name', 'type', 'count', 'equipped', 'desc', 'unique', 'image', 'thumb', 'note', ...(store ? [store] : [])];
   const detail = it?.at ? m.children(it.at).filter(k => !fixed.includes(k) && !isEmpty(it.data[k]) && m.spoiler([...it.at!, k]) !== 'hidden') : [];
-  const section = (key: string, title: React.ReactNode, items: React.ReactNode[], empty?: string) => (
-    <section key={key} {...part(key === 'bag' ? 'bag' : key === 'equipped' ? 'equipped' : 'group')}><h5 {...part('title')}>{title}<small>{items.length}</small></h5>
-      {items.length ? <div {...part('grid')}>{items}</div> : <span {...solve('none')}>{empty}</span>}</section>
-  );
+  const section = (key: string, title: React.ReactNode, entries: Held[], make: (h: Held) => React.ReactNode, empty?: string) => {
+    const shown = entries.filter(open), folded = entries.filter(h => !open(h));
+    return (
+      <section key={key} {...part(key === 'bag' ? 'bag' : key === 'equipped' ? 'equipped' : 'group')}><h5 {...part('title')}>{title}<small>{entries.length}</small></h5>
+        {shown.length ? <div {...part('grid')}>{shown.map(make)}</div> : null}
+        {folded.length ? <Spoiler label={`${folded.length} 件不外露的东西`}><div {...part('grid')}>{folded.map(make)}</div></Spoiler> : null}
+        {!entries.length ? <span {...solve('none')}>{empty}</span> : null}</section>
+    );
+  };
   const keptHere = it ? Object.entries(kept(it)).filter(([, n]) => typeof n === 'number' && n > 0) : [];
   return (
     <div {...solve('inventory')}>
-      {equipped.length ? section('equipped', '装备中', equipped.map(h => tile(h))) : null}
-      {section('bag', '背包', bag.map(h => tile(h)), '空空如也')}
-      {money.length ? section('money', MONEY, money.map(h => tile(h))) : null}
-      {places.map(b => section('kept-' + b, <>存放于 <RefChip id={b} /></>, list.filter(h => (kept(h)[b] ?? 0) > 0).map(h => tile(h, kept(h)[b], b))))}
+      {equipped.length ? section('equipped', '装备中', equipped, h => tile(h)) : null}
+      {section('bag', '背包', bag, h => tile(h), '空空如也')}
+      {money.length ? section('money', MONEY, money, h => tile(h)) : null}
+      {places.map(b => section('kept-' + b, <>存放于 <RefChip id={b} /></>, list.filter(h => (kept(h)[b] ?? 0) > 0), h => tile(h, kept(h)[b], b)))}
       {it ? (
         <div {...part('detail')} aria-live="polite">
           {artOf(it.data) ? <Art key={it.id} src={artOf(it.data)!} alt={nameOf(it)} variant="item" /> : null}
@@ -101,7 +108,7 @@ export function Abilities({ path }: { path: Path }) {
   const kinds = [...new Set(list.map(kindOf))];
   const kindValues: string[] = (list[0]?.at ? m.meta([...list[0].at, 'kind'])?.values : undefined) ?? [];
   kinds.sort((a, b) => (kindValues.indexOf(a) + 1 || 99) - (kindValues.indexOf(b) + 1 || 99));
-  return (
+  const body = (
     <div {...solve('abilities')}>
       {kinds.map(kind => (
         <section key={kind} {...part('group')}>
@@ -118,7 +125,8 @@ export function Abilities({ path }: { path: Path }) {
                   </div>
                   {h.data.desc ? <p {...part('desc')}>{h.data.desc}</p> : null}
                   <LevelNow levels={h.data.levels} level={typeof h.data.level === 'number' ? h.data.level : undefined} />
-                  {typeof h.data.progress === 'number' ? <div {...part('progress')}><Meter label={`${m.label([...path, h.id, 'progress'])}（满 100 升一级）`} value={h.data.progress} min={0} max={100} /></div> : null}
+                  {typeof h.data.progress === 'number' && !m.dormant([...path, h.id, 'progress']) ? <div {...part('progress')}><Meter label={`${m.label([...path, h.id, 'progress'])}（满 100 升一级）`} value={h.data.progress} min={0} max={100} /></div> : null}
+                  {typeof h.data.progressText === 'string' && h.data.progressText && !m.dormant([...path, h.id, 'progressText']) ? <p {...part('progress-text')}><span>{m.label([...path, h.id, 'progressText'])}</span>{h.data.progressText}</p> : null}
                   <ActionBar path={[...path, h.id]} />
                   {share.length ? <div {...part('share')}>同样拥有：{share.map((id, i) => <React.Fragment key={id}>{i ? '、' : ''}<RefChip id={id} /></React.Fragment>)}</div> : null}
                 </li>
@@ -129,4 +137,6 @@ export function Abilities({ path }: { path: Path }) {
       ))}
     </div>
   );
+  // Someone else's abilities are not visible from outside.
+  return m.spoiler(path) === 'spoiler' ? <Spoiler label={`${list.length} 项能力`}>{body}</Spoiler> : body;
 }

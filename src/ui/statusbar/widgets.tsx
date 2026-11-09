@@ -148,3 +148,15 @@ function Lightbox({ src, alt, anchor, onClose }: { src: string; alt: string; anc
       <div {...part('bar')}><span>{alt}</span><button type="button" onClick={onClose} aria-label="关闭">✕</button></div>
     </div>, host as unknown as Element);
 }
+
+/** Is the element at least `min` px wide? (layouts that change structure, not only style, by width) */
+export function useWide(min = 620): [React.RefObject<HTMLDivElement | null>, boolean] {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [wide, setWide] = React.useState(true);
+  React.useLayoutEffect(() => {
+    const el = ref.current; if (!el) return undefined;
+    const ro = new ResizeObserver(() => setWide(el.clientWidth >= min)); ro.observe(el);
+    return () => ro.disconnect();
+  }, [min]);
+  return [ref, wide];
+}

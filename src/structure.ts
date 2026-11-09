@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { assertJson, clone, fail, safeKey } from './json.js';
 import { EntityGraph } from './entities.js';
-import { checkActions, checkEdit, type ActionSpec, type EditSpec } from './interact.js';
+import { checkActions, checkCond, checkEdit, type ActionSpec, type Cond, type EditSpec } from './interact.js';
 import type { BgmSpec, CompiledDefinition, ComputedRule, Definition, DisplaySpec, EntitySpec, GuideRule, Json, ListLimit, ModuleSpec, NumericRule, ProjectionRule, RefSpec, StampRule } from './types.js';
 
 /**
@@ -38,12 +38,15 @@ export interface FieldNode {
   optional?: boolean;
   nullable?: boolean;
   default?: Json;
-  module?: string;
+  /** Module(s) this field belongs to; with several, all must be on. */
+  module?: string | string[];
   list?: ListLimit;
   computed?: ComputedRule[];
   /** array of `{round, text}` entries; the engine fills `round` */
   stamp?: boolean;
   spoiler?: SpoilerLevel;
+  /** record with a spoiler level: entries matching this condition are public anyway (e.g. equipped items can be seen). Conditions as in src/interact.ts. */
+  reveal?: Cond;
   /** widget override from the fixed renderer list */
   as?: string;
   /** object: presentation-only grouping of the children, e.g. WOD 身体 / 心智 / 社交 (every key at most once) */
@@ -102,13 +105,18 @@ function problem(path: string, message: string): never { return fail('STRUCTURE_
 function build(node: FieldNode, path: string[], out: Collected, modules: Set<string>, inModule: boolean): { schema: z.ZodType; hasDefault: boolean } {
   const at = path.join('.');
   if (!node || typeof node !== 'object' || !TYPES.has(node.type)) problem(at, '未知字段类型');
-  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal','edit','actions'];
+  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal','edit','actions','reveal'];
   const extra = Object.keys(node).filter(key => !known.includes(key));
   if (extra.length) problem(at, `未知属性：${extra.join(', ')}`);
   if (node.module !== undefined) {
-    if (!modules.has(node.module)) problem(at, `未声明的模块：${node.module}`);
+    // Several modules: the field is active only while all of them are on (e.g. 状态 and the 数值 / 描述 mode).
+    const names = Array.isArray(node.module) ? node.module : [node.module];
+    if (!names.length) problem(at, 'module 不能为空数组');
+    for (const name of names) {
+      if (!modules.has(name)) problem(at, `未声明的模块：${name}`);
+      (out.modulePaths[name] ??= []).push(at);
+    }
     if (!path.length || path.at(-1) === '*') problem(at, '模块只能挂在具名字段上');
-    (out.modulePaths[node.module] ??= []).push(at);
   }
   const moduled = inModule || node.module !== undefined;
   if (node.label !== undefined) out.labels[at] = node.label;
@@ -133,6 +141,11 @@ function build(node: FieldNode, path: string[], out: Collected, modules: Set<str
       for (const k of s.keys) { if (!node.fields?.[k] || seen.has(k)) problem(at, `sections 中的 ${k} 不存在或重复`); seen.add(k); }
     }
     meta.sections = clone(node.sections) as unknown as Json;
+  }
+  if (node.reveal !== undefined) {
+    if (node.type !== 'record' || !node.spoiler) problem(at, 'reveal 只能用于带剧透等级的 record');
+    checkCond(at, node.reveal);
+    meta.reveal = clone(node.reveal) as unknown as Json;
   }
   if (node.edit !== undefined) {
     if (['object', 'record', 'oneOf'].includes(node.type)) problem(at, 'edit 只能用于单个值（文字、数字、开关、枚举、引用、列表）');

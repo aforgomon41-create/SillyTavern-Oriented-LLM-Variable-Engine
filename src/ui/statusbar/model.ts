@@ -4,6 +4,7 @@
  */
 import { dormant } from '../../schema.js';
 import { computedFor } from '../../features.js';
+import { holds, type Cond } from '../../interact.js';
 import type { CompiledDefinition, Json, LogicalState } from '../../types.js';
 
 export type Path = string[];
@@ -53,11 +54,19 @@ export class StatusModel {
   }
   /** Spoiler level for a path; the player's own character is always public. */
   spoiler(parts: Path): Spoiler {
+    // The deepest declared level wins (a public field inside a spoiler record, e.g. 好感度), but hidden stays hidden;
+    // a record's `reveal` makes matching entries public (equipped items can be seen).
     let level: Spoiler = 'public';
     for (let i = 1; i <= parts.length; i++) {
-      const found = this.spoilers[this.pattern(parts.slice(0, i))];
+      const pattern = this.pattern(parts.slice(0, i));
+      const found = this.spoilers[pattern];
       if (found === 'hidden') return 'hidden';
-      if (found === 'spoiler') level = 'spoiler';
+      if (found) level = found;
+      const reveal = (this.fields[pattern] as any)?.reveal as Cond | undefined;
+      if (reveal && level === 'spoiler' && i < parts.length) {
+        const entry = this.value(parts.slice(0, i + 1));
+        if (entry && typeof entry === 'object' && holds(reveal, entry, {}, p => this.value(p))) level = 'public';
+      }
     }
     if (level === 'spoiler' && this.exempt && this.isExempt(parts)) return 'public';
     return level;

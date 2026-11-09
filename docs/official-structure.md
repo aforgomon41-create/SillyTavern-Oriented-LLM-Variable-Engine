@@ -83,10 +83,10 @@
 | `attributes` | 属性 | 见 4.4，四种体系互斥 | 属性 |
 | `special` | 特殊属性 | 字典 `名称 → 文字、数字或 { value, max }` | 属性 |
 | `abilities` | 能力 | 引用字典 `能力 ID → { level?, progress? }` | 能力。能力本体在根节点 `abilities`（见 5.4），这里只写本人的等级与熟练度（0～100，锻炼和实战让它增长，满 100 等级加一并归零）；多人共有同一能力时引用同一个 ID |
-| `gauges` | 量表 | 字典 `名称 → { value, max } 或一句描述` | 状态 |
+| `gauges` / `gaugesText` | 量表 | 字典 `名称 → { value, max }`（数值）或 `名称 → 一句描述`（描述） | 状态；两种写法由互斥组「量表与熟练度」决定 |
 | `effects` | 效果 | 字典 `名称 → { desc, source?, until? }` | 状态 |
 
-- `gauges` 的名称与数量由模型依世界观和剧情决定（生命、体力、法力、理智……）。需要精确数值时写 `{ value, max }`，状态栏画成进度条；叙事化的状态直接写一句话（如「伤口在渗血，勉强能走」），状态栏显示为文字。两种写法可以混用。
+- 量表的名称与数量由模型依世界观和剧情决定（生命、体力、法力、理智……）。**互斥组「量表与熟练度」**（`scales`）二选一：「数值」（`scale_num`，默认）写 `rp.gauges.<名称> = { value, max }`、能力熟练度写 `progress`（0～100），状态栏画成进度条；「描述」（`scale_text`）写 `rp.gaugesText.<名称> = 一句话`（如「伤口在渗血，勉强能走」）、熟练度写 `progressText`，更贴剧情。玩家随时切换，和属性体系一样，引擎把原来的数据附在一次性的迁移指令里交给模型换算。
 - `effects` 不计剩余回合。`until` 是可选的文字条件（例如「直到天亮」），模型判断剧情上结束后移除。
 
 ### 4.4 属性体系（互斥组 `attributes`）
@@ -283,6 +283,7 @@ SOLVE 引擎本来就有两种现成实体，由世界书 `[SOLVE:PREFABS]` / `[
 - 2026-11-08 用户要求：实体要有缩略图与立绘两张图（只有一张时互相顶替），并要有展示立绘的地方。
 - 2026-11-08 用户要求：示例数据配上图片和背景音乐，来源用网络资源（见 `examples/official/media.ts`：图片为 Wikimedia Commons 公有领域画作与 CC0 馆藏照片，音乐为 Kevin MacLeod 的 CC BY 4.0 曲目，外链不打包）。
 - 2026-11-08 用户决定：物品仍由角色引用；独一无二的物品用 `unique` 标记，由引擎保证同一时间只有一个持有者（`uniqueBy`）；关系图连线强弱按好感度绝对值；图鉴「人物」改名「角色」，常态只显示模板，预制角色默认折叠；地图把区域画成包住地点的范围；不动产页签保持不变。
+- 2026-11-09 用户要求：量表与熟练度做成「数值 / 描述」互斥组；社交可以搜索角色；别人的关系、能力、物品默认剧透，只有表面看得出的（好感度、已装备物品、势力的声望与外交立场）公开；电脑上 NPC 概况放在立绘下方（概况里只放对你的好感度），关系每人可折叠；电脑上地图左右两栏；势力页同样处理（搜索、概况在左栏、外交可折叠）。
 - 2026-11-09 用户要求：货币也是物品（类型「货币」），出现在物品栏；物品除了装备和背包还能存进建筑——「不动产」改名「建筑」，银行之类也能寄存；能力可以使用、锻炼、开发；主角的驱动力玩家可以自由修改。
 - 2026-11-08 用户确认交互方案：交互与渲染一样由结构声明（`edit` / `actions`），动作是带占位符的普通 SOLVE 操作，作为玩家动作提交、换页重放；玩家操作在下一轮注入提示词告诉模型（不动聊天输入框）；状态栏只开放作者声明了 `edit` 的字段，任意字段的修正留给调试面板；可以撤销最新一笔；图鉴只读。
 - 2026-11-08 用户要求：能力每级效果不同并要展示（`abilities.*.levels`）；角色定位增加「一次性敌人」，反复出场的反派属于配角；图鉴可查看预制人物，也可以预制人物为基础生成独立人物（`$from` 可指向预制实体）。
@@ -327,12 +328,13 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | `to` | `ref`/`refs` 的目标实体类型（可为数组），编译后自动校验类型 |
 | `min` `max` `maxDelta` | 数值约束；单次变化上限 |
 | `required` `optional` `nullable` `default` | 必填、可省略、可为空缺、默认值。未写时自动给默认值（文字 `''`、数值 0 或下限、枚举第一项、容器为空） |
-| `module` | 字段归属的模块（模块在 `modules` 中声明，可有 `parent`、`exclusive`） |
+| `module` | 字段归属的模块（模块在 `modules` 中声明，可有 `parent`、`exclusive`）。可写数组：所有列出的模块都开启时字段才生效（如量表同时属于「状态」和「数值」） |
 | `list` | `{max, warn}` 清单上限与整理预警线 |
 | `computed` | `[{label, formula}]`，内置公式 `wodTranscend`、`dndModifier` |
 | `stamp` | 数组元素为 `{round, text}`，引擎自动填写轮次；模型可以直接写字符串 |
 | `sections` | 对象子字段的展示分组 `[{ label, keys }]`（只影响前端，不进入指纹）。官方结构：WOD 分 身体 / 心智 / 社交，DND 分 身体 / 心智 |
-| `label` `desc` `spoiler` `as` | 显示名、说明、剧透等级、控件覆写（只影响前端，不进入定义指纹） |
+| `label` `desc` `spoiler` `as` | 显示名、说明、剧透等级、控件覆写（只影响前端，不进入定义指纹）。剧透等级按路径取最深一层的声明：剧透字典里的某个字段可以声明 `public`（如好感度），`hidden` 不能被下层解除 |
+| `reveal` | 带剧透等级的字典：满足这个条件的条目照样公开（官方结构：别人身上 `equipped: true` 的物品看得见）。条件写法同交互的 `when` |
 | `readonly` `internal` | 沿用 SOLVE 原有的提示词可见性 |
 | `edit` | 玩家可在状态栏原地修改这个值（`true` 或 `{ owner?: 'user', narrate? }`），控件按类型推断：文字 / 段落 / 数字 / 开关 / 枚举。见 §11.6 |
 | `actions` | 状态栏上的动作按钮。写在 `record` / `array` 上作用于每一项，写在 `object` 上作用于它本身。见 §11.6 |
@@ -344,7 +346,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | 键 | 含义 |
 | --- | --- |
 | `bar` | 悬浮概览横条显示的字段路径（也是展开后面板的标题栏），可用 `$user` 指玩家角色。官方结构为 地点 · 时间 · 天气 · 场景情绪 · 在场角色；手机上只保留地点、时间、天气。横条的位置由宿主按设备（电脑 / 手机）记住，收起、展开、刷新后都不变 |
-| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`；`pages` 把展开后的卡片分成小页签，`relations.$user` 这类「以玩家为键」的条目显示为醒目的「对你」块，`as: 'quests'` 显示为任务日志，`as: 'inventory'` 显示为背包）；`{ map }` 力导向地图（`current/parent/links/discovered`；有下属地点的区域画成包住地点的范围）；`{ codex: [...] }` 图鉴，两种分类：`{ collection, label, group?, holders }` 浏览根节点实例（搜索、按 `group` 字段筛选），详情列出所有持有者及其本人状态（`holders` 为 `characters.*.items` 这类路径模式），能力详情附等级表，背包与能力页可一键跳到图鉴；`{ prefabs: 'character', into: 'characters', label, origin?, badges?, pages? }` 常态列出该类型的模板，预制实体收进默认折叠的分组，`pages` 同 `list` |
+| `layout` | 面板页签：`{ tab, module?, items }`。`items` 可用：`{ sheet }` 玩家角色卡（`subtitle/badges/tags/vitals/status/effects/currency/pages` 指定各区域对应的字段）；`{ graph }` 关系图（`edges/weight/label/tone/tones/size/present/legend`，默认折叠）；`{ list }` 折叠卡片列表（`exclude: '$user'`、`present`、`order`、`badges`、`score`、`search`（搜索名字、别称、身份）、`aside: { label, paths }`（概况：电脑上放在立绘下方的左栏，手机上作为第一页）；`pages` 把展开后的卡片分成小页签，`relations.$user` 这类「以玩家为键」的条目显示为醒目的「对你」块，`as: 'quests'` 显示为任务日志，`as: 'inventory'` 显示为背包）；`{ map }` 力导向地图（`current/parent/links/discovered`；有下属地点的区域画成包住地点的范围）；`{ codex: [...] }` 图鉴，两种分类：`{ collection, label, group?, holders }` 浏览根节点实例（搜索、按 `group` 字段筛选），详情列出所有持有者及其本人状态（`holders` 为 `characters.*.items` 这类路径模式），能力详情附等级表，背包与能力页可一键跳到图鉴；`{ prefabs: 'character', into: 'characters', label, origin?, badges?, pages? }` 常态列出该类型的模板，预制实体收进默认折叠的分组，`pages` 同 `list` |
 | `spoilerExempt` | 不受剧透遮挡的实体（官方结构：玩家角色） |
 
 

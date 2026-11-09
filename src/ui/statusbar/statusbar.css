@@ -327,7 +327,7 @@
 @keyframes solve-halo { 0%, 100% { opacity: .5; } 50% { opacity: .12; } }
 [data-solve="graph"] [data-solve-part="tools"] { position: absolute; right: var(--k-space-2); bottom: var(--k-space-2); display: flex; gap: var(--k-space-1); }
 [data-solve="map"], [data-solve="relation-graph"] { display: flex; flex-direction: column; gap: var(--k-space-2); }
-[data-solve="map"] > [data-solve-part="legend"], [data-solve="relation-graph"] > [data-solve-part="legend"] {
+[data-solve="map"] [data-solve-part="legend"], [data-solve="relation-graph"] > [data-solve-part="legend"] {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-1) var(--k-space-3); font-size: var(--k-fs-xs); color: var(--k-on-muted);
 }
 [data-solve-part="legend"] > span { display: inline-flex; align-items: center; gap: 4px; }
@@ -817,3 +817,35 @@
 [data-solve="quests"] [data-solve="checklist"][data-list] > li { grid-template-columns: auto minmax(0, 1fr) auto; }
 [data-solve="quests"] [data-solve="checklist"][data-list] > li > [data-solve="editor"] { grid-column: 2 / -1; }
 [data-solve="quests"] [data-solve="checklist"][data-list] > li > [data-solve-part="text"] { padding-top: 0; }
+
+/* Map: graph and place card side by side on wide screens */
+[data-solve="map"] > [data-solve-part="view"] { display: flex; flex-direction: column; gap: var(--k-space-2); min-width: 0; }
+[data-solve="map"][data-layout="split"] { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); align-items: start; gap: var(--k-space-4); }
+[data-solve="map"][data-layout="split"] > [data-solve-part="view"] { position: sticky; top: var(--k-space-2); }
+/* Opened cards with an overview: picture + overview in the left column */
+@container (min-width: 560px) {
+  [data-solve="card-body"][data-aside] > [data-solve-part="layout"] { display: grid; grid-template-columns: 220px minmax(0, 1fr); align-items: start; }
+  [data-solve="card-body"] > [data-solve-part="layout"] > [data-solve-part="side"] { display: flex; flex-direction: column; gap: var(--k-space-3); min-width: 0; }
+}
+[data-solve="card-body"] [data-solve-part="overview"] { display: flex; flex-direction: column; gap: var(--k-space-2); font-size: var(--k-fs-sm); }
+[data-solve="card-body"] [data-solve-part="overview"] [data-solve="fields"] { grid-template-columns: minmax(0, 1fr); }
+/* Relation rows fold to who + meter */
+[data-solve="relation"][data-open] > [data-solve-part="head"] { grid-template-columns: auto auto 1fr; }
+[data-solve="relation"] [data-solve-part="toggle"] {
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--k-r-md); background: none; cursor: pointer; color: var(--k-on-muted); display: inline-grid; place-items: center;
+}
+[data-solve="relation"] [data-solve-part="toggle"]:hover { background: var(--k-accent-soft); color: var(--k-on-accent-soft); }
+[data-solve="relation"] [data-solve-part="toggle"]:focus-visible { outline: none; box-shadow: var(--k-focus-ring); }
+[data-solve="relation"] [data-solve-part="toggle"] > i { width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform var(--k-dur-fast, .15s) var(--k-ease); }
+[data-solve="relation"][data-open="true"] [data-solve-part="toggle"] > i { transform: rotate(45deg); }
+[data-solve="relation"][data-open="false"] { padding-bottom: var(--k-space-2); }
+/* List search */
+[data-solve="search"] {
+  flex: 1 1 160px; max-width: 260px; min-height: 32px; box-sizing: border-box; padding: var(--k-space-1) var(--k-space-3); font: inherit; font-size: 16px;
+  color: var(--k-on); background: var(--k-surface-1); border: var(--k-border-w, 1px) solid var(--k-divider); border-radius: var(--k-r-pill);
+}
+[data-solve="search"]:focus-visible { outline: none; box-shadow: var(--k-focus-ring); }
+[data-solve="spoiler"][data-state="shown"]:has(> div, > section) { display: block; }
+[data-solve="inventory"] [data-solve="spoiler"][data-state="hidden"] { margin-top: var(--k-space-2); }
+[data-solve="abilities"] [data-solve-part="progress-text"] { margin: var(--k-space-2) 0 0; font-size: var(--k-fs-sm); }
+[data-solve="abilities"] [data-solve-part="progress-text"] > span { color: var(--k-on-muted); margin-inline-end: var(--k-space-2); }

@@ -38,7 +38,7 @@ export const exampleData: Record<string, Json> = {
         attributes: { wod: { str: 23, dex: 6, sta: 8, int: 3, wits: 4, res: 5, pre: 2, man: 2, com: 3 } },
         special: { 契约之力: '残响' },
         abilities: { night_vision: {}, indomitable: {}, shield_bash: { level: 2, progress: 60 }, echo_slash: { level: 1, progress: 15 } },
-        gauges: { 生命: { value: 72, max: 100 }, 体力: { value: 30, max: 50 }, 理智: { value: 88, max: 100 }, 饥饿: '一天没吃东西，肚子在叫' },
+        gauges: { 生命: { value: 72, max: 100 }, 体力: { value: 30, max: 50 }, 理智: { value: 88, max: 100 }, 饱腹: { value: 15, max: 100 } },
         effects: { 淋湿: { desc: '敏捷检定略受影响', until: '烤干衣物' }, 契约低语: { desc: '偶尔听见契约者的声音', source: '契约' } },
       },
       items: {
@@ -165,7 +165,7 @@ export const examplePresets: { prefabs: Record<string, { type: string; data: Rec
         special: { 信徒: '下城区约有三十人' }, abilities: { undying: {}, echo_slash: { level: 3 } } } } },
     rat_king: { type: 'character', data: {
       name: '下水道鼠王', ...pics('rat_king'), role: '一次性敌人', tags: ['野兽', '群体'], intro: '几十只尾巴缠在一起的老鼠，像一个会思考的东西。',
-      appearance: '一团湿漉漉的、蠕动的灰毛。', rp: { abilities: { night_vision: {} }, gauges: { 群体: '还剩二十来只' } } } },
+      appearance: '一团湿漉漉的、蠕动的灰毛。', rp: { abilities: { night_vision: {} }, gauges: { 群体: { value: 20, max: 60 } } } } },
   },
   templates: {
     cult_zealot: { type: 'character', data: {
@@ -197,3 +197,20 @@ export async function exampleState(core: SolveCore): Promise<LogicalState> {
 
 /** The official structure with the example world's prefabs and templates attached. */
 export const exampleStructure: StructureDescription = { ...officialStructure, ...examplePresets, bgm: { ...officialStructure.bgm, library: MUSIC } };
+
+/**
+ * The same story with 量表与熟练度 kept as sentences (the 描述 mode of the exclusive group `scales`):
+ * switch the module, then write what the model would have written after the migration note.
+ */
+export async function exampleTextScales(core: SolveCore, state: LogicalState): Promise<LogicalState> {
+  const switched = await core.setModule('scale_text', true, state, { source: 'user' });
+  const result = await core.execute({ $set: {
+    'characters.erin.rp.gaugesText': { 生命: '左臂擦伤，还能挥剑', 体力: '赶了一天路，有些发软', 理智: '清醒，只是偶尔听见低语', 饱腹: '一天没吃东西，肚子在叫' },
+    'characters.erin.rp.abilities.shield_bash.progressText': '已经能在实战里稳定撞开对手，离撞倒还差一点火候',
+    'characters.erin.rp.abilities.echo_slash.progressText': '刚刚摸到门道，回声时有时无',
+    'characters.mira.rp.gaugesText': { 生命: '毫发无伤' },
+    'characters.ash.rp.gaugesText': { 魂火: '幽蓝的火比平时暗了一些' },
+  } } as never, switched.state, { source: 'user' });
+  if (result.feedback.some(f => f.level === 'L3')) throw new Error('示例描述模式失败：' + JSON.stringify(result.feedback));
+  return result.state;
+}

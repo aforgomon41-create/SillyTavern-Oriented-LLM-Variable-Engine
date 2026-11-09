@@ -8,11 +8,11 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { artOf, isEmpty, StatusModel, thumbOf, type Path } from './model.js';
 import { ModelContext, NavigateContext, RefChip, Section, useModel } from './fields.js';
-import { EntityBody, Pages, type PageSpec } from './body.js';
+import { EntityBody, PageBody, Pages, resolveUser, visible, type PageSpec } from './body.js';
 import { GraphView, type GraphEdge, type GraphGroup, type GraphNode, type Tone } from './graph.js';
 import { PlayerSheet, type SheetItem } from './sheet.js';
 import { Codex, type CodexCategory } from './codex.js';
-import { Art, Mono, part, solve } from './widgets.js';
+import { Art, Mono, part, solve, useWide } from './widgets.js';
 import { ActionBar, InteractLayer, PendingNarration, type Interact } from './interact.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
@@ -229,7 +229,12 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
     .sort((a, b) => Number(present.has(b)) - Number(present.has(a)) || rank(a) - rank(b));
   const here = all.filter(id => present.has(id));
   const [only, setOnly] = React.useState<'all' | 'present'>('all');
-  const ids = only === 'present' ? here : all;
+  const [query, setQuery] = React.useState('');
+  // Search by name, alias and the short tags/labels a reader would remember someone by.
+  const words = (id: string) => [value[id]?.name, value[id]?.alias, ...(Array.isArray(value[id]?.tags) ? value[id].tags : []), ...(item.badges ?? []).map((b: string) => value[id]?.[b])]
+    .filter(x => typeof x === 'string').join(' ').toLowerCase();
+  const q = query.trim().toLowerCase();
+  const ids = (only === 'present' ? here : all).filter(id => !q || words(id).includes(q) || id.toLowerCase().includes(q));
   const [open, setOpen] = React.useState<Set<string>>(new Set());
   const refs = React.useRef(new Map<string, HTMLDivElement>());
   React.useEffect(() => {
@@ -245,7 +250,9 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
         <h4 {...part('title')}>{item.title ?? m.label(path)}<small>{all.length}</small></h4>
         {here.length && here.length < all.length && K.Segmented ? <K.Segmented size="sm" label="筛选" value={only} onValueChange={v => setOnly(v as 'all' | 'present')}
           options={[{ value: 'all', label: `全部 ${all.length}` }, { value: 'present', label: `在场 ${here.length}` }]} /> : null}
+        {item.search ? <input type="search" {...solve('search')} value={query} onChange={e => setQuery(e.target.value)} placeholder={`搜索${item.title ?? m.label(path)}`} aria-label={`搜索${item.title ?? m.label(path)}`} /> : null}
       </div>
+      {q && !ids.length ? <span {...solve('none')}>没有找到「{query.trim()}」</span> : null}
       <div {...solve('stack')}>
         {ids.map(id => {
           const v = value[id] ?? {}, score = item.score ? resolve(m, item.score) : undefined;
@@ -259,13 +266,7 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
                   {(item.badges ?? []).map((b: string) => v[b] ? <K.Badge key={b} tone="neutral">{String(v[b])}</K.Badge> : null)}
                   {typeof s === 'number' ? <span {...part('score')} data-sign={s > 0 ? 'positive' : s < 0 ? 'negative' : 'zero'} title={`${item.scoreLabel ?? sMeta?.desc ?? ''}`}>{item.scoreLabel ?? ''} {s > 0 ? '+' : ''}{s}</span> : null}
                 </span>}>
-                {open.has(id) ? (
-                  <div {...solve('card-body', { art: artOf(v) ? '' : undefined })}><div {...part('layout')}>
-                    {artOf(v) ? <Art src={artOf(v)!} alt={v.name ?? id} variant="side" /> : null}
-                    <div {...part('main')}>{item.pages ? <Pages base={[...path, id]} pages={item.pages as PageSpec[]} label={`${v.name ?? id}的资料`} compact />
-                      : <EntityBody path={[...path, id]} skip={item.badges} />}
-                      {item.stored ? <StoredHere id={id} spec={item.stored} /> : null}</div>
-                  </div></div>) : null}
+                {open.has(id) ? <CardBody item={item} path={[...path, id]} v={v} /> : null}
               </K.CollapseCard>
             </div>
           );
@@ -293,6 +294,33 @@ function StoredHere({ id, spec }: { id: string; spec: { holders: string; field: 
   );
 }
 
+/**
+ * An opened card. `aside` (the overview) sits under the picture in a left column on wide screens, like the
+ * player sheet; on narrow ones it becomes the first page.
+ */
+function CardBody({ item, path, v }: { item: any; path: Path; v: any }) {
+  const m = useModel();
+  const [ref, wide] = useWide(560);
+  const id = path.at(-1)!, name = v.name ?? id;
+  const aside: { label: string; paths: string[] } | undefined = item.aside;
+  const asideShown = !!aside && aside.paths.some(r => visible(m, resolveUser(m, path, r)));
+  const pages: PageSpec[] | undefined = item.pages ? (aside && !wide ? [{ label: aside.label, paths: aside.paths }, ...item.pages] : item.pages) : undefined;
+  const side = wide && (artOf(v) || asideShown);
+  return (
+    <div ref={ref} {...solve('card-body', { art: artOf(v) ? '' : undefined, aside: wide && asideShown ? '' : undefined })}><div {...part('layout')}>
+      {side ? (
+        <div {...part('side')}>
+          {artOf(v) ? <Art src={artOf(v)!} alt={name} variant="side" /> : null}
+          {aside && asideShown ? <div {...part('overview')}><PageBody base={path} paths={aside.paths} /></div> : null}
+        </div>
+      ) : artOf(v) ? <Art src={artOf(v)!} alt={name} variant="side" /> : null}
+      <div {...part('main')}>{pages ? <Pages key={wide ? 'wide' : 'narrow'} base={path} pages={pages} label={`${name}的资料`} compact />
+        : <EntityBody path={path} skip={item.badges} />}
+        {item.stored ? <StoredHere id={id} spec={item.stored} /> : null}</div>
+    </div></div>
+  );
+}
+
 /** Relationship / diplomacy graph between the entities of one collection, collapsed by default. */
 function RelationGraph({ item }: { item: any }) {
   const m = useModel(), K = useKit(), go = React.useContext(NavigateContext);
@@ -311,7 +339,8 @@ function RelationGraph({ item }: { item: any }) {
     const key = a < b ? `${a}|${b}` : `${b}|${a}`;
     const p = pairs.get(key) ?? { a, b, weights: [], labels: [], tones: [] };
     if (item.weight && typeof r?.[item.weight] === 'number') p.weights.push(r[item.weight]);
-    const lab = item.label ? r?.[item.label] : undefined;
+    // Labels behind a spoiler (how one privately sees the other) stay off the graph.
+    const lab = item.label && m.spoiler([...path, a, item.edges, b, item.label]) === 'public' ? r?.[item.label] : undefined;
     const text = Array.isArray(lab) ? lab[0] : lab;
     if (typeof text === 'string' && text && !p.labels.includes(text)) p.labels.push(text);
     if (item.tone && typeof r?.[item.tone] === 'string') p.tones.push(r[item.tone]);
@@ -394,10 +423,13 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
   }
   const pickedRegion = sel && groups.find(g => g.id === sel);
   const s = sel ? places[sel] : undefined;
+  const [box, wide] = useWide(640);
   return (
-    <div {...solve('map')}>
-      <GraphView nodes={nodes} edges={edges} groups={groups} selected={picked} onSelect={setPicked} label={`${m.label(path)}地图`} {...(here ? { start: here } : {})} />
-      <div {...part('legend')}><span data-kind="link"><i />相连</span>{groups.length ? <span data-kind="region"><i />区域</span> : null}<span {...part('hint')}>点区域名选中整个区域，拖动区域名可整体移动</span></div>
+    <div ref={box} {...solve('map', { layout: wide ? 'split' : undefined })}>
+      <div {...part('view')}>
+        <GraphView nodes={nodes} edges={edges} groups={groups} selected={picked} onSelect={setPicked} label={`${m.label(path)}地图`} {...(here ? { start: here } : {})} />
+        <div {...part('legend')}><span data-kind="link"><i />相连</span>{groups.length ? <span data-kind="region"><i />区域</span> : null}<span {...part('hint')}>点区域名选中整个区域，拖动区域名可整体移动</span></div>
+      </div>
       {s ? (
         <K.Card title={known(sel!) ? s.name ?? sel : '未发现的地点'} meta={<>{s.kind ? <K.Badge tone="neutral">{s.kind}</K.Badge> : null}{sel === here ? <K.Badge tone="accent">当前位置</K.Badge> : null}</>}>
           {known(sel!) && artOf(s) ? <Art key={artOf(s)} src={artOf(s)!} alt={s.name ?? sel!} variant="banner" /> : null}

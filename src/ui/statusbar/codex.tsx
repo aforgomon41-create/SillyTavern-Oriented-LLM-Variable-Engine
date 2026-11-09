@@ -10,6 +10,7 @@
  */
 import * as React from 'react';
 import { ReadOnly } from './interact.js';
+import { useWide } from './widgets.js';
 import { useKit } from '../kit.js';
 import { artOf, isEmpty, StatusModel, thumbOf, type Path } from './model.js';
 import { Field, ModelContext, NavigateContext, useModel } from './fields.js';
@@ -82,16 +83,6 @@ function available(m: StatusModel, c: CodexCategory): boolean {
   return !!c.collection && !!m.meta(rel(c.collection)) && !m.dormant(rel(c.collection));
 }
 
-function useWide(): [React.RefObject<HTMLDivElement | null>, boolean] {
-  const ref = React.useRef<HTMLDivElement>(null);
-  const [wide, setWide] = React.useState(true);
-  React.useLayoutEffect(() => {
-    const el = ref.current; if (!el) return undefined;
-    const ro = new ResizeObserver(() => setWide(el.clientWidth >= 620)); ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, wide];
-}
 
 export function Codex({ categories, focus }: { categories: CodexCategory[]; focus?: { path: Path; at: number } }) {
   const m = useModel(), K = useKit();

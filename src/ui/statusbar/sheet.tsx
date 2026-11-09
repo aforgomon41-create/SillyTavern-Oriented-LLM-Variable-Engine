@@ -14,7 +14,9 @@ import { Art, Mono, part, solve } from './widgets.js';
 import { artOf } from './model.js';
 
 export interface SheetItem {
-  sheet: string; id: string; subtitle?: string; badges?: string[]; tags?: string; vitals?: string; status?: string;
+  sheet: string; id: string; subtitle?: string; badges?: string[]; tags?: string;
+  /** Gauges; with several paths (数值 / 描述 modes) the first active one is shown. */
+  vitals?: string | string[]; status?: string;
   effects?: string; currency?: string;
   /** With `currency` pointing at holdings (`items`): the item type counted as money; amounts are what the character carries. */
   currencyType?: string;
@@ -42,7 +44,8 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
   const at = (r?: string) => r ? m.value([...path, ...rel(r)]) : undefined;
   const on = (r?: string) => !!r && visible(m, [...path, ...rel(r)]);
   const name: string = v.name ?? path.at(-1);
-  const vitals = on(item.vitals) ? Object.entries(at(item.vitals) as Record<string, unknown>) : [];
+  const vitalPath = (Array.isArray(item.vitals) ? item.vitals : item.vitals ? [item.vitals] : []).find(on);
+  const vitals = vitalPath ? Object.entries(at(vitalPath) as Record<string, unknown>) : [];
   const effects = on(item.effects) ? Object.entries(at(item.effects) as Record<string, any>) : [];
   const money: [string, unknown][] = !on(item.currency) ? [] : !item.currencyType ? Object.entries(at(item.currency) as Record<string, unknown>)
     : Object.entries((at(item.currency) ?? {}) as Record<string, any>).flatMap(([id, own]) => {

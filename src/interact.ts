@@ -58,7 +58,7 @@ const COMPARE = new Set(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'exists', '
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const pairOrString = (v: unknown) => typeof v === 'string' || (Array.isArray(v) && v.length === 2 && v.every(x => typeof x === 'string'));
 
-function checkCond(at: string, cond: unknown): void {
+export function checkCond(at: string, cond: unknown): void {
   if (!isObj(cond)) fail('STRUCTURE_INVALID', `${at}：条件必须是对象`, at);
   for (const [key, v] of Object.entries(cond)) {
     if (!key) fail('STRUCTURE_INVALID', `${at}：条件键不能为空`, at);

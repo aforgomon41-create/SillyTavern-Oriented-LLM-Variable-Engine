@@ -48,7 +48,7 @@ export function Pages({ base, pages, label, compact = false, page: controlled, o
 }
 
 /** One page: loose scalar fields are gathered into one fact grid, bigger parts follow in order. */
-function PageBody({ base, paths, as }: { base: Path; paths: string[]; as?: string }) {
+export function PageBody({ base, paths, as }: { base: Path; paths: string[]; as?: string }) {
   const m = useModel();
   const items = paths.map(r => ({ r, path: resolveUser(m, base, r) })).filter((x): x is { r: string; path: Path } => visible(m, x.path));
   const scalar = (p: Path) => ['string', 'enum', 'int', 'number', 'bool', 'ref', 'refs', 'ladder'].includes(m.meta(p)?.type ?? '') && m.widget(p) !== 'paragraph'

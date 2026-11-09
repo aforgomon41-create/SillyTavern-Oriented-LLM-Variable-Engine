@@ -107,7 +107,10 @@ export function Section({ path, title }: { path: Path; title?: React.ReactNode }
     else if (meta.entity) content = <EntityGrid path={path} grid={as === 'grid'} />;
     else if (meta.keys && as === 'inventory') content = <Inventory path={path} />;
     else if (meta.keys && as === 'abilities') content = <Abilities path={path} />;
-    else if (meta.keys) content = <div {...solve('relations')}>{keys.map(key => <RelationRow key={key} path={[...path, key]} />)}</div>;
+    else if (meta.keys) {
+      // Each row guards its own fields (好感度 may be public while the rest is a spoiler), so the block itself is not wrapped.
+      return <Block title={label} meta={String(keys.length)} path={path} guard={false}><div {...solve('relations')}>{keys.map(key => <RelationRow key={key} path={[...path, key]} collapsible />)}</div></Block>;
+    }
     else if (as === 'currency') content = <CurrencyList entries={keys.map(key => [key, value[key]])} label={String(label)} />;
     else if (as === 'meters' || element?.type === 'oneOf' || keys.every(key => isGauge(value[key]))) content = <Mixed entries={keys.map(key => [key, value[key]])} />;
     else if (as === 'chips') content = <span {...solve('chips')}>{keys.map(key => <K.Tooltip key={key} content={<EffectTip value={value[key]} />}><span {...solve('chip')} tabIndex={0}>{key}</span></K.Tooltip>)}</span>;
@@ -130,9 +133,9 @@ export function Section({ path, title }: { path: Path; title?: React.ReactNode }
     </Block>
   );
 }
-function Block({ title, meta, path, children }: { title: React.ReactNode; meta?: string; path: Path; children: React.ReactNode }) {
+function Block({ title, meta, path, children, guard = true }: { title: React.ReactNode; meta?: string; path: Path; children: React.ReactNode; guard?: boolean }) {
   const K = useKit();
-  return <K.Card title={title} meta={meta}><Guarded path={path}>{children}</Guarded></K.Card>;
+  return <K.Card title={title} meta={meta}>{guard ? <Guarded path={path}>{children}</Guarded> : children}</K.Card>;
   void path;
 }
 function EffectTip({ value }: { value: any }) {
@@ -152,19 +155,29 @@ function Entry({ path }: { path: Path }) {
   );
 }
 /** keyed-by-reference rows (relations, reputation): target, meter, tags, details. */
-export function RelationRow({ path, title }: { path: Path; title?: React.ReactNode }) {
-  const m = useModel(), value = m.value(path) ?? {};
+export function RelationRow({ path, title, collapsible = false }: { path: Path; title?: React.ReactNode; collapsible?: boolean }) {
+  const m = useModel(), K = useKit(), value = m.value(path) ?? {};
+  const [open, setOpen] = React.useState(false);
   const keys = m.children(path);
   const meterKey = keys.find(k => typeof value[k] === 'number');
   const meterMeta = meterKey ? m.meta([...path, meterKey]) : undefined;
-  const rest = keys.filter(k => k !== meterKey && !isEmpty(value[k]));
+  // Without a number (外交), a public enum (立场) heads the row instead.
+  const badgeKey = meterKey ? undefined : keys.find(k => m.meta([...path, k])?.type === 'enum' && typeof value[k] === 'string' && m.spoiler([...path, k]) === 'public');
+  const rest = keys.filter(k => k !== meterKey && k !== badgeKey && !isEmpty(value[k]) && m.spoiler([...path, k]) !== 'hidden');
+  const meter = meterKey && meterMeta?.min !== undefined && meterMeta.max !== undefined && m.spoiler([...path, meterKey]) !== 'hidden'
+    ? <Guarded path={[...path, meterKey]}><CenterMeter label={m.label([...path, meterKey])} value={value[meterKey]} min={meterMeta.min} max={meterMeta.max} /></Guarded> : null;
+  // In a list every row folds to its head (who + the meter); the details open on demand.
+  const fold = collapsible && rest.length > 0;
+  const bodyId = React.useId();
   return (
-    <div {...solve('relation')}>
+    <div {...solve('relation', { open: fold ? (open ? 'true' : 'false') : undefined })}>
       <div {...part('head')}>
+        {fold ? <button type="button" {...part('toggle')} aria-expanded={open} aria-controls={bodyId} aria-label={open ? '收起' : '展开'} onClick={() => setOpen(o => !o)}><i aria-hidden="true" /></button> : null}
         {title ?? <RefChip id={path.at(-1)!} />}
-        {meterKey && meterMeta?.min !== undefined && meterMeta.max !== undefined ? <CenterMeter label={m.label([...path, meterKey])} value={value[meterKey]} min={meterMeta.min} max={meterMeta.max} /> : null}
+        {meter}
+        {badgeKey ? <span {...part('badge')}><K.Badge tone="neutral">{value[badgeKey]}</K.Badge></span> : null}
       </div>
-      <div {...part('body')}>{rest.map(k => <Field key={k} path={[...path, k]} compact />)}</div>
+      {!fold || open ? <div {...part('body')} id={bodyId}>{rest.map(k => <Field key={k} path={[...path, k]} compact />)}</div> : null}
     </div>
   );
 }

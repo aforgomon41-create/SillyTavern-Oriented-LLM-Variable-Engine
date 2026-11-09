@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, SolveCore, compileStructure, officialStructure, project, guide, toJson, applyAction, computeAll, selectBgm, nextRound } from '../src/index.js';
+import { compile, SolveCore, compileStructure, officialStructure, project, guide, toJson, applyAction, computeAll, selectBgm, nextRound, migrationText } from '../src/index.js';
 import { exampleData, exampleState, exampleStructure } from '../examples/official/example.js';
 import type { Action, LogicalState } from '../src/types.js';
 
@@ -160,20 +160,19 @@ test('空白新聊天：只靠模型操作就能建立角色和地点', async ()
   void exampleData;
 });
 
-test('数值或文字（oneOf）：量表、资金、特殊属性两种写法都能存，数值形式仍可增减与截断', async () => {
+test('数值或文字（oneOf）：特殊属性两种写法都能存；数值量表照常增减与截断', async () => {
   const { core, state, def } = await official();
-  assert.equal((def.display?.fields?.['characters.*.rp.gauges.*'] as any)?.type, 'oneOf');
-  assert.equal(data(state).characters.erin.rp.gauges.饥饿, '一天没吃东西，肚子在叫');
+  assert.equal((def.display?.fields?.['characters.*.rp.special.*'] as any)?.type, 'oneOf');
   const inc = await core.execute({ $inc: { '@erin.rp.gauges.生命.value': 10 } }, state);
   assert.equal(data(inc.state).characters.erin.rp.gauges.生命.value, 82);
   const max = await core.execute({ $set: { '@erin.rp.gauges.生命.max': -5 } }, state);
   assert.equal(data(max.state).characters.erin.rp.gauges.生命.max, 0, '数值形式里的下限照常截断');
-  const swap = await core.execute({ $set: { '@erin.rp.gauges.生命': '重伤，失血不止', '@erin.rp.special.契约之力': { value: 3, max: 10 } } }, state);
-  assert.equal(data(swap.state).characters.erin.rp.gauges.生命, '重伤，失血不止');
+  const swap = await core.execute({ $set: { '@erin.rp.special.契约之力': { value: 3, max: 10 } } }, state);
   assert.deepEqual(data(swap.state).characters.erin.rp.special.契约之力, { value: 3, max: 10 });
-  const bad = await core.execute({ $set: { '@erin.rp.gauges.生命': true } }, state);
-  assert.deepEqual(data(bad.state).characters.erin.rp.gauges.生命, { value: 72, max: 100 }, '两种形式都不是时拒绝');
-  assert.ok(bad.feedback.some(f => f.code === 'SCHEMA_REJECTED'));
+  const text = await core.execute({ $set: { '@erin.rp.special.契约之力': '若隐若现' } }, state);
+  assert.equal(data(text.state).characters.erin.rp.special.契约之力, '若隐若现');
+  const bad = await core.execute({ $set: { '@erin.rp.special.契约之力': true } }, state);
+  assert.ok(bad.feedback.some(f => f.code === 'SCHEMA_REJECTED'), '两种形式都不是时拒绝');
 });
 
 test('货币是物品：$transfer 付钱，对方没有该币种时自动新建；存放在建筑里', async () => {
@@ -339,4 +338,29 @@ test('交互：存入与取出建筑，货币与物品同样处理', async () =>
   const paid = await act('give', 'erin', 'gold', { to: 'ash', n: 40 });
   assert.equal(data(paid.state).characters.ash.items.gold.count, 40, '付钱给没有金币的人');
   assert.equal(data(paid.state).characters.erin.items.gold.stored.royal_bank, 500, '交出随身的钱不动存款');
+});
+test('量表与熟练度：数值 / 描述 互斥，切换时给迁移指令', async () => {
+  const { def, core, state } = await official();
+  const { exampleTextScales } = await import('../examples/official/example.js');
+  const text = await exampleTextScales(core, state);
+  assert.equal(text.engineState.activeModules.scale_num, false);
+  assert.equal(text.engineState.migration?.group, 'scales');
+  assert.match(migrationText(def, text.engineState.migration!), /生命/u, '迁移指令附上原来的数值');
+  assert.equal(data(text).characters.erin.rp.gaugesText.饱腹, '一天没吃东西，肚子在叫');
+  const num = await core.execute({ $set: { '@erin.rp.gauges.生命': { value: 1, max: 2 } } }, text);
+  assert.ok(num.feedback.some(f => f.code === 'MODULE_DORMANT'), '描述模式下数值量表休眠');
+  const bad = await core.execute({ $set: { '@erin.rp.gauges.生命': '重伤' } }, state);
+  assert.ok(bad.feedback.some(f => f.level === 'L3'), '数值模式只收 {value, max}');
+});
+test('剧透：社交、能力、物品默认折叠，好感度与已装备物品公开', async () => {
+  const { def, state } = await official();
+  const { StatusModel } = await import('../src/ui/statusbar/model.js');
+  const m = new StatusModel(def, state);
+  assert.equal(m.spoiler(['characters', 'mira', 'relations', 'erin', 'impression']), 'spoiler');
+  assert.equal(m.spoiler(['characters', 'mira', 'relations', 'erin', 'affection']), 'public');
+  assert.equal(m.spoiler(['characters', 'mira', 'items', 'lute']), 'public', '已装备的物品看得见');
+  assert.equal(m.spoiler(['characters', 'mira', 'items', 'healing_draught']), 'spoiler');
+  assert.equal(m.spoiler(['characters', 'mira', 'rp', 'abilities']), 'spoiler');
+  assert.equal(m.spoiler(['characters', 'erin', 'items', 'healing_draught']), 'public', '玩家自己的不遮');
+  assert.equal(m.spoiler(['items', 'lute', 'truth']), 'hidden');
 });

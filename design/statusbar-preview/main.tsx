@@ -13,7 +13,7 @@ import { SkinManager, type SkinEntry, type StoredSettings } from 'kami/frontend/
 import * as DS from 'kami/frontend/ds';
 import kamiSkins from 'kami-skins';
 import { compile, SolveCore, compileStructure, selectBgm } from '../../src/index';
-import { exampleState, exampleStructure } from '../../examples/official/example';
+import { exampleState, exampleStructure, exampleTextScales } from '../../examples/official/example';
 import { IMAGES, MUSIC, MUSIC_CREDIT } from '../../examples/official/media';
 import { KitProvider, type Kit } from '../../src/ui/kit';
 import { StatusBar } from '../../src/ui/statusbar/views';
@@ -57,7 +57,8 @@ function gallery(): void {
       ${MUSIC.map(t => `<li><code>${t.id}</code> 「${t.title}」 · CC BY 4.0${t.moods.length ? ' · 情绪：' + t.moods.join('、') : ''}</li>`).join('')}</ul>
     </details>
     <p class="note audio-note">四个窗口默认静音；点窗口右上角 ♪ 打开播放，或 <a class="solo" target="_blank" rel="noopener">在新窗口单独打开</a>（点一下页面就开始播放当前场景的配乐）。</p>
-    <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '图鉴', '势力', '建筑'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav></header>
+    <nav class="tabs" aria-label="页签">${['横条', '按钮', '角色', '社交', '地图', '图鉴', '势力', '建筑'].map(t => `<button type="button" data-tab="${t}">${t}</button>`).join('')}</nav>
+    <nav class="tabs scales" aria-label="量表与熟练度"><span>量表与熟练度：</span><button type="button" data-scales="num">数值</button><button type="button" data-scales="text">描述</button></nav></header>
     <section class="frames">
       <figure class="pc"><figcaption>电脑 1440 · 浅色</figcaption><div class="box"><iframe data-scheme="light" data-w="1440" data-h="900"></iframe></div></figure>
       <figure class="pc"><figcaption>电脑 1440 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="1440" data-h="900"></iframe></div></figure>
@@ -67,19 +68,20 @@ function gallery(): void {
   document.body.appendChild(root);
   const coins = ['金币', '银币', '铜币', '文', '银两', '美元', '人民币', '日元', '灵石'];
   createRoot(root.querySelector('.coins')!).render(<>{coins.map(c => <span key={c}><CurrencyIcon name={c} size={24} />{c}{c === '灵石' ? <small>（未识别→通用）</small> : null}</span>)}</>);
-  let skin = order[0]!, tab = '横条';
+  let skin = order[0]!, tab = '横条', scales = 'num';
   const frames = Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe'));
   const load = () => {
     root.querySelectorAll<HTMLButtonElement>('.skins button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === skin)));
-    root.querySelectorAll<HTMLButtonElement>('.tabs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
+    root.querySelectorAll<HTMLButtonElement>('.tabs button[data-tab]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
+    root.querySelectorAll<HTMLButtonElement>('.tabs button[data-scales]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scales === scales)));
     root.querySelector('.note')!.textContent = NOTES[skin] ?? '';
     // The build stamp keeps the frames from coming out of the browser cache after a new deploy.
     const stamp = encodeURIComponent(__BUILD__);
-    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&view=${encodeURIComponent(tab)}&embed=1&b=${stamp}`;
-    root.querySelector<HTMLAnchorElement>('.solo')!.href = `${location.pathname}?skin=${skin}&scheme=light&view=${encodeURIComponent(tab)}&b=${stamp}`;
+    for (const f of frames) f.src = `${location.pathname}?skin=${skin}&scheme=${f.dataset.scheme}&view=${encodeURIComponent(tab)}&scales=${scales}&embed=1&b=${stamp}`;
+    root.querySelector<HTMLAnchorElement>('.solo')!.href = `${location.pathname}?skin=${skin}&scheme=light&view=${encodeURIComponent(tab)}&scales=${scales}&b=${stamp}`;
   };
   root.querySelector('.skins')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.id) { skin = b.dataset.id; load(); } });
-  root.querySelector('.tabs')!.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.tab) { tab = b.dataset.tab; load(); } });
+  root.querySelectorAll('.tabs').forEach(nav => nav.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.tab) { tab = b.dataset.tab; load(); } if (b?.dataset.scales) { scales = b.dataset.scales; load(); } }));
   const fit = () => { for (const f of frames) { const w = Number(f.dataset.w), h = Number(f.dataset.h), box = f.parentElement!; const s = box.clientWidth / w; f.style.width = w + 'px'; f.style.height = h + 'px'; f.style.transform = `scale(${s})`; box.style.height = h * s + 'px'; } };
   new ResizeObserver(fit).observe(root); fit(); load();
 }
@@ -106,7 +108,8 @@ async function single(id: string, scheme: string, view: string): Promise<void> {
 
   const def = await compile(compileStructure(exampleStructure));
   const core = new SolveCore(def);
-  const initial = await exampleState(core);
+  // ?scales=text: 量表与熟练度 kept as sentences (the 描述 mode of the exclusive group).
+  const initial = q.get('scales') === 'text' ? await exampleTextScales(core, await exampleState(core)) : await exampleState(core);
   // Background music, chosen by the engine's rules (place → region → mood). Browsers only start audio after a user gesture.
   const embed = q.get('embed') === '1';
   const audio = new Audio();

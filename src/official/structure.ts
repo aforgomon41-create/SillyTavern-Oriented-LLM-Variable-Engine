@@ -105,11 +105,12 @@ const character: FieldNode = {
             done: { type: 'bool', label: '完成', edit: { owner: 'user', narrate: ['{holder}完成了规划：{text}', '{holder}的规划「{text}」重新标为未完成'] } } } } },
       },
     },
+    // Spoilers: what one can see from outside stays public (好感度, equipped gear); the rest is folded until clicked.
     relations: {
-      type: 'record', label: '社交', module: 'social', keys: 'character',
+      type: 'record', label: '社交', module: 'social', keys: 'character', spoiler: 'spoiler',
       of: {
         type: 'object', fields: {
-          affection: { type: 'int', label: '好感度', min: -100, max: 100, maxDelta: 10, as: 'meter-center' },
+          affection: { type: 'int', label: '好感度', min: -100, max: 100, maxDelta: 10, as: 'meter-center', spoiler: 'public' },
           labels: { type: 'array', label: '关系', of: { type: 'string' }, list: OFFICIAL_LISTS.labels, as: 'tags' },
           impression: text('印象'),
           promises: { type: 'array', label: '约定', of: { type: 'string' }, list: OFFICIAL_LISTS.promises },
@@ -141,13 +142,16 @@ const character: FieldNode = {
         },
         special: { type: 'record', label: '特殊属性', module: 'rp_attributes', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
         // Abilities live once in the root `abilities`; a character only references them (with its own level).
-        abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities', actions: ABILITY_ACTIONS,
+        abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities', actions: ABILITY_ACTIONS, spoiler: 'spoiler',
           of: { type: 'object', fields: {
             level: { type: 'int', label: '等级', min: 0, optional: true },
             // Practice toward the next level (0–100); reaching 100 raises the level and starts again.
-            progress: { type: 'int', label: '熟练度', min: 0, max: 100, optional: true },
+            progress: { type: 'int', label: '熟练度', min: 0, max: 100, optional: true, module: 'scale_num' },
+            progressText: text('熟练度', { optional: true, module: 'scale_text' }),
           } } },
-        gauges: { type: 'record', label: '量表', module: 'rp_status', as: 'meters', of: { type: 'oneOf', variants: [gauge(), { type: 'string' }] } },
+        // Two exclusive ways to keep gauges (and ability 熟练度): numbers, or a sentence that fits the story better.
+        gauges: { type: 'record', label: '量表', module: ['rp_status', 'scale_num'], as: 'meters', of: gauge() },
+        gaugesText: { type: 'record', label: '量表', module: ['rp_status', 'scale_text'], as: 'meters', of: { type: 'string' } },
         effects: { type: 'record', label: '效果', module: 'rp_status', as: 'chips',
           of: { type: 'object', fields: { desc: text('描述'), source: text('来源', { optional: true }), until: text('持续到', { optional: true }) } } },
       },
@@ -156,6 +160,7 @@ const character: FieldNode = {
     // Unique items (unique: true) have one holder: giving one to someone takes it from its previous holder.
     // Money is an item of type 货币 (金币, 银两 …): counted, given and deposited like anything else.
     items: { type: 'record', label: '物品', module: 'assets', keys: 'item', uniqueBy: 'unique', as: 'inventory', actions: ITEM_ACTIONS,
+      spoiler: 'spoiler', reveal: { equipped: true },
       of: { type: 'object', fields: {
         count: { type: 'int', label: '数量', min: 0, default: 1 },
         equipped: { type: 'bool', label: '已装备' },
@@ -254,6 +259,7 @@ export const officialStructure: StructureDescription = {
       type: 'record', label: '势力', entity: 'faction', module: 'factions',
       of: { type: 'object', fields: {
         name: text('势力名', { required: true }), alias: text('别称', { optional: true }),
+        thumb: media('徽记', 'image'), image: media('图片', 'image'),
         tier: { type: 'enum', label: '定位', values: ['霸主统治', '核心大派', '地方霸权', '隐秘结社', '小型流派'], default: '小型流派' },
         leader: { type: 'ref', label: '领袖', to: 'character', nullable: true },
         intro: text('概括', { as: 'paragraph' }),
@@ -261,13 +267,13 @@ export const officialStructure: StructureDescription = {
         territory: { type: 'refs', label: '势力范围', to: 'place' },
         goals: goals('spoiler'),
         plan: { type: 'array', label: '规划', of: { type: 'string' }, list: OFFICIAL_LISTS.plan, spoiler: 'spoiler' },
-        reputation: { type: 'record', label: '声望', keys: 'character', of: { type: 'object', fields: {
-          value: { type: 'int', label: '声望值', min: -100, max: 100, maxDelta: 10, as: 'meter-center' },
-          title: text('称号'),
+        reputation: { type: 'record', label: '声望', keys: 'character', spoiler: 'spoiler', of: { type: 'object', fields: {
+          value: { type: 'int', label: '声望值', min: -100, max: 100, maxDelta: 10, as: 'meter-center', spoiler: 'public' },
+          title: text('称号', { spoiler: 'public' }),
           keyEvents: { type: 'array', label: '关键事件', stamp: true, list: OFFICIAL_LISTS.events, as: 'timeline' },
         } } },
-        diplomacy: { type: 'record', label: '外交', keys: 'faction', of: { type: 'object', fields: {
-          stance: { type: 'enum', label: '关系', values: ['盟友', '敌对', '冷淡中立', '臣服依附'], default: '冷淡中立' },
+        diplomacy: { type: 'record', label: '外交', keys: 'faction', spoiler: 'spoiler', of: { type: 'object', fields: {
+          stance: { type: 'enum', label: '关系', values: ['盟友', '敌对', '冷淡中立', '臣服依附'], default: '冷淡中立', spoiler: 'public' },
           moves: text('动向', { spoiler: 'spoiler' }),
         } } },
       } },
@@ -283,14 +289,16 @@ export const officialStructure: StructureDescription = {
     attr_fate: { label: 'FATE', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FATE 技能使用阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX。' },
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'FU 属性只用四档：弱/普通/优秀/卓越。' },
     rp_abilities: { label: '能力', parent: 'rp', guide: '能力：能力本体只在根节点 abilities 建一次（{name, kind: 特质|技能, desc, levels}），角色的 rp.abilities 以能力 ID 为键引用它，只写本人的 {level}。有等级的能力在 levels 里写每一级的效果，键是等级数字（如 {"1": "…", "3": "…"}，可以跳级，持有者按不超过自身等级的最高一级生效），每级效果要有实际差别。多人共有同一能力时引用同一个 ID；新能力先建实体再引用。角色的能力可以记 progress（熟练度 0～100）：锻炼、实战运用会让它增长，满 100 时等级加一并从 0 重新累计。玩家说要「开发」能力时，依剧情决定成果：可以为该能力补充更高等级的效果，或新建一个衍生能力。' },
-    rp_status: { label: '状态', parent: 'rp', guide: '状态：gauges 为量表，名称与数量依世界观和剧情决定；需要精确数值时写 {value, max}，叙事化的状态直接写一句话（如「伤口在渗血，勉强能走」）。effects 为效果，剧情上结束后移除，可用 until 写结束条件。' },
+    rp_status: { label: '状态', parent: 'rp', guide: '状态：量表名称与数量依世界观和剧情决定（如 生命、体力、理智、饥饿）。effects 为效果，剧情上结束后移除，可用 until 写结束条件。' },
+    scale_num: { label: '数值', parent: 'rp', exclusive: 'scales', guide: '量表与熟练度用数值：量表写在 rp.gauges，每项 {value, max}；能力熟练度写 progress（0～100）。' },
+    scale_text: { label: '描述', parent: 'rp', exclusive: 'scales', enabled: false, guide: '量表与熟练度用一句描述：量表写在 rp.gaugesText（如 生命：「伤口在渗血，勉强能走」），能力熟练度写 progressText（如「已经能在实战里稳定用出来」）。随剧情改写描述，不写数字。' },
     assets: { label: '资产', guide: '资产：物品本体只在根节点 items 建一次（{name, type, desc, condition}），角色的 items 以物品 ID 为键引用它，只写本人的 {count, equipped, note}。独一无二的物品（具名武器、信物、钥匙、座驾等世上只有一件的东西）设 unique: true，同一时间只能在一个角色名下：转手时直接在新持有者的 items 下加上该 ID，引擎会自动从原持有者处移除（也可以用 $move）。普通物品（制式装备、药剂、杂物）不设 unique，多人可以各自持有同一 ID 并各记数量。钱也是物品，类型为「货币」，币种依世界观决定（如 金币/银币/铜币、文/银两、美元/人民币/日元），各建一个物品实体，持有者用 count 记数量；付钱、交易用 $transfer 在双方的 count 之间转移（对方还没有这种货币时会自动新建），保证总数守恒；说不清数额时在 note 写一句描述（如「一小袋碎银」）。座驾是类型为「座驾」的物品。' },
     nsfw: { label: 'NSFW', enabled: false },
     map: { label: '地图', guide: '地图：地点用 parent 表示层级（区域 → 地点），用 links 记录相通的地点；新发现的地点 discovered 设为 true。' },
     buildings: { label: '建筑', enabled: false, guide: '建筑：住宅、商铺、银行、仓库等。owner 为产权人；vault 为 true 表示任何人都能寄存（银行、出租仓库）。物品存放在建筑里时写在持有者自己的 items.<物品ID>.stored.<建筑ID>（数量），count 只记随身携带的数量；存取用 $transfer 在 count 与 stored 之间转移，取空的 stored 条目删除。' },
     factions: { label: '势力', enabled: false, guide: '势力：只为有分量的组织建实体；声望每次变化不超过 ±10。' },
   },
-  groups: { attributes: { label: '属性体系' } },
+  groups: { attributes: { label: '属性体系' }, scales: { label: '量表与熟练度' } },
   guide: [
     '用 <solve_operate> 输出 JSON 操作来更新变量，只写本回合实际发生的变化。',
     'meta.round（轮次）由引擎维护，不要修改。推进时间时用 $set 整体写入 meta.time（clock 格式 HH:MM）。',
@@ -318,7 +326,7 @@ export const officialStructure: StructureDescription = {
     layout: [
       { tab: '角色', items: [{
         sheet: 'characters', id: '$user', subtitle: 'alias', badges: ['rp.rank', 'role'], tags: 'tags',
-        vitals: 'rp.gauges', status: 'condition', effects: 'rp.effects', currency: 'items', currencyType: '货币',
+        vitals: ['rp.gauges', 'rp.gaugesText'], status: 'condition', effects: 'rp.effects', currency: 'items', currencyType: '货币',
         pages: [
           { label: '属性', paths: ['rp.attributes', 'rp.special'] },
           { label: '能力', paths: ['rp.abilities'] },
@@ -330,13 +338,14 @@ export const officialStructure: StructureDescription = {
       { tab: '社交', items: [
         { graph: 'characters', module: 'social', title: '关系图', edges: 'relations', weight: 'affection', label: 'labels', present: 'meta.present', size: 'role', badges: ['role'],
           legend: { positive: '友好', neutral: '一般', negative: '敌意' } },
-        { list: 'characters', title: '人物', exclude: '$user', present: 'meta.present', order: 'role', badges: ['role'], score: 'relations.$user.affection', scoreLabel: '♥',
-          // An NPC card reads in layers: how they see you first, then motives, other ties, abilities, belongings.
+        { list: 'characters', title: '人物', exclude: '$user', present: 'meta.present', order: 'role', badges: ['role'], score: 'relations.$user.affection', scoreLabel: '♥', search: true,
+          // An NPC card reads in layers: the overview (under the picture on wide screens; the first page on phones),
+          // then motives, ties, abilities, belongings. What is not visible from outside sits behind spoilers.
+          aside: { label: '概况', paths: ['relations.$user.affection', 'condition', 'age', 'tags', 'intro', 'appearance'] },
           pages: [
-            { label: '概况', paths: ['relations.$user', 'condition', 'age', 'tags', 'intro', 'appearance'] },
             { label: '动机', paths: ['drive'], as: 'quests' },
             { label: '关系', paths: ['relations'] },
-            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
+            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.gaugesText', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
             { label: '物品', paths: ['items'], as: 'inventory' },
             { label: '私密', paths: ['nsfw'] },
           ] },
@@ -348,7 +357,7 @@ export const officialStructure: StructureDescription = {
         { prefabs: 'character', into: 'characters', label: '角色', origin: 'origin', badges: ['role'],
           pages: [
             { label: '概况', paths: ['condition', 'age', 'tags', 'intro', 'appearance'] },
-            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
+            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.gaugesText', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
             { label: '物品', paths: ['items'], as: 'inventory' },
           ] },
         { collection: 'items', label: '物品', group: 'type', holders: ['characters.*.items'] },
@@ -357,9 +366,9 @@ export const officialStructure: StructureDescription = {
       { tab: '势力', module: 'factions', items: [
         { graph: 'factions', title: '势力关系图', edges: 'diplomacy', tone: 'stance', label: 'stance', size: 'tier', badges: ['tier'],
           tones: { 盟友: 'positive', 敌对: 'negative', 冷淡中立: 'neutral', 臣服依附: 'info' }, legend: { positive: '盟友', negative: '敌对', neutral: '中立', info: '依附' } },
-        { list: 'factions', title: '势力', order: 'tier', badges: ['tier'], score: 'reputation.$user.value', scoreLabel: '声望',
+        { list: 'factions', title: '势力', order: 'tier', badges: ['tier'], score: 'reputation.$user.value', scoreLabel: '声望', search: true,
+          aside: { label: '概况', paths: ['reputation.$user.value', 'reputation.$user.title', 'leader', 'base', 'territory', 'intro'] },
           pages: [
-            { label: '概况', paths: ['reputation.$user', 'leader', 'base', 'territory', 'intro'] },
             { label: '目标', paths: ['goals', 'plan'], as: 'quests' },
             { label: '声望', paths: ['reputation'] },
             { label: '外交', paths: ['diplomacy'] },
