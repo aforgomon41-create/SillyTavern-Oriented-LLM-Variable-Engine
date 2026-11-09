@@ -140,7 +140,10 @@ function Lightbox({ src, alt, anchor, onClose }: { src: string; alt: string; anc
     return () => window.removeEventListener('keydown', key, true);
   }, [onClose]);
   return createPortal(
-    <div {...solve('lightbox')} role="dialog" aria-modal="true" aria-label={alt} onClick={onClose}>
+    // The panel is a modal layer: it turns pointer events off outside itself and closes on outside presses.
+    // Take pointer events back, and keep presses here from reaching the panel's outside-press handler.
+    <div {...solve('lightbox')} role="dialog" aria-modal="true" aria-label={alt} onClick={onClose}
+      onPointerDown={e => e.stopPropagation()} onPointerDownCapture={e => e.nativeEvent.stopImmediatePropagation?.()} onTouchStart={e => e.stopPropagation()}>
       <img src={src} alt={alt} referrerPolicy="no-referrer" onClick={e => e.stopPropagation()} />
       <div {...part('bar')}><span>{alt}</span><button type="button" onClick={onClose} aria-label="关闭">✕</button></div>
     </div>, host as unknown as Element);

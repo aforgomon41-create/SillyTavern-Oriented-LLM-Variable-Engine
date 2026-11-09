@@ -676,6 +676,7 @@
 [data-solve="lightbox"] {
   position: fixed; inset: 0; z-index: 2147483000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
   padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgba(8, 8, 10, .88); cursor: zoom-out;
+  pointer-events: auto; touch-action: manipulation;
   animation: solve-fade .18s ease-out;
 }
 [data-solve="lightbox"] > img { max-width: 100%; max-height: calc(100% - 56px); object-fit: contain; border-radius: 6px; box-shadow: 0 12px 48px rgba(0, 0, 0, .5); cursor: default; }
