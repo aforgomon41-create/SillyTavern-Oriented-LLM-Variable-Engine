@@ -110,7 +110,8 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
   const q = query.trim().toLowerCase();
   const shown = all.filter(e => (!group || e.group === group)
     && (!q || [e.data.name, e.id, e.data.desc, e.data.intro].some(t => typeof t === 'string' && t.toLowerCase().includes(q))));
-  const pick = sel ? all.find(e => e.id === sel) : undefined;
+  // Wide: the detail pane is never empty — the first visible entry opens until the player picks one.
+  const pick = sel ? all.find(e => e.id === sel) : wide ? (shown.find(e => !current.prefabs || e.state === 'template') ?? shown[0]) : undefined;
   const switchCat = (c: string) => { setCat(c); setGroup(''); setQuery(''); setSel(undefined); setFoldOpen(false); };
   // Prefab categories: templates are always listed; prefabs sit in one folded group (opened by a search hit too).
   const main = current.prefabs ? shown.filter(e => e.state === 'template') : shown;

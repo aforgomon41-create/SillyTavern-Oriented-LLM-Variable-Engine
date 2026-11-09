@@ -13,7 +13,7 @@ import { GraphView, type GraphEdge, type GraphGroup, type GraphNode, type Tone }
 import { PlayerSheet, type SheetItem } from './sheet.js';
 import { Codex, type CodexCategory } from './codex.js';
 import { Art, Mono, Spoiler, part, solve, useWide } from './widgets.js';
-import { ActionBar, CreateForm, InteractLayer, PendingNarration, type Interact } from './interact.js';
+import { ActionBar, CreateForm, InteractLayer, PendingNarration, editFor, useInteract, type Interact } from './interact.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
 export interface StatusBarProps {
@@ -59,7 +59,7 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
     <K.TooltipProvider>
       {mode === 'panel' ? (
         <K.Panel title={<Overview model={model} where="title" />} onClose={() => setMode(rest)} closeLabel="收起"
-          geometry={panelGeometry(anchor.current)} defaultSize={{ w: 780, h: 720 }} actions={bgm ? <BgmButton bgm={bgm} /> : undefined}
+          geometry={panelGeometry(anchor.current)} defaultSize={panelSize()} actions={bgm ? <BgmButton bgm={bgm} /> : undefined}
           footer={interact?.pending?.length ? <PendingNarration host={interact} /> : undefined}>
           <K.Tabs label="状态栏" mode="scroll" sticky swipe value={tab} onValueChange={setTab}
             items={tabs.map((t: any) => ({ value: t.tab, label: t.tab, content: <div {...solve('tab')}>{t.items.filter((i: any) => typeof i === 'string' || model.moduleOn(i.module)).map((item: any, i: number) => <LayoutItem key={i} item={item} focus={focus} />)}</div> }))} />
@@ -73,11 +73,19 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
   return <ModelContext.Provider value={model}><NavigateContext.Provider value={navigate}><InteractLayer {...(interact ? { host: interact } : {})}>{content}</InteractLayer></NavigateContext.Provider></ModelContext.Provider>;
 }
 /** Desktop: the panel opens where the bar was, so the bar visibly turns into the title. */
+/** PC: a roomy panel (lists become list + detail at this width), centred on the bar it opened from. */
+const PANEL_MAX = { w: 1180, h: 900 };
+export function panelSize(): { w: number; h: number } {
+  if (typeof window === 'undefined') return { w: 780, h: 720 };
+  return { w: Math.max(780, Math.min(PANEL_MAX.w, window.innerWidth - 64)), h: Math.max(560, Math.min(PANEL_MAX.h, window.innerHeight - 48)) };
+}
 function panelGeometry(r: DOMRect | null): { x: number; y: number; w: number; h: number } | undefined {
-  if (!r || typeof window === 'undefined' || window.innerWidth <= 1000) return undefined;
-  const w = Math.max(780, Math.min(r.width, 960)), x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
-  const y = Math.max(8, Math.min(r.top, window.innerHeight - 480));
-  return { x, y, w, h: Math.min(760, window.innerHeight - y - 16) };
+  if (typeof window === 'undefined' || window.innerWidth <= 1000) return undefined;
+  const { w, h } = panelSize();
+  const cx = r ? r.left + r.width / 2 : window.innerWidth / 2;
+  const x = Math.min(Math.max(8, cx - w / 2), window.innerWidth - w - 8);
+  const y = r ? Math.max(8, Math.min(r.top, window.innerHeight - h - 8)) : Math.max(8, (window.innerHeight - h) / 2);
+  return { x, y, w, h: Math.min(h, window.innerHeight - y - 8) };
 }
 
 /* ───────── launcher (floating bar / round button) ───────── */
@@ -219,9 +227,17 @@ function LayoutItem({ item, focus }: { item: any; focus: Focus }) {
 }
 
 /** Entities as collapsed cards; present ones first, then by the declared order of `order` (an enum). */
+/**
+ * An entity list, declared once and laid out per width:
+ *   · narrow (phones): an accordion, each card opens in place;
+ *   · wide (PC): an index on the left and the opened entry on the right (`wide: 'stack'` keeps the accordion).
+ * `group: '<enum field>'` adds category chips and section headers in both layouts.
+ */
 function CollapseList({ item, focus }: { item: any; focus: Focus }) {
   const m = useModel(), K = useKit();
   const path = rel(item.list), value: Record<string, any> = m.value(path) ?? {};
+  const [box, roomy] = useWide(860);
+  const split = roomy && item.wide !== 'stack';
   const present = new Set<string>(item.present ? m.value(rel(item.present)) ?? [] : []);
   const orderMeta = item.order ? m.meta([...path, '*', item.order]) : undefined;
   const rank = (id: string) => orderMeta?.values ? orderMeta.values.indexOf(value[id]?.[item.order]) : 0;
@@ -230,51 +246,116 @@ function CollapseList({ item, focus }: { item: any; focus: Focus }) {
   const here = all.filter(id => present.has(id));
   const [only, setOnly] = React.useState<'all' | 'present'>('all');
   const [query, setQuery] = React.useState('');
+  // Categories: the declared enum's values in order, only those in use.
+  const groupMeta = item.group ? m.meta([...path, '*', item.group]) : undefined;
+  const groupOf = (id: string): string => String(value[id]?.[item.group] ?? '其他');
+  const groups = item.group ? [...(groupMeta?.values ?? []), '其他'].filter(g => all.some(id => groupOf(id) === g)) : [];
+  const [cat, setCat] = React.useState<string>('');
   // Search by name, alias and the short tags/labels a reader would remember someone by.
   const words = (id: string) => [value[id]?.name, value[id]?.title, value[id]?.content, value[id]?.alias, ...(Array.isArray(value[id]?.tags) ? value[id].tags : []), ...(item.badges ?? []).map((b: string) => value[id]?.[b])]
     .filter(x => typeof x === 'string').join(' ').toLowerCase();
   const q = query.trim().toLowerCase();
-  const ids = (only === 'present' ? here : all).filter(id => !q || (m.spoiler([...path, id]) !== 'spoiler' && (words(id).includes(q) || id.toLowerCase().includes(q))));
+  const ids = (only === 'present' ? here : all)
+    .filter(id => !cat || groupOf(id) === cat)
+    .filter(id => !q || (m.spoiler([...path, id]) !== 'spoiler' && (words(id).includes(q) || id.toLowerCase().includes(q))));
   const [open, setOpen] = React.useState<Set<string>>(new Set());
-  const refs = React.useRef(new Map<string, HTMLDivElement>());
+  const [sel, setSel] = React.useState<string | undefined>();
+  const refs = React.useRef(new Map<string, HTMLElement>());
   React.useEffect(() => {
     if (!focus || focus.path.slice(0, path.length).join('.') !== path.join('.')) return;
     const id = focus.path[path.length]; if (!id || !value[id]) return;
-    setOnly('all'); setOpen(s => new Set(s).add(id));
-    requestAnimationFrame(() => refs.current.get(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    setOnly('all'); setCat(''); setQuery(''); setOpen(s => new Set(s).add(id)); setSel(id);
+    requestAnimationFrame(() => refs.current.get(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
   }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!all.length) return <><CreateForm path={path} /><K.Empty title={`还没有${item.title ?? m.label(path)}`} /></>;
-  return (
-    <section {...solve('group')}>
+  const title = item.title ?? m.label(path);
+  if (!all.length) return <div ref={box}><CreateForm path={path} /><K.Empty title={`还没有${title}`} /></div>;
+
+  // What a row shows; an entry the player doesn't know keeps its name to itself (the badges still say what kind of thing it is).
+  const head = (id: string, inRow = false) => {
+    const veiled = m.spoiler([...path, id]) === 'spoiler';
+    const v = veiled ? { ...(value[id] ?? {}), name: '？？？', title: undefined, thumb: undefined, image: undefined } : value[id] ?? {};
+    const score = item.score ? resolve(m, item.score) : undefined;
+    const s = score ? m.value([...path, id, ...score]) : undefined, sMeta = score ? m.meta([...path, id, ...score]) : undefined;
+    return {
+      name: <span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true"><Mono name={v.name ?? v.title ?? id} src={thumbOf(v)} /></span><span {...part('name')}>{v.name ?? v.title ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>,
+      meta: <span {...solve('entity-meta')}>
+        {present.has(id) ? <K.Badge tone="success">在场</K.Badge> : null}
+        {(item.badges ?? []).filter((b: string) => !(inRow && groups.length && b === item.group)).map((b: string) => v[b] ? <K.Badge key={b} tone="neutral">{String(v[b])}</K.Badge> : null)}
+        {typeof s === 'number' ? <span {...part('score')} data-sign={s > 0 ? 'positive' : s < 0 ? 'negative' : 'zero'} title={`${item.scoreLabel ?? sMeta?.desc ?? ''}`}>{item.scoreLabel ?? ''} {s > 0 ? '+' : ''}{s}</span> : null}
+      </span>,
+    };
+  };
+  // Section headers when browsing every category.
+  const sections: { label?: string; ids: string[] }[] = groups.length && !cat ? groups.map(g => ({ label: g, ids: ids.filter(id => groupOf(id) === g) })).filter(x => x.ids.length) : [{ ids }];
+  const toolbar = (
+    <>
       <div {...solve('list-head')}>
-        <h4 {...part('title')}>{item.title ?? m.label(path)}<small>{all.length}</small></h4>
+        <h4 {...part('title')}>{title}<small>{all.length}</small></h4>
         {here.length && here.length < all.length && K.Segmented ? <K.Segmented size="sm" label="筛选" value={only} onValueChange={v => setOnly(v as 'all' | 'present')}
           options={[{ value: 'all', label: `全部 ${all.length}` }, { value: 'present', label: `在场 ${here.length}` }]} /> : null}
-        {item.search ? <input type="search" {...solve('search')} value={query} onChange={e => setQuery(e.target.value)} placeholder={`搜索${item.title ?? m.label(path)}`} aria-label={`搜索${item.title ?? m.label(path)}`} /> : null}
+        {item.search ? <input type="search" {...solve('search')} value={query} onChange={e => setQuery(e.target.value)} placeholder={`搜索${title}`} aria-label={`搜索${title}`} /> : null}
       </div>
+      {groups.length > 1 ? (
+        <div {...solve('cats')} role="group" aria-label={`${title}分类`}>
+          {['', ...groups].map(g => (
+            <button key={g || '*'} type="button" {...solve('cat')} aria-pressed={cat === g} onClick={() => setCat(g)}>
+              {g || '全部'}<small>{g ? all.filter(id => groupOf(id) === g).length : all.length}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <CreateForm path={path} />
       {q && !ids.length ? <span {...solve('none')}>没有找到「{query.trim()}」</span> : null}
-      <div {...solve('stack')}>
-        {ids.map(id => {
-          // A veiled entry keeps its name to itself in the row (the kind badge still shows what sort of thing it is).
-          const veiled = m.spoiler([...path, id]) === 'spoiler';
-          const v = veiled ? { ...(value[id] ?? {}), name: '？？？', title: undefined, thumb: undefined, image: undefined } : value[id] ?? {}, score = item.score ? resolve(m, item.score) : undefined;
-          const s = score ? m.value([...path, id, ...score]) : undefined, sMeta = score ? m.meta([...path, id, ...score]) : undefined;
-          return (
-            <div key={id} ref={el => { if (el) refs.current.set(id, el); else refs.current.delete(id); }} {...solve('entity-row', { present: present.has(id) ? '' : undefined })}>
-              <K.CollapseCard open={open.has(id)} onOpenChange={o => setOpen(prev => { const n = new Set(prev); if (o) n.add(id); else n.delete(id); return n; })}
-                title={<span {...solve('entity-head')}><span {...part('avatar')} aria-hidden="true"><Mono name={v.name ?? v.title ?? id} src={thumbOf(v)} /></span><span {...part('name')}>{v.name ?? v.title ?? id}{v.alias ? <small>「{v.alias}」</small> : null}</span></span>}
-                meta={<span {...solve('entity-meta')}>
-                  {present.has(id) ? <K.Badge tone="success">在场</K.Badge> : null}
-                  {(item.badges ?? []).map((b: string) => v[b] ? <K.Badge key={b} tone="neutral">{String(v[b])}</K.Badge> : null)}
-                  {typeof s === 'number' ? <span {...part('score')} data-sign={s > 0 ? 'positive' : s < 0 ? 'negative' : 'zero'} title={`${item.scoreLabel ?? sMeta?.desc ?? ''}`}>{item.scoreLabel ?? ''} {s > 0 ? '+' : ''}{s}</span> : null}
-                </span>}>
-                {open.has(id) ? <CardBody item={item} path={[...path, id]} v={value[id] ?? {}} /> : null}
-              </K.CollapseCard>
-            </div>
-          );
-        })}
-      </div>
+    </>
+  );
+
+  if (split) {
+    const current = ids.includes(sel ?? '') ? sel! : ids[0];
+    const h = current ? head(current) : undefined;
+    return (
+      <section ref={box} {...solve('group', { layout: 'split' })}>
+        {toolbar}
+        <div {...solve('master')}>
+          <nav {...part('index')} aria-label={title}>
+            {sections.map(sec => (
+              <React.Fragment key={sec.label ?? '*'}>
+                {sec.label ? <h5 {...part('section')}>{sec.label}<small>{sec.ids.length}</small></h5> : null}
+                {sec.ids.map(id => { const r = head(id, true); return (
+                  <button key={id} ref={el => { if (el) refs.current.set(id, el); else refs.current.delete(id); }} type="button" {...solve('index-row', { present: present.has(id) ? '' : undefined })}
+                    aria-current={id === current ? 'true' : undefined} onClick={() => setSel(id)}>{r.name}{r.meta}</button>
+                ); })}
+              </React.Fragment>
+            ))}
+          </nav>
+          <article {...part('detail')} aria-live="polite">
+            {current && h ? (
+              <>
+                <header {...part('head')}>{h.name}{h.meta}</header>
+                <CardBody key={current} item={item} path={[...path, current]} v={value[current] ?? {}} />
+              </>
+            ) : <div {...part('placeholder')}>没有符合条件的{title}</div>}
+          </article>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section ref={box} {...solve('group')}>
+      {toolbar}
+      {sections.map(sec => (
+        <React.Fragment key={sec.label ?? '*'}>
+          {sec.label ? <h5 {...solve('list-section')}>{sec.label}<small>{sec.ids.length}</small></h5> : null}
+          <div {...solve('stack')}>
+            {sec.ids.map(id => { const r = head(id, true); return (
+              <div key={id} ref={el => { if (el) refs.current.set(id, el); else refs.current.delete(id); }} {...solve('entity-row', { present: present.has(id) ? '' : undefined })}>
+                <K.CollapseCard open={open.has(id)} onOpenChange={o => setOpen(prev => { const n = new Set(prev); if (o) n.add(id); else n.delete(id); return n; })} title={r.name} meta={r.meta}>
+                  {open.has(id) ? <CardBody item={item} path={[...path, id]} v={value[id] ?? {}} /> : null}
+                </K.CollapseCard>
+              </div>
+            ); })}
+          </div>
+        </React.Fragment>
+      ))}
     </section>
   );
 }
@@ -311,6 +392,9 @@ function CardBody({ item, path, v }: { item: any; path: Path; v: any }) {
   const side = wide && (artOf(v) || asideShown);
   // An entry the player does not know yet (a secret) opens as one spoiler.
   const veiled = m.spoiler(path) === 'spoiler';
+  // The name is in the header already — unless the header is veiled, or the player may rename it here.
+  const live = useInteract();
+  const skip = [...(item.badges ?? []), ...(item.hide ?? []), ...['name', 'title'].filter(k => !veiled && !(live && editFor(m, [...path, k])))];
   const body = (
     <div ref={ref} {...solve('card-body', { art: artOf(v) ? '' : undefined, aside: wide && asideShown ? '' : undefined })}><div {...part('layout')}>
       {side ? (
@@ -320,7 +404,7 @@ function CardBody({ item, path, v }: { item: any; path: Path; v: any }) {
         </div>
       ) : artOf(v) ? <Art src={artOf(v)!} alt={name} variant="side" /> : null}
       <div {...part('main')}>{pages ? <Pages key={wide ? 'wide' : 'narrow'} base={path} pages={pages} label={`${name}的资料`} compact />
-        : <EntityBody path={path} skip={item.badges} />}
+        : <EntityBody path={path} skip={skip} />}
         {item.stored ? <StoredHere id={id} spec={item.stored} /> : null}
         {item.backrefs ? <Backrefs id={id} specs={item.backrefs} /> : null}
         <ActionBar path={path} /></div>
