@@ -66,8 +66,8 @@ function gallery(): void {
       <figure class="mobile"><figcaption>手机 390 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="390" data-h="844"></iframe></div></figure>
     </section>`;
   document.body.appendChild(root);
-  const coins = ['金币', '银币', '铜币', '文', '银两', '美元', '人民币', '日元', '灵石'];
-  createRoot(root.querySelector('.coins')!).render(<>{coins.map(c => <span key={c}><CurrencyIcon name={c} size={24} />{c}{c === '灵石' ? <small>（未识别→通用）</small> : null}</span>)}</>);
+  const coins = ['金币', '银币', '铜币', '文', '银两', '美元', '人民币', '日元', '下品灵石', '中品灵石', '上品灵石', '极品灵石', '贝壳'];
+  createRoot(root.querySelector('.coins')!).render(<>{coins.map(c => <span key={c}><CurrencyIcon name={c} size={24} />{c}{c === '贝壳' ? <small>（未识别→通用）</small> : null}</span>)}</>);
   let skin = order[0]!, tab = '横条', scales = 'num';
   const frames = Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe'));
   const load = () => {

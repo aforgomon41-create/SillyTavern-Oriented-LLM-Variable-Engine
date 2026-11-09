@@ -61,8 +61,7 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
         <K.Panel title={<Overview model={model} where="title" />} onClose={() => setMode(rest)} closeLabel="收起"
           geometry={panelGeometry(anchor.current)} defaultSize={panelSize()} actions={bgm ? <BgmButton bgm={bgm} /> : undefined}
           footer={interact?.pending?.length ? <PendingNarration host={interact} /> : undefined}>
-          <K.Tabs label="状态栏" mode="scroll" sticky swipe value={tab} onValueChange={setTab}
-            items={tabs.map((t: any) => ({ value: t.tab, label: t.tab, content: <div {...solve('tab')}>{t.items.filter((i: any) => typeof i === 'string' || model.moduleOn(i.module)).map((item: any, i: number) => <LayoutItem key={i} item={item} focus={focus} />)}</div> }))} />
+          <PanelBody tabs={tabs} tab={tab} setTab={setTab} focus={focus} />
         </K.Panel>
       ) : (
         <Launcher mode={hasData ? rest : 'dot'} canBar={hasData} pos={pos} onMove={setPos} onMoved={p => onPositionChange?.(p)}
@@ -71,6 +70,26 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
     </K.TooltipProvider>
   );
   return <ModelContext.Provider value={model}><NavigateContext.Provider value={navigate}><InteractLayer {...(interact ? { host: interact } : {})}>{content}</InteractLayer></NavigateContext.Provider></ModelContext.Provider>;
+}
+/** The panel's main sections: a sidebar on PC, scrolling tabs on phones (same declaration). */
+function PanelBody({ tabs, tab, setTab, focus }: { tabs: any[]; tab: string; setTab: (t: string) => void; focus: Focus }) {
+  const m = useModel(), K = useKit();
+  const [box, wide] = useWide(900);
+  const body = (t: any) => <div {...solve('tab')}>{t.items.filter((i: any) => typeof i === 'string' || m.moduleOn(i.module)).map((item: any, i: number) => <LayoutItem key={i} item={item} focus={focus} />)}</div>;
+  const current = tabs.find((t: any) => t.tab === tab) ?? tabs[0];
+  return (
+    <div ref={box} {...solve('panel-body', { layout: wide ? 'sidebar' : 'tabs' })}>
+      {wide ? (
+        <>
+          <div {...part('nav')}><K.NavList layout="sidebar" label="状态栏" current={current?.tab} onSelect={setTab} items={tabs.map((t: any) => ({ id: t.tab, label: t.tab }))} /></div>
+          <div {...part('main')} role="region" aria-label={current?.tab}>{current ? <React.Fragment key={current.tab}>{body(current)}</React.Fragment> : null}</div>
+        </>
+      ) : (
+        <K.Tabs label="状态栏" mode="scroll" sticky swipe value={tab} onValueChange={setTab}
+          items={tabs.map((t: any) => ({ value: t.tab, label: t.tab, content: body(t) }))} />
+      )}
+    </div>
+  );
 }
 /** Desktop: the panel opens where the bar was, so the bar visibly turns into the title. */
 /** PC: a roomy panel (lists become list + detail at this width), centred on the bar it opened from. */

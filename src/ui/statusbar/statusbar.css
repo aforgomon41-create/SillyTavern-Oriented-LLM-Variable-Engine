@@ -912,3 +912,7 @@
   [data-solve="stat-groups"][data-sections] > [data-solve-part="columns"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--k-space-4); }
   [data-solve="stat-groups"][data-sections] [data-solve="stats"] { grid-template-columns: minmax(0, 1fr); }
 }
+/* PC: main sections in a left sidebar */
+[data-solve="panel-body"][data-layout="sidebar"] { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: var(--k-space-4); align-items: start; }
+[data-solve="panel-body"][data-layout="sidebar"] > [data-solve-part="nav"] { position: sticky; top: 0; }
+[data-solve="panel-body"][data-layout="sidebar"] > [data-solve-part="main"] { min-width: 0; }
