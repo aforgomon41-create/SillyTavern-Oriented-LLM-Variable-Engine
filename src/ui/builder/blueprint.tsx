@@ -43,13 +43,15 @@ function summary(n: FieldNode, entities: Record<string, string>): string {
 
 // ── blueprint state shared by cards ──
 
-type Payload = { kind: 'move'; addr: Addr } | { kind: 'new'; type: FieldType };
+type Payload = { kind: 'move'; addr: Addr } | { kind: 'new'; type: FieldType } | { kind: 'module'; name: string };
 type Target = { host: Addr; index?: number; mark: string; edge?: 'before' | 'after' | 'in' } | { pane: true; x: number; y: number };
 interface Bp {
   isOpen: (key: string, top: boolean) => boolean; toggle: (key: string, top: boolean) => void;
   begin: (e: React.PointerEvent, p: Payload) => void; target?: Target; dragging?: string;
   armed?: FieldType; place: (host: Addr, index?: number) => void;
-  query: string; entities: Record<string, string>; layers: { ref: boolean; mod: boolean };
+  query: string; entities: Record<string, string>; layers: { ref: boolean };
+  /** Module view: the module being painted onto fields (tap a field to add / remove it). */
+  lens?: string; paint: (addr: Addr) => void; tone: (module: string) => number;
   /** Where the selected wire was clicked (flow coordinates) — the × goes there. */
   clickAt?: { x: number; y: number };
 }
@@ -64,6 +66,16 @@ function entityMap(d: StructureDescription) {
   return { at, label };
 }
 
+/** Direct: the field lists the module; inherit: a card it sits in does. */
+function lensOf(d: StructureDescription, addr: Addr, m: string | undefined): 'in' | 'inherit' | 'out' | undefined {
+  if (!m) return undefined;
+  if (listOf(nodeAt(d, addr)?.module).includes(m)) return 'in';
+  for (let i = 1; i < addr.length; i++) if (listOf(nodeAt(d, addr.slice(0, i))?.module).includes(m)) return 'inherit';
+  return 'out';
+}
+const TONES = 6;
+const TONE_VARS = ['var(--k-accent)', 'var(--k-info)', 'var(--k-warning)', 'var(--k-success)', 'var(--k-danger)', 'color-mix(in srgb, var(--k-accent) 50%, var(--k-info))'];
+
 // ── cards ──
 
 function Grip({ addr, label }: { addr: Addr; label: string }) {
@@ -71,9 +83,9 @@ function Grip({ addr, label }: { addr: Addr; label: string }) {
   return <button type="button" className="nodrag nopan" {...part('grip')} onPointerDown={e => bp.begin(e, { kind: 'move', addr })} aria-label={`拖动「${label}」：放进别的卡片，或拖到空白处变成独立卡片`}>⠿</button>;
 }
 function Dots({ node }: { node: FieldNode }) {
-  const { d } = useB();
+  const { d } = useB(), bp = useBp();
   const mods = listOf(node.module);
-  return mods.length ? <span {...part('mods')}>{mods.map(m => <small key={m} {...part('mod')}>{d.modules?.[m]?.label ?? m}</small>)}</span> : null;
+  return mods.length ? <span {...part('mods')}>{mods.map(m => <small key={m} {...part('mod')} data-tone={bp.tone(m)} data-on={bp.lens === m ? '' : undefined}>{d.modules?.[m]?.label ?? m}</small>)}</span> : null;
 }
 function IssueDot({ addr }: { addr: Addr }) {
   const { issuesAt } = useB(), issues = issuesAt(addr);
@@ -87,9 +99,10 @@ function Row({ addr, node, parent }: { addr: Addr; node: FieldNode; parent?: Fie
   const { selected, select } = useB(), bp = useBp();
   const key = addrKey(addr), name = nameOf(node, addr.at(-1)!, parent);
   const t = bp.target && 'mark' in bp.target && bp.target.mark === key ? bp.target.edge : undefined;
-  const pick = () => { if (bp.armed) { const host = addr.slice(0, -1), sibs = Object.keys(parent?.fields ?? {}); bp.place(host, sibs.indexOf(addr.at(-1)!) + 1); } else select(addr); };
+  const { d } = useB();
+  const pick = () => { if (bp.armed) { const host = addr.slice(0, -1), sibs = Object.keys(parent?.fields ?? {}); bp.place(host, sibs.indexOf(addr.at(-1)!) + 1); } else if (bp.lens) bp.paint(addr); else select(addr); };
   return (
-    <div {...solve('bp-row', { type: node.type })} data-bp-row={key} data-current={selected && addrKey(selected) === key ? '' : undefined}
+    <div {...solve('bp-row', { type: node.type })} data-bp-row={key} data-lens={lensOf(d, addr, bp.lens)} data-current={selected && addrKey(selected) === key ? '' : undefined}
       data-drop={t} data-dragging={bp.dragging === key ? '' : undefined} data-match={matchQ(node, addr.at(-1)!, bp.query) ? '' : undefined}>
       <Handle type="target" position={Position.Left} id={'in:' + key} className="bp-port" data-kind="in" />
       <Grip addr={addr} label={name} />
@@ -112,9 +125,10 @@ function Card({ addr, node, parent, top }: { addr: Addr; node: FieldNode; parent
   const body = node.type === 'object' ? node : node.of;
   const kids = childrenOf(body);
   const t = bp.target && 'mark' in bp.target && (bp.target.mark === hostKey || bp.target.mark === key) ? bp.target.edge ?? 'in' : undefined;
-  const pick = () => { if (bp.armed && host) bp.place(host); else select(addr); };
+  const { d } = useB();
+  const pick = () => { if (bp.armed && host) bp.place(host); else if (bp.lens) bp.paint(addr); else select(addr); };
   return (
-    <section {...solve('bp-card', { type: node.type, top: top ? '' : undefined })} data-bp-host={hostKey} data-bp-card={key}
+    <section {...solve('bp-card', { type: node.type, top: top ? '' : undefined })} data-bp-host={hostKey} data-bp-card={key} data-lens={lensOf(d, addr, bp.lens)}
       data-current={selected && addrKey(selected) === key ? '' : undefined} data-drop={t} data-dragging={bp.dragging === key ? '' : undefined}
       data-entity={node.entity ? '' : undefined} data-match={matchQ(node, addr.at(-1)!, bp.query) ? '' : undefined}>
       <header className={top ? 'bp-drag' : undefined}>
@@ -161,29 +175,9 @@ function FieldCardNode({ id, data }: NodeProps<Node<{ addr: Addr }, 'field'>>) {
   );
 }
 
-function ModuleCardNode({ data }: NodeProps<Node<{ name: string }, 'module'>>) {
-  const { d, select, selected } = useB();
-  const m = d.modules?.[data.name];
-  if (!m) return null;
-  const group = m.exclusive ? d.groups?.[m.exclusive]?.label ?? m.exclusive : undefined;
-  const key = 'module:' + data.name;
-  return (
-    <section {...solve('bp-module')} data-off={m.enabled === false ? '' : undefined} data-current={selected && addrKey(selected) === key ? '' : undefined}>
-      <Handle type="target" position={Position.Left} id={'min:' + data.name} className="bp-port" data-kind="mod" title="上级模块连到这里" />
-      <header className="bp-drag">
-        <button type="button" {...part('pick')} onClick={() => select(['module:' + data.name])}>
-          <i {...part('type')} data-type="module">模</i><b>{m.label ?? data.name}</b><code>{data.name}</code>
-        </button>
-      </header>
-      <p {...part('meta')}>{m.enabled === false ? '默认关' : '默认开'}{group ? ` · 互斥：${group}` : ''}</p>
-      <Handle type="source" position={Position.Right} id={'mod:' + data.name} className="bp-port" data-kind="mod" title="拖到字段上：归入这个模块；拖到模块上：设为它的上级" />
-    </section>
-  );
-}
-
 // ── wires ──
 
-type WireData = { kind: 'ref' | 'mod' | 'par'; path?: string; entity?: string; module?: string; child?: string };
+type WireData = { kind: 'ref'; path?: string; entity?: string };
 function Wire(props: EdgeProps<Edge<WireData, 'wire'>>) {
   const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected, data, markerEnd, style } = props;
   const [path, lx, ly] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
@@ -203,17 +197,15 @@ function useUnwire() {
   const { d, set, note } = useB();
   return (w: WireData) => {
     if (w.kind === 'ref' && w.path) { const n = nodeAt(d, fromKey(w.path)); const to = listOf(n?.to).filter(e => e !== w.entity); set(update(d, fromKey(w.path), { to: to.length ? (to.length === 1 ? to[0] : to) : undefined } as Partial<FieldNode>)); note('已断开：不再限定指向这类实体'); }
-    if (w.kind === 'mod' && w.path) { const n = nodeAt(d, fromKey(w.path)); const mods = listOf(n?.module).filter(m => m !== w.module); set(update(d, fromKey(w.path), { module: mods.length ? (mods.length === 1 ? mods[0] : mods) : undefined } as Partial<FieldNode>)); note('已断开：字段不再属于这个模块'); }
-    if (w.kind === 'par' && w.child) { const ms = { ...(d.modules ?? {}) }; const { parent: _, ...rest } = ms[w.child] ?? {}; ms[w.child] = rest as StructureModule; set({ ...d, modules: ms }); note('已断开上下级'); }
   };
 }
 
-const nodeTypes = { field: FieldCardNode, module: ModuleCardNode };
+const nodeTypes = { field: FieldCardNode };
 const edgeTypes = { wire: Wire };
 
 // ── layout ──
 
-const COL = 360, MOD_W = 230, GAP = 28;
+const COL = 360, GAP = 28;
 function estimate(n: FieldNode, top: boolean, open: (k: string, top: boolean) => boolean, key: string): number {
   if (!isCard(n)) return 36;
   if (!open(key, top)) return 44;
@@ -222,8 +214,8 @@ function estimate(n: FieldNode, top: boolean, open: (k: string, top: boolean) =>
 }
 /** Pushes cards down so none overlap (after something grew). */
 function settle(all: Node[]): Node[] {
-  const a = settleSome(all.filter(n => n.type === 'module'), 200, 61, 14), b = settleSome(all.filter(n => n.type !== 'module'), 320, 80, GAP);
-  if (a.changed || b.changed) { const by = new Map([...a.nodes, ...b.nodes].map(n => [n.id, n])); return all.map(n => by.get(n.id) ?? n); }
+  const b = settleSome(all, 320, 80, GAP);
+  if (b.changed) { const by = new Map(b.nodes.map(n => [n.id, n])); return all.map(n => by.get(n.id) ?? n); }
   return all;
 }
 function settleSome(nodes: Node[], W: number, H: number, gap: number): { nodes: Node[]; changed: boolean } {
@@ -257,7 +249,8 @@ function Canvas() {
   const [fold, setFold] = React.useState<Map<string, boolean>>(() => new Map());
   const isOpen = React.useCallback((k: string, top: boolean) => fold.get(k) ?? top, [fold]);
   const [query, setQuery] = React.useState('');
-  const [layers, setLayers] = React.useState({ ref: true, mod: false });
+  const [layers, setLayers] = React.useState({ ref: true });
+  const [lens, setLens] = React.useState<string | undefined>();
   const [armed, setArmed] = React.useState<FieldType | undefined>();
   const [drag, setDrag] = React.useState<{ p: Payload; x: number; y: number; target?: Target } | undefined>();
   const [edgeSel, setEdgeSel] = React.useState<string | undefined>();
@@ -270,6 +263,25 @@ function Canvas() {
     setFold(cur => { let next: Map<string, boolean> | undefined; for (let i = 1; i < selected.length; i++) { const k = addrKey(selected.slice(0, i)); if (selected[i - 1] !== '*' && (cur.get(k) ?? i === 1) === false) (next ??= new Map(cur)).set(k, true); } return next ?? cur; });
   }, [selected && addrKey(selected)]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Module view opens the cards its fields sit in, so the members are visible.
+  React.useEffect(() => {
+    if (!lens) return undefined;
+    const open: string[] = [];
+    const walk = (n: FieldNode, addr: Addr) => { for (const [k, c] of childrenOf(n)) { const x = [...addr, k]; if (listOf(c.module).includes(lens)) for (let i = 1; i < x.length; i++) if (x[i - 1] !== '*') open.push(addrKey(x.slice(0, i))); walk(c, x); } };
+    walk({ type: 'object', fields: d.fields }, []);
+    if (open.length) setFold(cur => { const next = new Map(cur); for (const k of open) next.set(k, true); return next; });
+    // Then bring the first member into view if it is off screen.
+    const t = setTimeout(() => {
+      const el = wrap.current?.querySelector('[data-lens="in"]'), box = wrap.current?.querySelector('.react-flow')?.getBoundingClientRect();
+      if (!el || !box) return;
+      const r = el.getBoundingClientRect();
+      if (r.top >= box.top + 90 && r.bottom <= box.bottom - 70 && r.left >= box.left && r.right <= box.right) return;
+      const c = rf.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      void rf.setCenter(c.x, c.y, { zoom: rf.getZoom(), duration: 300 });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [lens]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Nodes: one per top-level field + one per module. Positions are kept across edits; new ones get a masonry slot.
   const [nodes, setNodes] = React.useState<Node[]>([]);
   const heights = React.useRef<Record<string, number>>({});
@@ -279,20 +291,12 @@ function Canvas() {
       const byId = new Map(cur.map(n => [n.id, n]));
       const out: Node[] = [];
       const cols = [0, 0, 0];
-      const modNames = Object.keys(d.modules ?? {});
-      let my = Math.max(0, ...cur.filter(n => n.type === 'module').map(n => n.position.y + (n.measured?.height ?? 84) + 16));
-      for (const name of modNames) {
-        const id = 'm:' + name, old = byId.get(id);
-        if (old) { out.push({ ...old, data: { name } }); continue; }
-        out.push({ id, type: 'module', position: { x: 0, y: my }, data: { name }, dragHandle: '.bp-drag', selectable: false, deletable: false });
-        my += 61 + 14;
-      }
-      for (const n of cur) if (n.type === 'field') { const c = Math.round((n.position.x - MOD_W - 40) / COL); if (c >= 0 && c < 3) cols[c] = Math.max(cols[c]!, n.position.y + (n.measured?.height ?? 200) + GAP); }
+      for (const n of cur) if (n.type === 'field') { const c = Math.round(n.position.x / COL); if (c >= 0 && c < 3) cols[c] = Math.max(cols[c]!, n.position.y + (n.measured?.height ?? 200) + GAP); }
       for (const [k, f] of Object.entries(d.fields)) {
         const id = 'f:' + k, old = byId.get(id);
         if (old) { out.push({ ...old, data: { addr: [k] } }); continue; }
         const c = cols.indexOf(Math.min(...cols));
-        out.push({ id, type: 'field', position: { x: MOD_W + 40 + c * COL, y: cols[c]! }, data: { addr: [k] }, dragHandle: '.bp-drag', selectable: false, deletable: false });
+        out.push({ id, type: 'field', position: { x: c * COL, y: cols[c]! }, data: { addr: [k] }, dragHandle: '.bp-drag', selectable: false, deletable: false });
         cols[c]! += (heights.current[id] ?? estimate(f, true, isOpen, k)) + GAP;
       }
       return out;
@@ -309,7 +313,6 @@ function Canvas() {
   }, []);
 
   // Wires derived from the structure.
-  const focusMod = selected?.[0]?.startsWith('module:') ? selected[0].slice(7) : undefined, focusPath = selected && !focusMod ? addrKey(selected) : undefined;
   const edges = React.useMemo(() => {
     const out: Edge<WireData>[] = [];
     const visible = (a: Addr): Addr => { for (let i = 1; i < a.length; i++) { const p = a.slice(0, i); if (a[i - 1] === '*') continue; if (isCard(nodeAt(d, p)) && !isOpen(addrKey(p), i === 1)) return p; } return a.at(-1) === '*' ? a.slice(0, -1) : a; };
@@ -321,21 +324,12 @@ function Canvas() {
           const s = visible(a), t = visible(target), id = `ref|${path}|${e}`;
           out.push({ id, type: 'wire', source: 'f:' + s[0], target: 'f:' + t[0], sourceHandle: (addrKey(s) === path ? 'ref:' : 'out:') + addrKey(s), targetHandle: 'in:' + addrKey(t), data: { kind: 'ref', path, entity: e }, className: 'bp-wire', selected: edgeSel === id });
         }
-        for (const m of listOf(c.module)) {
-          if (!d.modules?.[m] || !(layers.mod || focusMod === m || focusPath === path)) continue;
-          const t = visible(a), id = `mod|${path}|${m}`;
-          out.push({ id, type: 'wire', source: 'm:' + m, target: 'f:' + t[0], sourceHandle: 'mod:' + m, targetHandle: 'in:' + addrKey(t), data: { kind: 'mod', path, module: m }, className: 'bp-wire', selected: edgeSel === id });
-        }
         walk(c, a);
       }
     };
     walk({ type: 'object', fields: d.fields }, []);
-    for (const [name, m] of Object.entries(d.modules ?? {})) if (m.parent && d.modules?.[m.parent]) {
-      const id = `par|${name}`;
-      out.push({ id, type: 'wire', source: 'm:' + m.parent, target: 'm:' + name, sourceHandle: 'mod:' + m.parent, targetHandle: 'min:' + name, data: { kind: 'par', child: name }, className: 'bp-wire', selected: edgeSel === id });
-    }
     return out.map(e => ({ ...e, className: 'bp-wire bp-wire-' + e.data!.kind }));
-  }, [d, isOpen, layers, ents, edgeSel, focusMod, focusPath]);
+  }, [d, isOpen, layers, ents, edgeSel]);
   const onEdgesChange = React.useCallback((changes: EdgeChange[]) => { for (const c of changes) if (c.type === 'select') setEdgeSel(c.selected ? c.id : undefined); }, []);
   const unwire = useUnwire();
 
@@ -344,8 +338,6 @@ function Canvas() {
   const isValidConnection: IsValidConnection = c => {
     const { s, t } = parse(c);
     if (s.startsWith('ref:') && t.startsWith('in:')) return !!nodeAt(d, fromKey(t.slice(3)))?.entity;
-    if (s.startsWith('mod:') && t.startsWith('in:')) return true;
-    if (s.startsWith('mod:') && t.startsWith('min:')) { const a = s.slice(4), child = t.slice(4); if (a === child) return false; for (let p: string | undefined = a; p; p = d.modules?.[p]?.parent) if (p === child) return false; return true; }
     return false;
   };
   const onConnect = (c: Connection) => {
@@ -355,12 +347,6 @@ function Canvas() {
       const a = fromKey(s.slice(4)), n = nodeAt(d, a), e = nodeAt(d, fromKey(t.slice(3)))!.entity!;
       const all = [...new Set([...listOf(n?.to), e])], to = all.length === 1 ? all[0] : all;
       set(update(d, a, { to } as Partial<FieldNode>)); note(`「${n?.label ?? a.at(-1)}」指向${ents.label[e] ?? e}`);
-    } else if (t.startsWith('in:')) {
-      const a = fromKey(t.slice(3)), n = nodeAt(d, a), m = s.slice(4), mods = [...new Set([...listOf(n?.module), m])];
-      set(update(d, a, { module: mods.length === 1 ? mods[0] : mods } as Partial<FieldNode>)); note(`「${n?.label ?? a.at(-1)}」归入模块「${d.modules?.[m]?.label ?? m}」`);
-    } else {
-      const parent = s.slice(4), child = t.slice(4);
-      set({ ...d, modules: { ...d.modules, [child]: { ...d.modules![child]!, parent } } }); note(`「${d.modules![child]!.label ?? child}」的上级设为「${d.modules![parent]!.label ?? parent}」`);
     }
   };
 
@@ -369,6 +355,12 @@ function Canvas() {
     for (const el of root.elementsFromPoint(x, y)) {
       if (skip && el.closest(`[data-id="${skip}"]`)) continue;
       if (el.closest('[data-solve="bp-side"], [data-solve="bp-palette"], .react-flow__panel')) return undefined;
+      if (p.kind === 'module') {
+        const at = el.closest('[data-bp-row]')?.getAttribute('data-bp-row') ?? el.closest('[data-bp-card]')?.getAttribute('data-bp-card');
+        if (at) return { host: fromKey(at), mark: at, edge: 'in' };
+        if (el.classList.contains('react-flow__pane')) return undefined;
+        continue;
+      }
       const row = el.closest('[data-bp-row]');
       if (row) {
         const a = fromKey(row.getAttribute('data-bp-row')!), host = a.slice(0, -1);
@@ -399,6 +391,7 @@ function Canvas() {
     const at = 'pane' in t ? rf.screenToFlowPosition({ x: t.x, y: t.y }) : undefined;
     const host = 'pane' in t ? [] : t.host, index = 'pane' in t ? undefined : t.index;
     if (p.kind === 'new') { create(p.type, host, index, at); return; }
+    if (p.kind === 'module') { if (!('pane' in t)) paintWith(p.name, t.host, true); return; }
     if ('pane' in t && p.addr.length === 1) return;
     const r = relocate(d, p.addr, host, index);
     if (r.next === d) return;
@@ -422,6 +415,7 @@ function Canvas() {
       if (!ok) return;
       if (moved) drop(p, hit(root, ev.clientX, ev.clientY, p));
       else if (p.kind === 'new') setArmed(cur => cur === p.type ? undefined : p.type);
+      else if (p.kind === 'module') setLens(cur => cur === p.name ? undefined : p.name);
     };
     const up = (ev: PointerEvent) => end(ev, true), cancel = (ev: PointerEvent) => end(ev, false);
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', cancel);
@@ -442,12 +436,24 @@ function Canvas() {
     drop({ kind: 'move', addr: (n.data as { addr: Addr }).addr }, t);
   };
 
+  /** Adds a field to a module, or takes it out (add: true only adds). */
+  const paintWith = (m: string, addr: Addr, add = false) => {
+    const n = nodeAt(d, addr); if (!n) return;
+    const name = nameOf(n, addr.at(-1)!, nodeAt(d, addr.slice(0, -1))), label = d.modules?.[m]?.label ?? m, mods = listOf(n.module);
+    if (mods.includes(m) && add) { note(`「${name}」已经在「${label}」里`); return; }
+    const next = mods.includes(m) ? mods.filter(x => x !== m) : [...mods, m];
+    set(update(d, addr, { module: next.length ? (next.length === 1 ? next[0] : next) : undefined } as Partial<FieldNode>));
+    note(mods.includes(m) ? `「${name}」移出了「${label}」` : `「${name}」加入了「${label}」${isCard(n) ? '，卡片里的字段跟着它' : ''}`);
+  };
+  const modNames = Object.keys(d.modules ?? {});
+  const tone = (m: string) => Math.max(0, modNames.indexOf(m)) % TONES;
   const place = (host: Addr, index?: number) => { if (armed) { create(armed, host, index); setArmed(undefined); } };
   const target = drag?.target ?? nodeDrop;
   const bp: Bp = {
     isOpen, toggle: (k, top) => setFold(cur => new Map(cur).set(k, !(cur.get(k) ?? top))),
     begin, ...(target ? { target } : {}), ...(drag?.p.kind === 'move' ? { dragging: addrKey(drag.p.addr) } : {}),
     ...(armed ? { armed } : {}), place, query: query.trim().toLowerCase(), entities: ents.label, layers, ...(clickAt ? { clickAt } : {}),
+    ...(lens ? { lens } : {}), paint: a => { if (lens) paintWith(lens, a); }, tone,
   };
 
   // Initial viewport; focus the selected card when it is off screen.
@@ -456,12 +462,12 @@ function Canvas() {
     if (ready || !nodes.length || !nodes.every(n => n.measured)) return;
     setReady(true);
     if (selected && !selected[0]?.startsWith('module:')) void rf.fitView({ nodes: [{ id: 'f:' + selected[0] }], maxZoom: 1, padding: 0.2 });
-    else void rf.setViewport(wide ? { x: 24, y: 64, zoom: 0.8 } : { x: 12 - (MOD_W + 40) * 0.8, y: 100, zoom: 0.8 });
+    else void rf.setViewport(wide ? { x: 24, y: 110, zoom: 0.8 } : { x: 12, y: 150, zoom: 0.8 });
   }, [nodes, ready, wide]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addModule = () => {
     const name = freeKey(d.modules, 'module');
-    set({ ...d, modules: { ...d.modules, [name]: { label: '新模块' } } }); select(['module:' + name]); note('已添加模块，在右边改名字');
+    set({ ...d, modules: { ...d.modules, [name]: { label: '新模块' } } }); select(['module:' + name]); setLens(name); note('已添加模块：右边改名字，点字段把它加进来');
   };
   const relayout = () => { heights.current = Object.fromEntries(nodes.filter(n => n.measured?.height).map(n => [n.id, n.measured!.height!])); setNodes([]); setTick(t => t + 1); setReady(false); };
   const findFirst = () => {
@@ -470,6 +476,31 @@ function Canvas() {
     const walk = (n: FieldNode, a: Addr) => { for (const [k, c] of childrenOf(n)) { if (hitAddr) return; const x = [...a, k]; if (matchQ(c, k, q)) hitAddr = x; else walk(c, x); } };
     walk({ type: 'object', fields: d.fields }, []);
     if (hitAddr) { select(hitAddr); void rf.fitView({ nodes: [{ id: 'f:' + hitAddr[0] }], maxZoom: 1, padding: 0.2, duration: 300 }); } else note('没找到', 'error');
+  };
+
+  // Gestures inside the canvas belong to the canvas: the panel around it (pull-down sheet, window drag, swipes, Esc) never sees them.
+  const esc = React.useRef<() => boolean>(() => false);
+  esc.current = () => { if (armed) { setArmed(undefined); return true; } if (selected) { select(undefined); return true; } if (lens) { setLens(undefined); return true; } if (edgeSel) { setEdgeSel(undefined); return true; } return false; };
+  // The Kami panel tracks touches natively on its own element (pull the sheet down to close, swipe sideways between tabs), which
+  // stopPropagation in React cannot reach without also cutting React Flow off. Instead, on the first move of a touch inside the
+  // canvas, a touchcancel bubbles up from here: the panel drops the gesture it started tracking, the canvas keeps the touch.
+  React.useEffect(() => {
+    const el = wrap.current; if (!el) return undefined;
+    let sent = false;
+    const start = () => { sent = false; };
+    const move = () => { if (!sent) { sent = true; el.dispatchEvent(new Event('touchcancel', { bubbles: true })); } };
+    el.addEventListener('touchstart', start, { passive: true });
+    el.addEventListener('touchmove', move, { passive: true });
+    return () => { el.removeEventListener('touchstart', start); el.removeEventListener('touchmove', move); };
+  }, [wrap]);
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  const isolate = {
+    onPointerDown: stop, onMouseDown: stop, onWheel: stop, onContextMenu: stop,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      if (!(e.target as HTMLElement).closest('input, textarea, select') && esc.current()) e.preventDefault();
+    },
   };
 
   const sideModule = selected?.[0]?.startsWith('module:') ? selected[0].slice(7) : undefined;
@@ -485,13 +516,13 @@ function Canvas() {
           <i {...part('type')} data-type={t.type}>{t.tag}</i><span>{shortLabel(t.type)}</span>
         </button>
       ))}
-      <button type="button" {...part('chip')} data-kind="module" onClick={addModule}><i {...part('type')} data-type="module">模</i><span>模块</span></button>
     </div>
   );
 
   return (
     <BpContext.Provider value={bp}>
-      <div ref={box} {...solve('bp', { layout: wide ? 'wide' : 'narrow', side: side ? '' : undefined, armed: armed ? '' : undefined, dragging: drag || nodeDrop ? '' : undefined })}>
+      <div ref={box} {...solve('bp', { layout: wide ? 'wide' : 'narrow', side: side ? '' : undefined, armed: armed ? '' : undefined, lens: lens ? '' : undefined, dragging: drag || nodeDrop ? '' : undefined })} {...isolate} data-k-swipe="off"
+        style={lens ? { '--bp-lens': TONE_VARS[tone(lens)] } as React.CSSProperties : undefined}>
         {wide ? palette : null}
         <div {...part('canvas')}>
           <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
@@ -509,13 +540,36 @@ function Canvas() {
             <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') findFirst(); }} placeholder="搜索字段" aria-label="搜索字段" />
             <span {...part('layers')} role="group" aria-label="显示连线">
               <button type="button" aria-pressed={layers.ref} onClick={() => setLayers(l => ({ ...l, ref: !l.ref }))}><i data-kind="ref" />指向</button>
-              <button type="button" aria-pressed={layers.mod} onClick={() => setLayers(l => ({ ...l, mod: !l.mod }))}><i data-kind="mod" />模块</button>
             </span>
             <button type="button" {...part('tool')} onClick={relayout}>重新排列</button>
           </div>
+          <div {...solve('bp-modules')} role="toolbar" aria-label="模块：点一个进入模块视图，或拖到字段上">
+            <span {...part('title')}>模块</span>
+            <div {...part('list')}>
+              {modNames.map(m => {
+                const x = d.modules![m]!;
+                return (
+                  <span key={m} {...part('module')} data-tone={tone(m)} data-on={lens === m ? '' : undefined} data-off={x.enabled === false ? '' : undefined}>
+                    <button type="button" {...part('chip')} aria-pressed={lens === m} onPointerDown={e => begin(e, { kind: 'module', name: m })}
+                      title={`${x.label ?? m}${x.parent ? ` · 上级：${d.modules?.[x.parent]?.label ?? x.parent}` : ''}${x.exclusive ? ` · 互斥：${d.groups?.[x.exclusive]?.label ?? x.exclusive}` : ''}${x.enabled === false ? ' · 默认关' : ''}`}>
+                      {x.parent ? <small aria-hidden="true">↳</small> : null}{x.label ?? m}
+                    </button>
+                    {lens === m ? <button type="button" {...part('gear')} onClick={() => select(['module:' + m])} aria-label={`「${x.label ?? m}」的设置`}>⚙</button> : null}
+                  </span>
+                );
+              })}
+              <button type="button" {...part('add')} onClick={addModule}>+ 模块</button>
+            </div>
+          </div>
+          {lens && !armed ? (
+            <div {...solve('bp-armed')} data-kind="lens" role="status">
+              <span>模块视图「{d.modules?.[lens]?.label ?? lens}」：点字段加入 / 移出</span>
+              <button type="button" onClick={() => setLens(undefined)}>完成</button>
+            </div>
+          ) : null}
           {armed ? (
             <div {...solve('bp-armed')} role="status">
-              <span>点一张卡片放进「{shortLabel(armed)}」，或点空白处新建卡片</span>
+              <span>点卡片放进「{shortLabel(armed)}」，点空白处新建卡片</span>
               <button type="button" onClick={() => setArmed(undefined)} aria-label="取消放置">取消</button>
             </div>
           ) : null}
@@ -523,8 +577,8 @@ function Canvas() {
           {side ? <aside {...solve('bp-side')} aria-label="设置">{side}</aside> : null}
           {drag ? (
             <div {...solve('bp-ghost')} data-ok={drag.target ? '' : undefined} style={ghostAt(wrap.current, drag.x, drag.y)}>
-              {drag.p.kind === 'new' ? `新${shortLabel(drag.p.type)}` : nameOf(nodeAt(d, drag.p.addr), drag.p.addr.at(-1)!)}
-              <small>{!drag.target ? '这里放不下' : 'pane' in drag.target ? (drag.p.kind === 'new' ? '新建一张卡片' : drag.p.addr.length === 1 ? '' : '变成独立卡片') : drag.target.edge === 'in' ? '放进这张卡片' : '放在这里'}</small>
+              {drag.p.kind === 'new' ? `新${shortLabel(drag.p.type)}` : drag.p.kind === 'module' ? `模块「${d.modules?.[drag.p.name]?.label ?? drag.p.name}」` : nameOf(nodeAt(d, drag.p.addr), drag.p.addr.at(-1)!)}
+              <small>{!drag.target ? (drag.p.kind === 'module' ? '拖到字段或卡片上' : '这里放不下') : drag.p.kind === 'module' ? '加入这个模块' : 'pane' in drag.target ? (drag.p.kind === 'new' ? '新建一张卡片' : drag.p.addr.length === 1 ? '' : '变成独立卡片') : drag.target.edge === 'in' ? '放进这张卡片' : '放在这里'}</small>
             </div>
           ) : null}
         </div>
