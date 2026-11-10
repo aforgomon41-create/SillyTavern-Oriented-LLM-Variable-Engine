@@ -1,11 +1,14 @@
 /**
  * 操作台：直接在状态树上改（json-edit-react），每处修改记进改动单，引擎实时预演，确认后作为一次玩家动作提交（全成或全不成）。
  * 按结构加了中文名、枚举 / 阶梯 / 引用的下拉；只读、媒体、休眠模块的字段锁定；实体集合不能在这里增删（会走实体操作）。
+ * 窄屏（手机）是触屏模式：点一个值从底部弹出编辑面板（大按钮、数字 −/+、选项列表），清单上直接有「+ 加一项」，
+ * 底部固定一条改动单栏（数量、预演状态、提交），改动单在弹出面板里看。
  */
 import * as React from 'react';
 import { JsonEditor, type CustomComponentProps, type CustomKeyProps, type CustomNodeDefinition, type JsonEditorHandle, type NodeData, type ThemeStyles, type UpdateFunctionProps } from 'json-edit-react';
 import jerCss from 'json-edit-react/style.css';
 import { useKit } from '../kit.js';
+import { useWide } from '../statusbar/widgets.js';
 import type { StatusModel } from '../statusbar/model.js';
 import type { Feedback, LogicalState } from '../../types.js';
 import { Diff, FeedbackList, describe, message, named, part, partsOf, short, solve, valueAt, type Controller } from './shared.js';
@@ -21,6 +24,8 @@ export interface ConsoleProps {
   advanced?: React.ReactNode;
 }
 interface Change { parts: string[]; kind: 'set' | 'unset'; value?: unknown }
+type Sheet = { kind: 'field'; parts: string[] } | { kind: 'add'; parts: string[] } | { kind: 'changes' };
+const DELETE = Symbol('delete');
 type Preview = { feedback: Feedback[]; patch: any[]; base: string } | { error: string };
 
 const key = (parts: string[]) => parts.join('.');
@@ -119,6 +124,10 @@ export function StateEditor({ c, m, state, ready, busy, run, focus, advanced }: 
   const [result, setResult] = React.useState<Preview | undefined>();
   const editor = React.useRef<JsonEditorHandle>(null);
   const draft = React.useMemo(() => apply(data, changes), [data, changes]);
+  // Touch mode below 640px: tap to edit in a bottom sheet, change list in a docked bar.
+  const [box, wide] = useWide(640);
+  const compact = !wide;
+  const [sheet, setSheet] = React.useState<Sheet | undefined>();
   // A new head (after a submit, a reply or an undo) starts a fresh change list.
   const head = c.runtime.getCommit()?.id;
   React.useEffect(() => { setChanges([]); setResult(undefined); }, [head]);
@@ -127,7 +136,7 @@ export function StateEditor({ c, m, state, ready, busy, run, focus, advanced }: 
     if (!focusParts) return;
     const s = scopes.filter(x => startsWith(focusParts, x.parts)).sort((a, b) => b.parts.length - a.parts.length)[0];
     if (s) setScopeId(s.id);
-    const t = setTimeout(() => { if (s) editor.current?.startEdit({ path: focusParts.slice(s.parts.length) }); }, 60);
+    const t = setTimeout(() => { if (!s) return; if (compact) setSheet({ kind: 'field', parts: focusParts }); else editor.current?.startEdit({ path: focusParts.slice(s.parts.length) }); }, 60);
     return () => clearTimeout(t);
   }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -157,6 +166,14 @@ export function StateEditor({ c, m, state, ready, busy, run, focus, advanced }: 
     if (same(value, base)) return rest;
     return [...rest, { parts: target, kind, value: clone(value) }];
   });
+  /** Write one value (or delete it) into the change list; inside a list the whole list is written. */
+  const commitEdit = (parts: string[], next: unknown) => {
+    const nextFull = next === DELETE ? unsetIn(draft, parts) : setIn(draft, parts, next);
+    let target = parts;
+    for (let i = 1; i < parts.length; i++) if (Array.isArray(valueAt(data, parts.slice(0, i)))) { target = parts.slice(0, i); break; }
+    if (next === DELETE && target === parts) record(target, 'unset');
+    else record(target, 'set', valueAt(nextFull, target));
+  };
   const onUpdate = (props: UpdateFunctionProps<any>) => {
     if (props.event === 'rename') return { error: '不能改键名' };
     const parts = full(props);
@@ -199,17 +216,30 @@ export function StateEditor({ c, m, state, ready, busy, run, focus, advanced }: 
 
   // Structure-aware nodes: Chinese labels on every key, choices for enum / ladder / ref.
   const changed = React.useMemo(() => new Set(changes.map(ch => key(ch.parts))), [changes]);
-  const Label = React.useCallback(({ name, path, handleClick, styles }: CustomKeyProps) => {
+  const Label = React.useCallback(({ name, path, handleClick, styles, nodeData }: CustomKeyProps) => {
     const parts = [...scope.parts, ...path.map(String)], k = String(name);
+    const collection = nodeData.value !== null && typeof nodeData.value === 'object';
+    const open = compact && !collection ? () => setSheet({ kind: 'field', parts }) : handleClick;
     const pattern = m.pattern(parts).split('.'), star = pattern[parts.length - 1] === '*';
     const text = /^\d+$/u.test(k) && Array.isArray(valueAt(draft, parts.slice(0, -1))) ? '#' + (Number(k) + 1) : star ? (m.entityName(k) || k) : (m.label(parts) || k);
     const lock = lockOf(c, m, parts);
     return (
-      <span {...solve('jer-key')} style={styles} onClick={handleClick} data-changed={changed.has(key(parts)) ? '' : undefined} title={lock ? `${key(parts)} · ${lock}` : key(parts)}>
+      <span {...solve('jer-key')} style={styles} onClick={open} data-changed={changed.has(key(parts)) ? '' : undefined} title={lock ? `${key(parts)} · ${lock}` : key(parts)}>
         {text}{text !== k ? <code>{k}</code> : null}{lock ? <i aria-label={lock}>🔒</i> : null}
+        {compact && collection && allowAdd(nodeData) ? <button type="button" {...part('add')} onClick={e => { e.stopPropagation(); setSheet({ kind: 'add', parts }); }}>+ 加一项</button> : null}
       </span>
     );
-  }, [scope, m, draft, changed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scope, m, draft, changed, compact]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Touch mode: every value is a button that opens the edit sheet. */
+  const TapValue = React.useCallback(({ value, nodeData }: CustomComponentProps) => {
+    const parts = [...scope.parts, ...nodeData.path.map(String)], lock = lockOf(c, m, parts);
+    const meta = choiceMeta(m, parts), ref = meta?.type === 'ref' || meta?.type === 'refs';
+    const text = value === null ? '（空）' : value === '' ? '（空字符串）' : ref ? named(m, value) : typeof value === 'boolean' ? (value ? '是' : '否') : String(value);
+    return (
+      <button type="button" {...solve('jer-tap')} data-kind={typeof value} data-locked={lock ? '' : undefined} data-changed={changed.has(key(parts)) || changes.some(ch => startsWith(parts, ch.parts) && ch.parts.length < parts.length && !same(valueAt(data, parts), value)) ? '' : undefined}
+        onClick={() => setSheet({ kind: 'field', parts })}>{text.length > 60 ? text.slice(0, 59) + '…' : text}</button>
+    );
+  }, [scope, m, changed, changes]); // eslint-disable-line react-hooks/exhaustive-deps
   const Choice = React.useCallback(({ value, nodeData, isEditing, setIsEditing, handleEdit, handleCancel, canEdit }: CustomComponentProps) => {
     const parts = [...scope.parts, ...nodeData.path.map(String)], meta = choiceMeta(m, parts);
     const ref = meta?.type === 'ref' || meta?.type === 'refs';
@@ -224,12 +254,15 @@ export function StateEditor({ c, m, state, ready, busy, run, focus, advanced }: 
       </select>
     );
   }, [scope, m, draft]); // eslint-disable-line react-hooks/exhaustive-deps
-  const nodes = React.useMemo<CustomNodeDefinition[]>(() => [
+  const nodes = React.useMemo<CustomNodeDefinition[]>(() => compact ? [
+    { condition: n => n.value === null || typeof n.value !== 'object', component: TapValue as never, keyComponent: Label as never, showOnEdit: true, showOnView: true, showEditTools: false, name: 'tap' },
+    { condition: () => true, keyComponent: Label as never, name: 'label' },
+  ] : [
     { condition: n => !!choiceMeta(m, full(n)) && (n.value === null || typeof n.value === 'string'),
       component: Choice as never, keyComponent: Label as never, showOnEdit: true, showOnView: true, showEditTools: false, name: 'choice' },
     // Labels only: no `component`, so the library keeps its own value / collection rendering.
     { condition: () => true, keyComponent: Label as never, name: 'label' },
-  ], [Choice, Label, scope, m]); // eslint-disable-line react-hooks/exhaustive-deps
+  ], [Choice, Label, TapValue, scope, m, compact]); // eslint-disable-line react-hooks/exhaustive-deps
   const theme = React.useMemo<ThemeStyles>(() => {
     const mark = (n: NodeData) => changed.has(key(full(n))) ? { backgroundColor: 'var(--k-accent-soft)', borderRadius: 'var(--k-r-sm)' } : null;
     return {
@@ -252,22 +285,10 @@ export function StateEditor({ c, m, state, ready, busy, run, focus, advanced }: 
   const scoped = valueAt(draft, scope.parts);
   const Text = K.TextField;
   const field = (props: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'>) => Text ? <Text size="sm" {...props} /> : <input {...props} />;
-  return (
-    <div {...solve('debug-console')}>
-      <p {...part('intro')}>点值就能改（数字可用 ↑↓ 加减，Tab 跳到下一个）。每处修改先记进右边的<b>改动单</b>，引擎实时预演；确认后一次<b>提交</b>，作为玩家动作存进第 {floor?.index ?? '—'} 楼，可在历史里撤销。🔒 是不能在这里改的字段。</p>
-      <div {...solve('debug-bar')}>
-        <label {...part('scope')}>改哪里 <select value={scope.id} onChange={e => setScopeId(e.target.value)}>{scopes.map(s => <option key={s.id} value={s.id}>{s.label}{changes.some(ch => startsWith(ch.parts, s.parts)) ? ' ●' : ''}</option>)}</select></label>
-        {field({ placeholder: '在这一块里搜索（键或值）', value: search, onChange: e => setSearch(e.target.value), 'aria-label': '搜索' })}
-      </div>
-      <div {...part('split')}>
-        <div {...part('editor')}>
-          <JsonEditor data={scoped as any} setData={() => undefined} onUpdate={onUpdate as never} editorRef={editor} rootName={scope.label}
-            allowEdit={allowEdit} allowDelete={allowDelete} allowAdd={allowAdd} allowDrag={(n: NodeData) => Array.isArray(n.parentData) && !lockOf(c, m, full(n))}
-            allowTypeSelection={false} newKeyOptions={newKeyOptions as never} defaultValue={defaultValue as never}
-            collapse={(n: NodeData) => n.level >= 2} searchText={search} searchFilter="all" showStringQuotes={false} showArrayIndexes={false}
-            stringTruncateLength={80} showIconTooltips translations={ZH} customNodeDefinitions={nodes} theme={theme} indent={2} minWidth="100%" maxWidth="100%" />
-        </div>
-        <aside {...part('changes')} aria-label="改动单">
+  const rows = result && !('error' in result) ? changes.map((ch, i) => feedbackOf(result.feedback, ch, i)) : [];
+  const rejected = rows.filter(r => r.some(f => f.level === 'L3')).length, adjusted = rows.filter(r => r.length && !r.some(f => f.level === 'L3')).length;
+  const changeList = (
+    <>
           <h3>改动单 <small>{changes.length ? `${changes.length} 处` : '还没有修改'}</small></h3>
           {changes.length ? (
             <ul {...solve('debug-changes')}>
@@ -313,8 +334,47 @@ export function StateEditor({ c, m, state, ready, busy, run, focus, advanced }: 
               ) : null}
             </>
           ) : null}
-        </aside>
+    </>
+  );
+  const sheetParts = sheet && sheet.kind !== 'changes' ? sheet.parts : undefined;
+  return (
+    <div ref={box} {...solve('debug-console', { layout: compact ? 'touch' : 'split' })}>
+      {compact ? <p {...part('intro')}>点一个值就能改。改动先记进底部的<b>改动单</b>，引擎实时预演，确认后一次提交（存进第 {floor?.index ?? '—'} 楼，可撤销）。🔒 是不能在这里改的字段。</p> : <p {...part('intro')}>点值就能改（数字可用 ↑↓ 加减，Tab 跳到下一个）。每处修改先记进右边的<b>改动单</b>，引擎实时预演；确认后一次<b>提交</b>，作为玩家动作存进第 {floor?.index ?? '—'} 楼，可在历史里撤销。🔒 是不能在这里改的字段。</p>}
+      <div {...solve('debug-bar')}>
+        <label {...part('scope')}>改哪里 <select value={scope.id} onChange={e => setScopeId(e.target.value)}>{scopes.map(s => <option key={s.id} value={s.id}>{s.label}{changes.some(ch => startsWith(ch.parts, s.parts)) ? ' ●' : ''}</option>)}</select></label>
+        {field({ placeholder: '在这一块里搜索（键或值）', value: search, onChange: e => setSearch(e.target.value), 'aria-label': '搜索' })}
       </div>
+      <div {...part('split')}>
+        <div {...part('editor')}>
+          <JsonEditor data={scoped as any} setData={() => undefined} onUpdate={onUpdate as never} editorRef={editor} rootName={scope.label}
+            allowEdit={compact ? false : allowEdit} allowDelete={compact ? false : allowDelete} allowAdd={compact ? false : allowAdd} allowDrag={(n: NodeData) => !compact && Array.isArray(n.parentData) && !lockOf(c, m, full(n))}
+            allowTypeSelection={false} newKeyOptions={newKeyOptions as never} defaultValue={defaultValue as never}
+            collapse={(n: NodeData) => n.level >= 2} searchText={search} searchFilter="all" showStringQuotes={false} showArrayIndexes={false}
+            stringTruncateLength={compact ? 40 : 80} showIconTooltips showClipboardButton={!compact} translations={ZH} customNodeDefinitions={nodes} theme={theme} indent={compact ? 1 : 2} minWidth="100%" maxWidth="100%" />
+        </div>
+        {compact ? null : <aside {...part('changes')} aria-label="改动单">{changeList}</aside>}
+      </div>
+      {compact ? (
+        <div {...part('dock')} data-tone={!changes.length ? undefined : rejected ? 'error' : adjusted ? 'warning' : 'ok'}>
+          <button type="button" {...part('dock-open')} onClick={() => setSheet({ kind: 'changes' })} disabled={!changes.length}>
+            <b>改动单 {changes.length} 处</b>
+            <small>{!changes.length ? '点上面的值开始修改' : !result ? '预演中…' : 'error' in result ? '预演出错' : rejected ? `${rejected} 处被拒绝` : adjusted ? `${adjusted} 处会被调整` : '全部可以生效'}</small>
+          </button>
+          <K.Button size="sm" variant="primary" disabled={!changes.length || !result || 'error' in result || blocked || busy || !ready} onClick={() => void submit()}>提交</K.Button>
+        </div>
+      ) : null}
+      {compact && sheet?.kind === 'changes' ? <SheetFrame title={`改动单 · ${changes.length} 处`} onClose={() => setSheet(undefined)}>{changeList}</SheetFrame> : null}
+      {compact && sheetParts ? (
+        <SheetFrame title={describe(m, sheetParts) || scope.label} sub={key(sheetParts)} onClose={() => setSheet(undefined)}>
+          {sheet!.kind === 'field' ? (
+            <FieldEditor c={c} m={m} parts={sheetParts} value={valueAt(draft, sheetParts)} base={valueAt(data, sheetParts)} draft={draft} lock={lockOf(c, m, sheetParts)}
+              canDelete={!lockOf(c, m, sheetParts) && (Array.isArray(valueAt(draft, sheetParts.slice(0, -1))) || (isRecord(m, sheetParts.slice(0, -1), valueAt(draft, sheetParts.slice(0, -1))) && !isEntityCollection(m, sheetParts.slice(0, -1))))}
+              onApply={v => { commitEdit(sheetParts, v); setSheet(undefined); }} onDelete={() => { commitEdit(sheetParts, DELETE); setSheet(undefined); }} />
+          ) : (
+            <AddItem c={c} m={m} parts={sheetParts} draft={draft} onAdd={(k, v) => { commitEdit([...sheetParts, k], v); setSheet(undefined); }} onEdit={k => setSheet({ kind: 'field', parts: [...sheetParts, k] })} />
+          )}
+        </SheetFrame>
+      ) : null}
       {advanced ? <details {...solve('debug-advanced')}><summary>高级：直接写操作 JSON（$inc、$push、实体操作…）</summary>{advanced}</details> : null}
     </div>
   );
@@ -332,4 +392,122 @@ function blank(v: unknown): unknown {
   if (Array.isArray(v)) return [];
   if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, blank(x)]));
   return typeof v === 'number' ? 0 : typeof v === 'boolean' ? false : v === null ? null : '';
+}
+
+/** Bottom sheet (touch mode). Rendered inside the panel, over it; Escape or the backdrop closes it. */
+function SheetFrame({ title, sub, onClose, children }: { title: React.ReactNode; sub?: string; onClose: () => void; children: React.ReactNode }) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    window.addEventListener('keydown', onKey, true); return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  return (
+    <div {...solve('debug-sheet')}>
+      <div {...part('backdrop')} onClick={onClose} aria-hidden="true" />
+      <div {...part('sheet')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : '编辑'}>
+        <div {...part('grab')} aria-hidden="true" />
+        <header><div><h3>{title}</h3>{sub ? <code>{sub}</code> : null}</div><button type="button" {...part('close')} onClick={onClose} aria-label="关闭">×</button></header>
+        <div {...part('body')}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** One value in the sheet: options as a list, numbers with −/+, yes / no, or a text box. */
+function FieldEditor({ c, m, parts, value, base, draft, lock, canDelete, onApply, onDelete }: {
+  c: Controller; m: StatusModel; parts: string[]; value: unknown; base: unknown; draft: unknown; lock?: string; canDelete: boolean;
+  onApply: (v: unknown) => void; onDelete: () => void;
+}) {
+  const K = useKit();
+  const meta = choiceMeta(m, parts), own = m.meta(parts);
+  const ref = meta?.type === 'ref' || meta?.type === 'refs';
+  const numeric = typeof value === 'number' || own?.type === 'int' || own?.type === 'number';
+  const bool = typeof value === 'boolean' || own?.type === 'bool' || own?.type === 'boolean';
+  const [text, setText] = React.useState(value === null || value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value));
+  const changed = !same(value, base);
+  const original = base === undefined ? '（原来没有）' : named(m, base);
+  if (lock) return <><p {...part('lock')}>🔒 {lock}</p><p {...part('value')}>{named(m, value)}</p></>;
+  if (value !== null && typeof value === 'object') return <p {...part('lock')}>这是一组数据，在树里展开后逐项修改。</p>;
+  const footer = (apply?: () => void, ok = true) => (
+    <div {...part('actions')}>
+      {apply ? <K.Button variant="primary" disabled={!ok} onClick={apply}>加入改动单</K.Button> : null}
+      {changed && base !== undefined ? <K.Button variant="ghost" onClick={() => onApply(base)}>改回原值</K.Button> : null}
+      {canDelete ? <K.Button variant="danger" onClick={onDelete}>删除这一项</K.Button> : null}
+    </div>
+  );
+  const was = changed ? <p {...part('was')}>原值：{original}</p> : null;
+  if (meta) {
+    const options: [string, string][] = ref ? entitiesOf(c, m, draft, meta.to) : (meta.values ?? []).map(v => [v, v]);
+    return (
+      <>
+        {was}
+        <div {...part('options')} role="listbox" aria-label={m.label(parts)}>
+          {options.map(([v, label], i) => (
+            <button type="button" key={v} role="option" aria-selected={value === v} data-current={value === v ? '' : undefined} onClick={() => onApply(v)}>
+              <span>{label}</span>{ref && label !== v ? <code>{v}</code> : meta.type === 'ladder' ? <small>{i + 1}/{options.length}</small> : null}
+            </button>
+          ))}
+        </div>
+        {footer()}
+      </>
+    );
+  }
+  if (bool) return <>{was}<div {...part('options')} data-layout="row">{[true, false].map(v => <button type="button" key={String(v)} data-current={value === v ? '' : undefined} onClick={() => onApply(v)}>{v ? '是' : '否'}</button>)}</div>{footer()}</>;
+  if (numeric) {
+    const n = Number(text), ok = text.trim() !== '' && Number.isFinite(n);
+    const step = (d: number) => setText(String((Number.isFinite(n) ? n : 0) + d));
+    const range = [own?.min !== undefined ? `最小 ${own.min}` : '', own?.max !== undefined ? `最大 ${own.max}` : ''].filter(Boolean).join(' · ');
+    return (
+      <>
+        {was}
+        <div {...part('stepper')}>
+          <button type="button" onClick={() => step(-10)}>−10</button><button type="button" onClick={() => step(-1)}>−1</button>
+          <input inputMode="decimal" value={text} onChange={e => setText(e.target.value)} aria-label={m.label(parts)} onKeyDown={e => { if (e.key === 'Enter' && ok) onApply(n); }} />
+          <button type="button" onClick={() => step(1)}>+1</button><button type="button" onClick={() => step(10)}>+10</button>
+        </div>
+        {range ? <p {...part('hint')}>{range}（超出会被引擎调整）</p> : null}
+        {footer(() => onApply(n), ok)}
+      </>
+    );
+  }
+  return (
+    <>
+      {was}
+      <textarea {...part('text')} value={text} rows={Math.min(8, Math.max(3, Math.ceil(text.length / 18)))} onChange={e => setText(e.target.value)} aria-label={m.label(parts)} autoFocus />
+      {footer(() => onApply(value === null && text === '' ? null : text))}
+    </>
+  );
+}
+
+/** Add to a list or an entity-keyed record (touch mode). */
+function AddItem({ c, m, parts, draft, onAdd, onEdit }: { c: Controller; m: StatusModel; parts: string[]; draft: unknown; onAdd: (key: string, value: unknown) => void; onEdit: (key: string) => void }) {
+  const K = useKit();
+  const target = valueAt(draft, parts), meta = m.meta(parts);
+  const [text, setText] = React.useState('');
+  if (Array.isArray(target)) {
+    const index = String(target.length), sample = target[0];
+    const itemMeta = choiceMeta(m, [...parts, index]);
+    if (itemMeta) {
+      const options = (itemMeta.type === 'ref' || itemMeta.type === 'refs' ? entitiesOf(c, m, draft, itemMeta.to) : (itemMeta.values ?? []).map(v => [v, v] as [string, string])).filter(([v]) => !target.includes(v));
+      return options.length ? <div {...part('options')}>{options.map(([v, label]) => <button type="button" key={v} onClick={() => onAdd(index, v)}><span>{label}</span>{label !== v ? <code>{v}</code> : null}</button>)}</div> : <p {...part('hint')}>都已经在列表里了。</p>;
+    }
+    if (sample !== null && typeof sample === 'object') return (
+      <><p {...part('hint')}>新的一项有好几个字段：先加一个空白项，再逐个填写。</p>
+        <div {...part('actions')}><K.Button variant="primary" onClick={() => { onAdd(index, blank(sample)); setTimeout(() => onEdit(index), 0); }}>加一个空白项</K.Button></div></>
+    );
+    return (
+      <>
+        <textarea {...part('text')} value={text} rows={2} onChange={e => setText(e.target.value)} placeholder="新的一项" aria-label="新的一项" autoFocus />
+        <div {...part('actions')}><K.Button variant="primary" disabled={!text.trim()} onClick={() => onAdd(index, typeof sample === 'number' ? Number(text) : text.trim())}>加入改动单</K.Button></div>
+      </>
+    );
+  }
+  if (meta?.keys && target && typeof target === 'object') {
+    const first = Object.values(target)[0];
+    const options = entitiesOf(c, m, draft, meta.keys).filter(([id]) => !(id in (target as object)));
+    return options.length ? (
+      <><p {...part('hint')}>选一个加进来，之后在树里展开填写。</p>
+        <div {...part('options')}>{options.map(([id, label]) => <button type="button" key={id} onClick={() => onAdd(id, first === undefined ? {} : blank(first))}><span>{label}</span><code>{id}</code></button>)}</div></>
+    ) : <p {...part('hint')}>没有可以再加的了。</p>;
+  }
+  return <p {...part('hint')}>这里不能直接加；可以在「高级」里写操作。</p>;
 }
