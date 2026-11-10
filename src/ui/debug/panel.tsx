@@ -7,6 +7,7 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { StatusModel } from '../statusbar/model.js';
 import { useWide } from '../statusbar/widgets.js';
+import { StateEditor } from './console.js';
 import type { Feedback, LogicalState } from '../../types.js';
 import { Diff, FeedbackBadges, FeedbackList, Json, brief, named, useStateBefore, describe, message, part, partsOf, short, size, solve, valueAt, type Controller, type DebugHost } from './shared.js';
 
@@ -364,7 +365,7 @@ const TEMPLATES = (path?: string): { label: string; ops: unknown }[] => [
   { label: '原子组（全成或全不成）', ops: { $group: [{ $inc: { '@erin.items.gold.count': -30 } }, { $inc: { '@erin.items.healing_draught.count': 1 } }] } },
   { label: '删除', ops: { $unset: [path ?? '@erin.condition'] } },
 ];
-function Console() {
+function AdvancedConsole() {
   const K = useKit(), { c, m, state, ready, run, busy, focus } = useDebug();
   const [text, setText] = React.useState(() => JSON.stringify(TEMPLATES(focus)[0]!.ops, null, 2));
   const [inputs, setInputs] = React.useState('');
@@ -407,6 +408,11 @@ function Console() {
       )) : null}
     </>
   );
+}
+
+function Console() {
+  const { c, m, state, ready, run, busy, focus } = useDebug();
+  return <StateEditor c={c} m={m} state={state} ready={ready} run={run} busy={busy} {...(focus ? { focus } : {})} advanced={<AdvancedConsole />} />;
 }
 
 // ── 提示词 ──

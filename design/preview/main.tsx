@@ -19,6 +19,7 @@ import { BgmPlayer } from '../../src/host/bgm';
 import { IMAGES, MUSIC, MUSIC_CREDIT } from '../../examples/official/media';
 import statusCss from '../../src/ui/statusbar/statusbar.css';
 import debugCss from '../../src/ui/debug/debug.css';
+import { jerCss } from '../../src/ui/debug/console';
 import { createDebugDemo } from '../debug-preview/demo';
 
 declare const __BUILD__: string;
@@ -90,7 +91,7 @@ async function single(scheme: string, view: string, embed: boolean, attr: string
   document.documentElement.dataset.scheme = mgr.current.manifest.schemes[scheme] ? scheme : 'light';
   const layer = rt.layer();
   const sheet = new CSSStyleSheet();
-  sheet.replaceSync('@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;\n@layer k.components {\n' + statusCss + '\n' + debugCss + '\n}');
+  sheet.replaceSync('@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;\n@layer k.components {\n' + statusCss + '\n' + jerCss + '\n' + debugCss + '\n}');
   layer.shadow.adoptedStyleSheets = [...layer.shadow.adoptedStyleSheets, sheet];
 
   const demo = await createDebugDemo();
