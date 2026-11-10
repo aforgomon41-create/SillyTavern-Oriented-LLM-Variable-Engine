@@ -5,8 +5,8 @@ import { SolveRuntime } from '../runtime.js';
 import { PerformanceTrace, measure } from '../performance.js';
 import { VerifiedHistory } from '../verified-history.js';
 import { IndexedDbCache } from '../cache.js';
-import { assertJson, clone, fail, hash, id } from '../json.js';
-import { extractRawBlocks, parseOperations, stripBlocks } from '../parser.js';
+import { assertJson, canonical, clone, fail, hash, id } from '../json.js';
+import { extractRawBlocks, parseOperations, promptText, stripBlocks } from '../parser.js';
 import { guide, registerMacros, sop, toJson, toToon } from '../projection.js';
 import { archiveFromChat, browserWriteLock, preserveOrphanAncestors, SillyTavern119Adapter } from './sillytavern.js';
 import { DiagnosticJournal, describeError, inspectCapabilities } from '../diagnostics.js';
@@ -303,7 +303,8 @@ export class SillyTavernController {
     try {
       if (!this.ready || this.runtime.pendingCount || this.pendingImportError || (this.busy && !this.options.allowRequestsDuringOperatorBusy) || this.findParent(this.context().chat.length) !== this.runtime.headId) { this.record('REQUEST_BLOCKED', '状态未就绪、存在待保存操作或正在同步，请求已阻止', 'warning'); abort(true); return; }
     } catch { abort(true); return; }
-    for (const message of chat) message.mes = stripBlocks(message.mes);
+    // Player actions reach the model as one line of narration (what they did in the status bar); operations never do.
+    for (const message of chat) message.mes = promptText(message.mes);
   }
   processMessage(index = this.context().chat.length - 1): Promise<Commit | undefined> {
     const candidate = this.context().chat[index];
@@ -400,6 +401,36 @@ export class SillyTavernController {
   }
   async setModule(module: string, enabled: boolean, options: { actionId?: string; index?: number } = {}): Promise<Commit> {
     return this.submitUser({ actionId: options.actionId ?? id('action'), kind: 'module', source: 'user', module, enabled }, options.index);
+  }
+  /**
+   * Revert the latest player action on the current reply (status bar 撤销). The archive keeps every revision, so this
+   * re-selects the revision before that action and restores its message text; nothing is recomputed.
+   */
+  async undoUser(options: { index?: number } = {}): Promise<Commit> {
+    this.assertReady();
+    const index = options.index ?? this.lastAssistantIndex(), binding = this.adapter.binding(index);
+    return this.enqueue(async () => {
+      this.assertReady(); if (this.pendingImportError) fail('PENDING_CONFLICT', this.pendingImportError); this.adapter.assertCurrent(binding);
+      const head = await this.adapter.selectedHead(binding);
+      if (!head) fail('NO_SWIPE_STATE', '当前回复尚未完成变量同步');
+      if (this.runtime.headId !== head) await this.runtime.select(head);
+      const current = this.runtime.getCommit(head)!, last = current.actions.at(-1);
+      if (!last || last.source !== 'user') fail('NOTHING_TO_UNDO', '当前回复没有可以撤销的玩家操作');
+      const want = canonical(current.actions.slice(0, -1)), archive = this.runtime.archive;
+      const before = Object.values(archive.commits).find(c => c.id !== current.id && c.parentId === current.parentId
+        && headKey(c.binding) === headKey(current.binding) && canonical(c.actions) === want);
+      if (!before) fail('UNDO_UNAVAILABLE', '找不到这次操作之前的记录，无法撤销');
+      const message = this.context().chat.find(m => m.extra?.solve?.messageId === binding.messageId)!;
+      const prefix = message.mes.replace(/<solve_mutual_operate>[\s\S]*?<\/solve_mutual_operate>/gu, '').trimEnd();
+      const users = current.actions.slice(0, -1).filter(a => a.source === 'user');
+      const candidates = users.length ? [prefix + `\n<solve_mutual_operate>\n${JSON.stringify(users)}\n</solve_mutual_operate>`] : [prefix, message.mes.replace(/\n?<solve_mutual_operate>[\s\S]*?<\/solve_mutual_operate>/gu, '')];
+      let text: string | undefined;
+      for (const candidate of candidates) if (await hash(candidate) === before.textDigest) { text = candidate; break; }
+      if (text === undefined) fail('UNDO_UNAVAILABLE', '回复正文已变化，无法撤销');
+      archive.heads[headKey(binding)] = before.id;
+      const draft = { archive, commit: before, binding, text, sourceTextDigest: await hash(message.mes), expectedHead: this.runtime.headId, prepared: true as const };
+      return this.persist(() => this.runtime.savePrepared(draft, message.mes));
+    });
   }
   /** Player settings: list caps/warnings and per-change limits. `null` restores a default. */
   async setSettings(settings: SettingsPatch, options: { actionId?: string; index?: number } = {}): Promise<Commit> {
@@ -518,6 +549,7 @@ export class SillyTavernController {
       cache: { enabled: Boolean(this.cache), error: this.cacheError, source: this.cache?.lastRestoreSource ?? 'archive' },
       facetHooksPending: this.runtime?.pendingHookCount ?? 0,
       capabilities: inspectCapabilities(this.context(), this.hostVersion), mode: this.options.mode ?? 'in-band', operatorBusy: Boolean(this.operator),
+      generating: this.generated || this.finalizingGeneration,
     };
   }
   getState() { this.assertReady(); return this.runtime.getState(); }

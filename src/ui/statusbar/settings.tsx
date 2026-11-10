@@ -18,6 +18,8 @@ import type { BgmView } from './views.js';
 export interface LocalPrefs {
   /** Show spoiler content directly instead of the 「剧透 · 点击查看」 veil. */
   revealSpoilers: boolean;
+  /** Skin of the status bar when the Kami preset is present: follow it (default) or keep SOLVE's own. */
+  skin?: 'auto' | 'solve';
 }
 export interface SettingsHost {
   /** Turn a module on or off (a player action saved with the chat). */
@@ -30,6 +32,8 @@ export interface SettingsHost {
   tracks?: { list: BgmTrack[]; add(track: Omit<BgmTrack, 'id'>): void; remove(id: string): void };
   /** Why chat settings are paused right now (e.g. the model is writing). */
   locked?: string;
+  /** The Kami preset is on the page (offers 「跟随卡密预设皮肤」). */
+  kami?: boolean;
 }
 
 type Section = 'modules' | 'lists' | 'delta' | 'display' | 'music';
@@ -256,6 +260,12 @@ function Display({ host }: { host: SettingsHost }) {
         <span {...part('label')}>直接显示剧透<small>关系、能力、物品、真相等默认遮住的内容直接展开。隐藏字段仍然不显示。</small></span>
         <K.Switch checked={host.prefs.revealSpoilers} aria-label="直接显示剧透" onCheckedChange={v => host.onPrefs({ revealSpoilers: v })} />
       </div>
+      {host.kami ? (
+        <div {...solve('pref', { kind: 'switch' })}>
+          <span {...part('label')}>跟随卡密预设的皮肤<small>关闭后状态栏使用 SOLVE 自带的默认皮肤（松绿与暖石灰）。</small></span>
+          <K.Switch checked={host.prefs.skin !== 'solve'} aria-label="跟随卡密预设的皮肤" onCheckedChange={v => host.onPrefs({ skin: v ? 'auto' : 'solve' })} />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -318,6 +318,7 @@ SOLVE 引擎本来就有两种现成实体，由世界书 `[SOLVE:PREFABS]` / `[
 - 2026-11-09 用户要求：量表与熟练度做成「数值 / 描述」互斥组；社交可以搜索角色；别人的关系、能力、物品默认剧透，只有表面看得出的（好感度、已装备物品、势力的声望与外交立场）公开；电脑上 NPC 概况放在立绘下方（概况里只放对你的好感度），关系每人可折叠；电脑上地图左右两栏；势力页同样处理（搜索、概况在左栏、外交可折叠）。
 - 2026-11-09 用户要求：货币也是物品（类型「货币」），出现在物品栏；物品除了装备和背包还能存进建筑——「不动产」改名「建筑」，银行之类也能寄存；能力可以使用、锻炼、开发；主角的驱动力玩家可以自由修改。
 - 2026-11-09 用户要求：做用户设置界面。决定：面板标题栏加 ⚙，设置页分 模块 / 清单上限 / 变化上限 / 显示 / 音乐 五区，全部由结构声明推出；前三项按聊天保存为玩家动作，后两项存本机；清单与变化上限改动先暂存、一次保存（避免每点一下就记一条动作）。见 §11.7。
+- 2026-11-09 用户要求：状态栏接入酒馆，「两条一起做」（SOLVE 独立版与卡密接入）。决定：只用 SOLVE 自己的一份 React 与组件，组件输出卡密皮肤契约的钩子；有卡密预设时挂卡密的样式表与皮肤，没有时用 SOLVE 默认皮肤；旁白随回复保存、在发给模型的副本里换成一行说明；撤销改为重新选中之前的修订。见 §11.8。
 - 2026-11-08 用户确认交互方案：交互与渲染一样由结构声明（`edit` / `actions`），动作是带占位符的普通 SOLVE 操作，作为玩家动作提交、换页重放；玩家操作在下一轮注入提示词告诉模型（不动聊天输入框）；状态栏只开放作者声明了 `edit` 的字段，任意字段的修正留给调试面板；可以撤销最新一笔；图鉴只读。
 - 2026-11-08 用户要求：能力每级效果不同并要展示（`abilities.*.levels`）；角色定位增加「一次性敌人」，反复出场的反派属于配角；图鉴可查看预制人物，也可以预制人物为基础生成独立人物（`$from` 可指向预制实体）。
 
@@ -438,7 +439,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | 档案 | 简介、外貌可原地修改（静默） |
 | 地点 | 前往这里（设为当前地点） |
 
-**宿主接口**（`StatusBar` 的 `interact` 属性）：`run({ ops, title, narrate? }) → { ok } | { ok: false, error }`（`ops` 为空时只记下 narrate）、`undo?() → boolean`、`locked?`、`pending?`（待告知清单）。酒馆宿主的接入（经 `submitUser` 提交、注入提示词、撤销）尚未实现，目前只有设计预览接上了真引擎。
+**宿主接口**（`StatusBar` 的 `interact` 属性）：`run({ ops, title, narrate? }) → { ok } | { ok: false, error }`（`ops` 为空时只记下 narrate）、`undo?() → boolean`、`locked?`、`pending?`（待告知清单）。酒馆宿主见 §11.8。
 
 
 ### 11.7 玩家设置页（⚙）
@@ -453,4 +454,17 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | 显示 | 「直接显示剧透」：剧透内容直接展开（`StatusModel` 的 `revealSpoilers` 选项），隐藏字段仍不显示 | 本机 |
 | 音乐 | 播放、音量；玩家自己的曲目（名称、链接、情绪），与作者曲库一起参与按情绪选曲；作者曲库只读列出 | 本机 |
 
-**宿主接口**（`StatusBar` 的 `settings` 属性，见 `src/ui/statusbar/settings.tsx`）：`setModule(name, on)`、`setSettings(patch)` → `{ ok } | { ok: false, error }`；`prefs` / `onPrefs(patch)`（本机偏好）；`tracks?: { list, add, remove }`（本机曲目）；`locked?`。`defaultSettings` 让面板直接打开设置页。设计预览已接上真引擎（`core.setModule` / `core.setSettings`）；酒馆宿主（经 `controller.setModule` / `setSettings` 提交，本机偏好存浏览器）尚未接入。
+**宿主接口**（`StatusBar` 的 `settings` 属性，见 `src/ui/statusbar/settings.tsx`）：`setModule(name, on)`、`setSettings(patch)` → `{ ok } | { ok: false, error }`；`prefs` / `onPrefs(patch)`（本机偏好）；`tracks?: { list, add, remove }`（本机曲目）；`locked?`。`defaultSettings` 让面板直接打开设置页。设计预览与酒馆宿主（§11.8）都已接上真引擎。显示区另有「跟随卡密预设的皮肤」（只在页面上有卡密预设时出现，`prefs.skin`）。
+
+### 11.8 酒馆里的状态栏（宿主）
+
+`src/host/statusbar.tsx`，由共享运行时在页面加载后自动挂载（三种分发都有）；只有绑定了定义、且结构声明了 `layout`（未声明 `render: false`）时才显示。
+
+- **挂载**：`<solve-statusbar>` 影子 DOM 层，铺满视口但不拦截点击，并作为启动器与面板的定位参照（酒馆在手机上会给 `<html>` 加 transform，皮肤也可能给表面加布局约束，都会让 fixed 元素错位）。React、组件与状态栏代码都是 SOLVE 自己的一份。
+- **皮肤**：页面上有卡密预设运行库（`KamiRuntimeNext`）时，把卡密的组件样式与当前皮肤（`hub(doc).attach`）挂到这一层，并跟随 `kami:skin-changed` 换肤；否则用 SOLVE 默认皮肤（`src/ui/kit-solve/`：令牌 + 组件样式，按酒馆页面底色选浅色 / 深色）。SOLVE 组件（`src/ui/kit-solve/index.tsx`）输出卡密皮肤契约的公开钩子（`data-k` / `data-k-part` / `data-k-level`），两种样式都能套；不复制卡密代码。
+- **交互**：先 `controller.preview` 试算，有 L3 错误就在状态栏报错、不写聊天；通过后 `controller.submit([{ $group: ops }], { authorInputs: { narrate } })`，作为玩家动作存进当前回复的 `<solve_mutual_operate>`。只有旁白没有操作时提交空批次。
+- **旁白进入下一轮**：生成拦截器把回复里的玩家操作块换成一行「（玩家在状态栏中：旁白1；旁白2）」，没有旁白（静默修改）就什么都不留；模型操作块照旧删除。旁白跟着回复走，撤销、换回复版本时一起变。面板底部「下一轮告诉模型」列出当前回复上的旁白。
+- **撤销**：`controller.undoUser()` 退回当前回复最新一次玩家操作——归档保留每次修订，直接重新选中操作之前的那个修订并恢复正文，不重新计算；没有可撤销的操作时报错。
+- **锁定**：未就绪、有待保存操作、模型正在回复（`getStatus().generating`）时，交互与按聊天保存的设置都暂停，并显示原因。
+- **本机偏好**：`solve.statusbar.prefs.v1`（剧透、皮肤）、`solve.statusbar.launcher.v1.desktop|mobile`（横条位置、页签、横条 / 圆按钮）；音乐沿用 `SOLVE.bgm`。
+- **实机验收**：`node scripts/live-statusbar.mjs [--mobile] [--skin=solve]`（先 `npx tsx scripts/dump-example-state.ts` 导出示例世界）。

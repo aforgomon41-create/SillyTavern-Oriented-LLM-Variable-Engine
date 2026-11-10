@@ -3,6 +3,8 @@ import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 const sourceUrl = 'https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine';
 const browserBuild = async options => {
+  // Stylesheets imported by the status bar are bundled as text (they are adopted into its shadow root).
+  if (!options.entryPoints.some(entry => entry.startsWith('src/debug/'))) options = { loader: { '.css': 'text' }, jsx: 'automatic', ...options, define: { 'process.env.NODE_ENV': '"production"', ...options.define } };
   const result = await build({ banner: { js: `/*! SOLVE ${version} | Copyright 2026 aforgomon41-create and SOLVE contributors | SPDX-License-Identifier: AGPL-3.0-only | Source: SOURCE_CODE.zip included in release packages | Project: ${sourceUrl} | See LICENSE and THIRD_PARTY_NOTICES.txt. */` }, ...options });
   if (options.sourcemap && options.outfile && options.write !== false) {
     const path = options.outfile + '.map', map = JSON.parse(await readFile(path, 'utf8'));

@@ -60,9 +60,16 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     unwatchSessions?.(); unwatchSessions = manager.subscribe(rebind); rebind();
     return manager;
   };
+  const sessionWatchers = new Set<() => void>();
   const manager = () => {
     if (!scope.SillyTavern?.getContext) throw new Error('SOLVE需要在SillyTavern 1.19页面内运行');
-    return sessions ??= watchMusic(new SolveSessionManager(() => scope.SillyTavern.getContext(), scope.fetch.bind(scope)));
+    if (!sessions) {
+      sessions = watchMusic(new SolveSessionManager(() => scope.SillyTavern.getContext(), scope.fetch.bind(scope)));
+      // The status bar follows the session manager once it exists (binding changes are announced through it).
+      sessions.subscribe(() => { for (const watcher of sessionWatchers) watcher(); });
+      for (const watcher of sessionWatchers) watcher();
+    }
+    return sessions;
   };
   const music = () => { manager(); return bgm!; };
   const bgmApi = Object.freeze({
@@ -118,7 +125,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
         async dispose() {
           if (disposed) return; disposed = true; providers.delete(owner);
           if (sessions) await sessions.unregister(owner);
-          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; sessions?.dispose(); sessions = undefined; closeDebugger(); scope.document?.getElementById('solve-debug-launcher')?.remove(); }
+          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; sessions?.dispose(); sessions = undefined; for (const watcher of sessionWatchers) watcher(); closeDebugger(); scope.document?.getElementById('solve-debug-launcher')?.remove(); }
         }
       });
     }
@@ -153,6 +160,20 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     if (scope.document?.body && (native || providers.size)) installLauncher(launch, scope.document);
   };
   configure(initial);
+  // Status bar in the page (browser only; the declared layout decides whether anything is shown).
+  let disposeStatusBar: (() => void) | undefined;
+  const mountStatusBar = () => {
+    if (disposeStatusBar || !scope.document?.body || typeof scope.CSSStyleSheet !== 'function' || !('adoptedStyleSheets' in (scope.Document?.prototype ?? {}))) return;
+    disposeStatusBar = () => undefined;
+    void import('./statusbar.js').then(m => {
+      disposeStatusBar = m.installStatusBar(scope, {
+        sessions: () => sessions,
+        onSessions: (listener: () => void) => { sessionWatchers.add(listener); return () => { sessionWatchers.delete(listener); }; },
+        bgm: () => sessions ? bgm : undefined,
+      });
+    }).catch(error => { disposeStatusBar = undefined; console.warn('[SOLVE] 状态栏加载失败', error); });
+  };
+  if (scope.document?.readyState === 'loading') scope.document.addEventListener('DOMContentLoaded', mountStatusBar, { once: true }); else mountStatusBar();
   console.info(`[SOLVE] ${engine.VERSION} 共享运行时已加载`);
   return { api, configure };
 }
