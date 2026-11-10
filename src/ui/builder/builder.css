@@ -349,3 +349,9 @@
 [data-solve="bp-row"][data-drop="in"] { box-shadow: inset 0 0 0 2px var(--k-accent); }
 [data-solve="bp"][data-layout="narrow"] [data-solve="bp-modules"] { top: 48px; }
 [data-solve="bp"]:focus { outline: none; }
+
+/* Strips scroll along their own axis; dragging a chip out across the strip starts a drag (touch-action lets the browser take the scroll). */
+[data-solve="bp-palette"][data-layout="strip"] [data-solve-part="chip"], [data-solve="bp-modules"] [data-solve-part="chip"] { touch-action: pan-x; }
+[data-solve="bp-palette"][data-layout="column"] [data-solve-part="chip"] { touch-action: pan-y; }
+[data-solve="bp-palette"][data-layout="strip"], [data-solve="bp-modules"] > [data-solve-part="list"] { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch;
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }

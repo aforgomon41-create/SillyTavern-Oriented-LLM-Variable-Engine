@@ -561,7 +561,7 @@ function Canvas() {
     : <Inspector addr={selected} onBack={() => select(undefined)} backLabel="✕ 关闭" />) : null;
 
   const palette = (
-    <div {...solve('bp-palette', { layout: wide ? 'column' : 'strip' })} role="toolbar" aria-label="字段类型：拖到画布上，或点一下再点卡片">
+    <div {...solve('bp-palette', { layout: wide ? 'column' : 'strip' })} onWheel={wide ? undefined : sideways} role="toolbar" aria-label="字段类型：拖到画布上，或点一下再点卡片">
       {wide ? <p {...part('hint')}>拖进卡片 = 新字段<br />拖到空白处 = 新卡片</p> : null}
       {TYPES.map(t => (
         <button type="button" key={t.type} {...part('chip')} aria-pressed={armed === t.type} onPointerDown={e => begin(e, { kind: 'new', type: t.type })} title={t.label}>
@@ -597,7 +597,7 @@ function Canvas() {
           </div>
           <div {...solve('bp-modules')} role="toolbar" aria-label="模块：点一个进入模块视图，或拖到字段上">
             <span {...part('title')}>模块</span>
-            <div {...part('list')}>
+            <div {...part('list')} onWheel={sideways}>
               {modNames.map(m => {
                 const x = d.modules![m]!;
                 return (
@@ -638,6 +638,11 @@ function Canvas() {
     </BpContext.Provider>
   );
 }
+/** Mouse wheel scrolls a horizontal strip sideways. */
+const sideways = (e: React.WheelEvent<HTMLElement>) => {
+  const el = e.currentTarget;
+  if (el.scrollWidth > el.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) el.scrollLeft += e.deltaY;
+};
 function ghostAt(el: HTMLElement | null, x: number, y: number): React.CSSProperties {
   const r = el?.getBoundingClientRect();
   return { left: x - (r?.left ?? 0) + 14, top: y - (r?.top ?? 0) + 14 };
