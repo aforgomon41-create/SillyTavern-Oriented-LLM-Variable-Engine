@@ -1,6 +1,7 @@
 /**
  * Example chat state for the official structure: used by tests, the debug demo and
- * the status-bar previews. Scenario: a dark-fantasy capital, round 42, WOD attributes.
+ * the status-bar previews. Scenario: a dark-fantasy capital, round 42, WOD attributes
+ * (DND / FATE / FU are filled in too, so switching the attribute system in settings shows data).
  */
 import type { Json, LogicalState } from '../../src/types.js';
 import type { SolveCore } from '../../src/engine.js';
@@ -35,7 +36,7 @@ export const exampleData: Record<string, Json> = {
       },
       rp: {
         rank: '铜阶',
-        attributes: { wod: { str: 23, dex: 6, sta: 8, int: 3, wits: 4, res: 5, pre: 2, man: 2, com: 3 } },
+        attributes: { wod: { str: 23, dex: 6, sta: 8, int: 3, wits: 4, res: 5, pre: 2, man: 2, com: 3 }, dnd: { str: 22, dex: 13, con: 15, int: 10, wis: 12, cha: 9 }, fate: { physique: 'C+', athletics: 'D+', melee: 'B+', shoot: 'E', notice: 'D', empathy: 'E+', rapport: 'E', deceive: 'F+', provoke: 'D', contacts: 'E', investigate: 'D+', lore: 'E+', crafts: 'E', burglary: 'E', stealth: 'D', drive: 'E+', resources: 'F+', will: 'C' }, fu: { might: '卓越', dex: '普通', insight: '普通', will: '优秀' } },
         special: { 契约之力: '残响' },
         abilities: { night_vision: {}, indomitable: {}, shield_bash: { level: 2, progress: 60 }, echo_slash: { level: 1, progress: 15 } },
         gauges: { 生命: { value: 72, max: 100 }, 体力: { value: 30, max: 50 }, 理智: { value: 88, max: 100 }, 饱腹: { value: 15, max: 100 } },
@@ -60,7 +61,7 @@ export const exampleData: Record<string, Json> = {
       },
       rp: {
         rank: '铁阶',
-        attributes: { wod: { str: 2, dex: 5, sta: 2, int: 4, wits: 6, res: 3, pre: 7, man: 6, com: 4 } },
+        attributes: { wod: { str: 2, dex: 5, sta: 2, int: 4, wits: 6, res: 3, pre: 7, man: 6, com: 4 }, dnd: { str: 8, dex: 16, con: 10, int: 13, wis: 14, cha: 17 }, fate: { physique: 'E', athletics: 'D+', melee: 'E+', shoot: 'D', notice: 'C+', empathy: 'C', rapport: 'B', deceive: 'B+', provoke: 'D', contacts: 'A', investigate: 'C', lore: 'C+', crafts: 'D', burglary: 'C', stealth: 'C+', drive: 'D', resources: 'E', will: 'D+' }, fu: { might: '弱', dex: '优秀', insight: '卓越', will: '普通' } },
         special: { 情报网: 60 }, abilities: { perfect_pitch: {}, lullaby: { level: 3 }, night_vision: {} },
         gauges: { 生命: { value: 45, max: 60 } }, effects: {},
       },
@@ -73,7 +74,7 @@ export const exampleData: Record<string, Json> = {
       relations: { mira: { affection: 20, labels: ['听众'], impression: '她的歌让火焰安静', promises: [], keyEvents: [] } },
       rp: {
         rank: '银阶',
-        attributes: { wod: { str: 11, dex: 3, sta: null, int: 2, wits: 3, res: 9, pre: 1, man: null, com: 6 } },
+        attributes: { wod: { str: 11, dex: 3, sta: null, int: 2, wits: 3, res: 9, pre: 1, man: null, com: 6 }, dnd: { str: 20, dex: 9, con: null, int: 8, wis: 12, cha: null }, fate: { physique: 'B', athletics: 'E', melee: 'B+', shoot: null, notice: 'D+', empathy: null, rapport: 'F', deceive: null, provoke: 'C', contacts: null, investigate: 'E', lore: 'D+', crafts: null, burglary: null, stealth: 'E', drive: null, resources: null, will: 'A' }, fu: { might: '卓越', dex: '弱', insight: '普通', will: '卓越' } },
         special: { 幽火: '燃烧中' }, abilities: { undying: {}, night_vision: {} },
         gauges: { 魂火: { value: 64, max: 100 } }, effects: {},
       },
@@ -84,7 +85,7 @@ export const exampleData: Record<string, Json> = {
       tags: ['骑士团长'], appearance: '高大，左眼有一道旧伤。', condition: '在王城值守',
       drive: { goals: { long: '保住骑士团的名誉', short: '找到伪造火漆的人' }, thoughts: '那孩子不会做这种事。', plan: [] },
       relations: { erin: { affection: 10, labels: ['前部下'], impression: '太过天真', promises: [], keyEvents: [] } },
-      rp: { rank: '金阶', attributes: { wod: { str: 9, dex: 7, sta: 8, int: 5, wits: 6, res: 8, pre: 6, man: 4, com: 7 } },
+      rp: { rank: '金阶', attributes: { wod: { str: 9, dex: 7, sta: 8, int: 5, wits: 6, res: 8, pre: 6, man: 4, com: 7 }, dnd: { str: 18, dex: 15, con: 17, int: 14, wis: 15, cha: 16 }, fate: { physique: 'B', athletics: 'B', melee: 'A', shoot: 'C', notice: 'B', empathy: 'D', rapport: 'C+', deceive: 'B', provoke: 'B+', contacts: 'A', investigate: 'C+', lore: 'C', crafts: 'E', burglary: 'E+', stealth: 'D', drive: 'C', resources: 'A+', will: 'A' }, fu: { might: '优秀', dex: '优秀', insight: '优秀', will: '卓越' } },
         special: {}, abilities: { shield_bash: { level: 4 } }, gauges: { 生命: { value: 140, max: 140 } }, effects: {} },
       items: { gold: { count: 900 } },
     },

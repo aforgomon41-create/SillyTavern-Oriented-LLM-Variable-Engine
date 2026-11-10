@@ -83,6 +83,8 @@
 /* stats (attributes) */
 /* as many columns as fit: never squeeze a tile below the width its label, value, badge and pips need */
 [data-solve="stats"] { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 116px), 1fr)); gap: var(--k-space-2); }
+/* ladder tiles also carry a grade and a 40px track */
+[data-solve="stats"]:has(> [data-solve="ladder"]) { grid-template-columns: repeat(auto-fill, minmax(min(100%, 148px), 1fr)); }
 [data-solve="stat"], [data-solve="ladder"] {
   display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 2px var(--k-space-2);
   padding: var(--k-space-2) var(--k-space-3); border-radius: var(--k-r-md); background: var(--k-sunken); color: var(--k-on-sunken);

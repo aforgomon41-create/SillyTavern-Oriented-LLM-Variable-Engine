@@ -30,16 +30,18 @@ const GROUPS: { title: string; views: [string, string][] }[] = [
   { title: '调试面板', views: [['debug:overview', '概览'], ['debug:state', '状态'], ['debug:history', '历史'], ['debug:console', '操作台'], ['debug:prompt', '提示词'], ['debug:structure', '结构'], ['debug:logs', '日志']] },
 ];
 const q = new URLSearchParams(location.search);
-if (q.get('scheme')) void single(q.get('scheme')!, q.get('view') || 'bar', q.get('embed') === '1'); else gallery();
+const ATTRS: [string, string][] = [['wod', 'WOD'], ['dnd', 'DND'], ['fate', 'FATE'], ['fu', 'FU']];
+if (q.get('scheme')) void single(q.get('scheme')!, q.get('view') || 'bar', q.get('embed') === '1', q.get('attr') || 'wod'); else gallery();
 
 function gallery(): void {
   document.body.classList.add('gallery');
   const root = document.createElement('div');
   root.id = 'gallery';
   root.innerHTML = `<header><h1>SOLVE 界面 · 合并预览 <small class="build">构建于 ${__BUILD__}</small></h1>
-    <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。状态栏、设置、调试面板在同一段聊天里，皮肤只用卡密预设默认的「碎光」。状态栏用的是接进酒馆的同一个组件：在状态栏里做的操作（喝药、开关模块、改上限）会存进当前楼层，打开调试面板的「历史」就能看到。调试面板的入口在 ⚙ 设置 › 显示 › 调试面板。</p>
+    <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。状态栏、设置、调试面板在同一段聊天里，皮肤只用卡密预设默认的「碎光」。状态栏用的是接进酒馆的同一个组件：在状态栏里做的操作（喝药、开关模块、改上限）会存进当前楼层，打开调试面板的「历史」就能看到。调试面板的入口在 ⚙ 设置 › 显示 › 调试面板。示例角色四套属性体系（WOD / DND / FATE / FU）都有数据，用下面的「属性体系」切换（等同玩家在设置里切换）。</p>
     <p class="lead">演示聊天：示例世界在模拟酒馆里跑了 3 轮（好感度超上限被夹住、两条被拒绝的操作、玩家喝药带旁白、同一楼两个回复版本）。所有操作只改这个页面的内存，刷新即复原。</p>
     ${GROUPS.map(g => `<nav class="tabs" aria-label="${g.title}"><span>${g.title}：</span>${g.views.map(([id, label]) => `<button type="button" data-view="${id}">${label}</button>`).join('')}</nav>`).join('')}
+    <nav class="tabs attrs" aria-label="属性体系"><span>属性体系：</span>${ATTRS.map(([id, label]) => `<button type="button" data-attr="${id}">${label}</button>`).join('')}</nav>
     <p class="note"><a class="solo" target="_blank" rel="noopener">在新窗口单独打开</a>（有声音：点一下页面开始播放当前地点的配乐）</p>
     <details class="credits"><summary>图片与音乐来源（都是外链的网络资源）</summary>
       <p>图片：<a href="https://www.irasutoya.com/" target="_blank" rel="noopener">いらすとや</a>（みふねたかし），按其<a href="https://www.irasutoya.com/p/terms.html" target="_blank" rel="noopener">使用条款</a>免费使用。音乐：${MUSIC_CREDIT}。</p>
@@ -53,15 +55,16 @@ function gallery(): void {
       <figure class="mobile"><figcaption>手机 390 · 深色</figcaption><div class="box"><iframe data-scheme="dark" data-w="390" data-h="844"></iframe></div></figure>
     </section>`;
   document.body.appendChild(root);
-  let view = 'bar';
+  let view = 'bar', attr = 'wod';
   const frames = Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe'));
   const load = () => {
-    root.querySelectorAll<HTMLButtonElement>('.tabs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+    root.querySelectorAll<HTMLButtonElement>('.tabs button[data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+    root.querySelectorAll<HTMLButtonElement>('.tabs button[data-attr]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.attr === attr)));
     const stamp = encodeURIComponent(__BUILD__), v = encodeURIComponent(view);
-    for (const f of frames) f.src = `${location.pathname}?scheme=${f.dataset.scheme}&view=${v}&embed=1&b=${stamp}`;
-    root.querySelector<HTMLAnchorElement>('.solo')!.href = `${location.pathname}?scheme=light&view=${v}&b=${stamp}`;
+    for (const f of frames) f.src = `${location.pathname}?scheme=${f.dataset.scheme}&view=${v}&attr=${attr}&embed=1&b=${stamp}`;
+    root.querySelector<HTMLAnchorElement>('.solo')!.href = `${location.pathname}?scheme=light&view=${v}&attr=${attr}&b=${stamp}`;
   };
-  root.querySelectorAll('.tabs').forEach(nav => nav.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.view) { view = b.dataset.view; load(); } }));
+  root.querySelectorAll('.tabs').forEach(nav => nav.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.view) { view = b.dataset.view; load(); } if (b?.dataset.attr) { attr = b.dataset.attr; load(); } }));
   const fit = () => { for (const f of frames) { const w = Number(f.dataset.w), h = Number(f.dataset.h), box = f.parentElement!; const s = box.clientWidth / w; f.style.width = w + 'px'; f.style.height = h + 'px'; f.style.transform = `scale(${s})`; box.style.height = h * s + 'px'; } };
   new ResizeObserver(fit).observe(root); fit(); load();
 }
@@ -72,7 +75,7 @@ function memoryStorage(seed: Record<string, string> = {}): Storage {
   return { get length() { return map.size; }, key: i => [...map.keys()][i] ?? null, getItem: k => map.get(k) ?? null, setItem: (k, v) => void map.set(k, String(v)), removeItem: k => void map.delete(k), clear: () => map.clear() };
 }
 
-async function single(scheme: string, view: string, embed: boolean): Promise<void> {
+async function single(scheme: string, view: string, embed: boolean, attr: string): Promise<void> {
   document.body.classList.add('single');
   document.body.insertAdjacentHTML('afterbegin', `<div id="tavern" aria-hidden="true"><div class="topbar"></div><div class="chat">
     <div class="mes"><b>灰烬纪元</b><p>地窖里，幽蓝的火在锈蚀的板甲里跳动。灰烬没有动，只是轻声说：“你父亲也走过这道楼梯。”</p></div>
@@ -92,6 +95,8 @@ async function single(scheme: string, view: string, embed: boolean): Promise<voi
 
   const demo = await createDebugDemo();
   const sessions = demo.sessions;
+  // Another attribute system: switched the way a player would (⚙ 设置 › 模块), so it shows up in the history too.
+  if (attr !== 'wod' && ATTRS.some(([id]) => id === attr)) await sessions.controller!.setModule('attr_' + attr, true);
   // The host's scope: this window, but with storage of its own (frames are muted).
   const storage = embed ? memoryStorage({ 'solve.bgm.v1': JSON.stringify({ enabled: false, volume: 0.5, library: [] }) }) : window.localStorage;
   const scope = { document, localStorage: storage, get innerWidth() { return window.innerWidth; }, CustomEvent, Audio, addEventListener: window.addEventListener.bind(window), removeEventListener: window.removeEventListener.bind(window), setInterval: window.setInterval.bind(window), clearInterval: window.clearInterval.bind(window), setTimeout: window.setTimeout.bind(window) };
