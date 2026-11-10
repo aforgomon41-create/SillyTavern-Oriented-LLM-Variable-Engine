@@ -11,6 +11,7 @@ import {
   type Node, type Edge, type NodeProps, type EdgeProps, type Connection, type NodeChange, type EdgeChange, type IsValidConnection,
 } from '@xyflow/react';
 import xyCss from '@xyflow/react/dist/style.css';
+import dagre from '@dagrejs/dagre';
 import { useKit } from '../kit.js';
 import { useWide } from '../statusbar/widgets.js';
 import type { FieldNode, FieldType, StructureDescription, StructureModule } from '../../structure.js';
@@ -29,11 +30,11 @@ const NEW_KEY: Record<string, string> = { string: 'text', int: 'count', number: 
 const SHORT: Record<string, string> = { string: '文字', int: '整数', number: '小数', bool: '开关', enum: '选项', ladder: '等级', ref: '指向一个', refs: '指向多个', object: '一组字段', record: '字典', array: '列表', oneOf: '多种写法' };
 const shortLabel = (t: FieldType) => SHORT[t] ?? t;
 
-function summary(n: FieldNode, entities: Record<string, string>): string {
+function summary(n: FieldNode, entities: Record<string, string>, self: string[] = []): string {
   switch (n.type) {
     case 'int': case 'number': return n.min !== undefined && n.max !== undefined ? `${n.min}–${n.max}` : n.min !== undefined ? `≥ ${n.min}` : n.max !== undefined ? `≤ ${n.max}` : '';
     case 'enum': case 'ladder': return n.values?.length ? (n.values.length <= 3 ? n.values.join(' / ') : `${n.values.length} 个选项`) : '无选项';
-    case 'ref': case 'refs': return listOf(n.to).length ? '→ ' + listOf(n.to).map(e => entities[e] ?? e).join(' / ') : '→ 任意';
+    case 'ref': case 'refs': return listOf(n.to).length ? '→ ' + listOf(n.to).map(e => (entities[e] ?? e) + (self.includes(e) ? '↺' : '')).join(' / ') : '→ 任意';
     case 'array': return `列表 · ${n.of ? shortLabel(n.of.type) : '?'}${n.list?.max ? ` · ≤${n.list.max}` : ''}`;
     case 'record': return `字典 · ${n.of ? shortLabel(n.of.type) : '?'}`;
     case 'oneOf': return `${n.variants?.length ?? 0} 种写法`;
@@ -49,7 +50,7 @@ interface Bp {
   isOpen: (key: string, top: boolean) => boolean; toggle: (key: string, top: boolean) => void;
   begin: (e: React.PointerEvent, p: Payload) => void; target?: Target; dragging?: string;
   armed?: FieldType; place: (host: Addr, index?: number) => void;
-  query: string; entities: Record<string, string>; layers: { ref: boolean };
+  query: string; entities: Record<string, string>; entityAt: Record<string, Addr>; layers: { ref: boolean };
   /** Module view: the module being painted onto fields (tap a field to add / remove it). */
   lens?: string; paint: (addr: Addr) => void; tone: (module: string) => number;
   /** Where the selected wire was clicked (flow coordinates) — the × goes there. */
@@ -100,6 +101,7 @@ function Row({ addr, node, parent }: { addr: Addr; node: FieldNode; parent?: Fie
   const key = addrKey(addr), name = nameOf(node, addr.at(-1)!, parent);
   const t = bp.target && 'mark' in bp.target && bp.target.mark === key ? bp.target.edge : undefined;
   const { d } = useB();
+  const self = listOf(node.to).filter(e => bp.entityAt[e]?.[0] === addr[0]);
   const pick = () => { if (bp.armed) { const host = addr.slice(0, -1), sibs = Object.keys(parent?.fields ?? {}); bp.place(host, sibs.indexOf(addr.at(-1)!) + 1); } else if (bp.lens) bp.paint(addr); else select(addr); };
   return (
     <div {...solve('bp-row', { type: node.type })} data-bp-row={key} data-lens={lensOf(d, addr, bp.lens)} data-current={selected && addrKey(selected) === key ? '' : undefined}
@@ -110,7 +112,7 @@ function Row({ addr, node, parent }: { addr: Addr; node: FieldNode; parent?: Fie
         <i {...part('type')} data-type={node.type} title={typeInfo(node.type).label}>{typeInfo(node.type).tag}</i>
         <span {...part('label')}>{name}</span>
         <code>{addr.at(-1)}</code>
-        <small {...part('sum')}>{summary(node, bp.entities)}</small>
+        <small {...part('sum')} title={self.length ? '↺ 指向本卡片里的实体，不画线' : undefined}>{summary(node, bp.entities, self)}</small>
         <Dots node={node} /><IssueDot addr={addr} />
       </button>
       {node.type === 'ref' || node.type === 'refs' ? <Handle type="source" position={Position.Right} id={'ref:' + key} className="bp-port" data-kind="ref" title="拖到实体卡片上：指向这类实体" /> : null}
@@ -235,6 +237,36 @@ function settleSome(nodes: Node[], W: number, H: number, gap: number): { nodes: 
   return { nodes: placed, changed };
 }
 
+/**
+ * Layout by the wires: dagre layers the cards left → right along the references (a card that points at an entity sits left of
+ * that entity's card) and orders each layer to cut crossings. Cards without any wire go into a block of their own on the right.
+ */
+function arrange(nodes: Node[], d: StructureDescription, ents: Record<string, Addr>): Node[] {
+  const links = new Map<string, number>();
+  const walk = (n: FieldNode, addr: Addr) => {
+    for (const [k, c] of childrenOf(n)) {
+      const a = [...addr, k];
+      if (c.type === 'ref' || c.type === 'refs') for (const e of listOf(c.to)) { const t = ents[e]; if (t && t[0] !== a[0]) { const key = 'f:' + a[0] + '>f:' + t[0]; links.set(key, (links.get(key) ?? 0) + 1); } }
+      walk(c, a);
+    }
+  };
+  walk({ type: 'object', fields: d.fields }, []);
+  const wired = new Set([...links.keys()].flatMap(k => k.split('>')));
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir: 'LR', nodesep: 36, ranksep: 150, marginx: 0, marginy: 0, ranker: 'network-simplex' });
+  g.setDefaultEdgeLabel(() => ({}));
+  const size = (n: Node) => ({ width: n.measured?.width ?? 320, height: n.measured?.height ?? 200 });
+  for (const n of nodes) if (wired.has(n.id)) g.setNode(n.id, size(n));
+  for (const [k, w] of links) { const [a, b] = k.split('>') as [string, string]; if (g.hasNode(a) && g.hasNode(b)) g.setEdge(a, b, { weight: w, minlen: 1 }); }
+  dagre.layout(g);
+  const out = new Map<string, { x: number; y: number }>();
+  let right = 0;
+  for (const id of g.nodes()) { const p = g.node(id), sz = size(nodes.find(n => n.id === id)!); out.set(id, { x: p.x - sz.width / 2, y: p.y - sz.height / 2 }); right = Math.max(right, p.x + sz.width / 2); }
+  const cols = [0, 0], x0 = wired.size ? right + 120 : 0;
+  for (const n of nodes) if (!out.has(n.id)) { const c = cols[0]! <= cols[1]! ? 0 : 1; out.set(n.id, { x: x0 + c * COL, y: cols[c]! }); cols[c]! += size(n).height + GAP; }
+  return nodes.map(n => ({ ...n, position: out.get(n.id) ?? n.position }));
+}
+
 // ── canvas ──
 
 export function Blueprint() {
@@ -322,6 +354,7 @@ function Canvas() {
         if (layers.ref && (c.type === 'ref' || c.type === 'refs')) for (const e of listOf(c.to)) {
           const target = ents.at[e]; if (!target) continue;
           const s = visible(a), t = visible(target), id = `ref|${path}|${e}`;
+          if (s[0] === t[0]) continue;
           out.push({ id, type: 'wire', source: 'f:' + s[0], target: 'f:' + t[0], sourceHandle: (addrKey(s) === path ? 'ref:' : 'out:') + addrKey(s), targetHandle: 'in:' + addrKey(t), data: { kind: 'ref', path, entity: e }, className: 'bp-wire', selected: edgeSel === id });
         }
         walk(c, a);
@@ -452,17 +485,31 @@ function Canvas() {
   const bp: Bp = {
     isOpen, toggle: (k, top) => setFold(cur => new Map(cur).set(k, !(cur.get(k) ?? top))),
     begin, ...(target ? { target } : {}), ...(drag?.p.kind === 'move' ? { dragging: addrKey(drag.p.addr) } : {}),
-    ...(armed ? { armed } : {}), place, query: query.trim().toLowerCase(), entities: ents.label, layers, ...(clickAt ? { clickAt } : {}),
+    ...(armed ? { armed } : {}), place, query: query.trim().toLowerCase(), entities: ents.label, entityAt: ents.at, layers, ...(clickAt ? { clickAt } : {}),
     ...(lens ? { lens } : {}), paint: a => { if (lens) paintWith(lens, a); }, tone,
   };
 
+  // The tool bar and module bar sit on top of the canvas (and the type strip at the bottom on phones): keep cards out from under them.
+  const fitOpts = { padding: { top: '104px', bottom: wide ? '20px' : '72px', left: '24px', right: '24px' }, maxZoom: 0.85 } as const;
   // Initial viewport; focus the selected card when it is off screen.
   const [ready, setReady] = React.useState(false);
   React.useEffect(() => {
     if (ready || !nodes.length || !nodes.every(n => n.measured)) return;
     setReady(true);
+    const laid = arrange(nodes, d, ents.at);
+    setNodes(laid);
     if (selected && !selected[0]?.startsWith('module:')) void rf.fitView({ nodes: [{ id: 'f:' + selected[0] }], maxZoom: 1, padding: 0.2 });
-    else void rf.setViewport(wide ? { x: 24, y: 110, zoom: 0.8 } : { x: 12, y: 150, zoom: 0.8 });
+    else {
+      // Start at the top-left of the layout (where the wires begin), as large as still fits, but readable.
+      const box = wrap.current?.querySelector('.react-flow')?.getBoundingClientRect();
+      const minX = Math.min(...laid.map(n => n.position.x)), minY = Math.min(...laid.map(n => n.position.y));
+      const maxX = Math.max(...laid.map(n => n.position.x + (n.measured?.width ?? 320))), maxY = Math.max(...laid.map(n => n.position.y + (n.measured?.height ?? 200)));
+      const fit = box ? Math.min((box.width - 48) / (maxX - minX), (box.height - 124) / (maxY - minY)) : 0.7;
+      const zoom = wide ? Math.min(0.85, Math.max(0.55, fit)) : 0.72;
+      // Phones see one card at a time: start at the leftmost one, where the wires begin.
+      const first = [...laid].sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)[0]!;
+      void rf.setViewport(wide ? { x: 24 - minX * zoom, y: 104 - minY * zoom, zoom } : { x: 16 - first.position.x * zoom, y: 104 - first.position.y * zoom, zoom });
+    }
   }, [nodes, ready, wide]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addModule = () => {
@@ -495,7 +542,12 @@ function Canvas() {
   }, [wrap]);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   const isolate = {
-    onPointerDown: stop, onMouseDown: stop, onWheel: stop, onContextMenu: stop,
+    onPointerDown: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      // Keys (Esc) should land on the canvas, not on the panel around it: take focus unless a control inside takes it.
+      if (!(e.target as HTMLElement).closest('input, textarea, select, button, a, [tabindex]:not([data-solve="bp"])')) wrap.current?.focus({ preventScroll: true });
+    },
+    onMouseDown: stop, onWheel: stop, onContextMenu: stop,
     onKeyDown: (e: React.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.stopPropagation();
@@ -521,7 +573,7 @@ function Canvas() {
 
   return (
     <BpContext.Provider value={bp}>
-      <div ref={box} {...solve('bp', { layout: wide ? 'wide' : 'narrow', side: side ? '' : undefined, armed: armed ? '' : undefined, lens: lens ? '' : undefined, dragging: drag || nodeDrop ? '' : undefined })} {...isolate} data-k-swipe="off"
+      <div ref={box} {...solve('bp', { layout: wide ? 'wide' : 'narrow', side: side ? '' : undefined, armed: armed ? '' : undefined, lens: lens ? '' : undefined, dragging: drag || nodeDrop ? '' : undefined })} {...isolate} data-k-swipe="off" tabIndex={-1}
         style={lens ? { '--bp-lens': TONE_VARS[tone(lens)] } as React.CSSProperties : undefined}>
         {wide ? palette : null}
         <div {...part('canvas')}>
@@ -530,7 +582,7 @@ function Canvas() {
             onConnect={onConnect} isValidConnection={isValidConnection} onNodeDrag={onNodeDrag} onNodeDragStop={onNodeDragStop}
             onEdgesDelete={es => es.forEach(e => e.data && unwire(e.data as WireData))}
             onPaneClick={ev => { if (armed) { create(armed, [], undefined, rf.screenToFlowPosition({ x: ev.clientX, y: ev.clientY })); setArmed(undefined); } else { setEdgeSel(undefined); } }}
-            minZoom={0.25} maxZoom={1.6} connectionRadius={36} deleteKeyCode={['Delete', 'Backspace']} nodesFocusable={false} elevateEdgesOnSelect
+            fitViewOptions={fitOpts} minZoom={0.2} maxZoom={1.6} connectionRadius={36} deleteKeyCode={['Delete', 'Backspace']} nodesFocusable={false} elevateEdgesOnSelect
             proOptions={{ hideAttribution: true }}>
             <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} />
             <Controls showInteractive={false} position="bottom-left" />
