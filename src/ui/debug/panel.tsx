@@ -157,14 +157,14 @@ function FailureToggle({ host }: { host: DebugHost }) {
 }
 const SOURCE: Record<string, string> = { model: '模型', user: '玩家' };
 function Actions({ actions }: { actions: any[] }) {
-  const K = useKit();
+  const K = useKit(), modules = (React.useContext(DebugContext)?.c.core.definition.modules ?? {}) as Record<string, { label?: string }>;
   if (!actions.length) return <p {...part('none')}>开局状态（没有动作）</p>;
   return (
     <ol {...solve('debug-actions')}>
       {actions.map((a, i) => (
         <li key={i}>
           <K.Badge tone={a.source === 'user' ? 'accent' : 'neutral'}>{SOURCE[a.source] ?? a.source}</K.Badge>
-          <span {...part('what')}>{a.kind === 'module' ? `${a.enabled ? '开启' : '关闭'}模块 ${a.module}` : a.kind === 'settings' ? '修改设置' : `${countOps(a.operations)} 条操作`}</span>
+          <span {...part('what')}>{a.kind === 'module' ? `${a.enabled ? '开启' : '关闭'}模块「${modules[a.module]?.label ?? a.module}」` : a.kind === 'settings' ? '修改设置' : `${countOps(a.operations)} 条操作`}</span>
           {a.authorInputs?.narrate ? <q>{a.authorInputs.narrate}</q> : null}
           <details><summary>原文</summary><Json value={a.kind === 'operations' ? a.operations : a} label="动作" max={260} /></details>
         </li>

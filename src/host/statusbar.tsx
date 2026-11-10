@@ -124,7 +124,10 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
   return <Bound key={def.fingerprint} scope={scope} controller={controller} def={def} state={state} {...(bgm ? { bgm } : {})} />;
 }
 
-function Bound({ scope, controller, def, state, bgm }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike }) {
+/** Opening view (previews) and the debug-panel entry. */
+export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean }; openDebug?: () => void }
+/** The status bar for one bound controller (the tavern host and the design preview both render this). */
+export function Bound({ scope, controller, def, state, bgm, extras = {} }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike; extras?: StatusBarExtras }) {
   const status = controller.getStatus();
   const [prefs, setPrefs] = React.useState<LocalPrefs>(() => ({ revealSpoilers: false, ...read(scope, PREFS, {}) }));
   React.useEffect(() => {
@@ -168,6 +171,7 @@ function Bound({ scope, controller, def, state, bgm }: { scope: any; controller:
     ...(scope.KamiRuntimeNext?.hub ? { kami: true } : {}),
     ...(bgm ? { tracks: { list: bgmStatus!.library.player, add: t => bgm.addTracks([{ ...t, id: 'mine_' + Date.now().toString(36) }]), remove: id => bgm.removeTrack(id) } } : {}),
     ...(locked ? { locked } : {}),
+    ...(extras.openDebug ? { openDebug: extras.openDebug } : {}),
   };
   const bgmView: BgmView | undefined = bgm && bgmStatus && bgmStatus.selection ? (() => {
     const sel = bgmStatus.selection as any, places = (state.data as any)?.places ?? {};
@@ -180,11 +184,11 @@ function Bound({ scope, controller, def, state, bgm }: { scope: any; controller:
   })() : undefined;
   // Launcher place, last tab and folded/open state, per device class.
   const key = 'solve.statusbar.launcher.v1.' + (scope.innerWidth > 1000 ? 'desktop' : 'mobile');
-  const [saved] = React.useState(() => read<{ pos?: { x: number; y: number }; tab?: string; mode?: Mode }>(scope, key, {}));
+  const [saved] = React.useState(() => ({ ...read<{ pos?: { x: number; y: number }; tab?: string; mode?: Mode }>(scope, key, {}), ...extras.initial }));
   const remember = (patch: object) => write(scope, key, { ...read(scope, key, {}), ...patch });
   return (
     <StatusBar model={model} interact={interact} settings={settings} {...(bgmView ? { bgm: bgmView } : {})}
-      defaultMode={saved.mode === 'dot' ? 'dot' : 'bar'} onModeChange={mode => { if (mode !== 'panel') remember({ mode }); }}
+      defaultMode={saved.mode ?? 'bar'} {...(saved.settings ? { defaultSettings: true } : {})} onModeChange={mode => { if (mode !== 'panel') remember({ mode }); }}
       {...(saved.tab ? { defaultTab: saved.tab } : {})} onTabChange={tab => remember({ tab })}
       {...(saved.pos ? { position: saved.pos } : {})} onPositionChange={pos => remember({ pos })} />
   );

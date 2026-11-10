@@ -34,6 +34,8 @@ export interface SettingsHost {
   locked?: string;
   /** The Kami preset is on the page (offers 「跟随卡密预设皮肤」). */
   kami?: boolean;
+  /** Opens the debug panel (for card authors). */
+  openDebug?: () => void;
 }
 
 type Section = 'modules' | 'lists' | 'delta' | 'display' | 'music';
@@ -264,6 +266,12 @@ function Display({ host }: { host: SettingsHost }) {
         <div {...solve('pref', { kind: 'switch' })}>
           <span {...part('label')}>跟随卡密预设的皮肤<small>关闭后状态栏使用 SOLVE 自带的默认皮肤（松绿与暖石灰）。</small></span>
           <K.Switch checked={host.prefs.skin !== 'solve'} aria-label="跟随卡密预设的皮肤" onCheckedChange={v => host.onPrefs({ skin: v ? 'auto' : 'solve' })} />
+        </div>
+      ) : null}
+      {host.openDebug ? (
+        <div {...solve('pref', { kind: 'action' })}>
+          <span {...part('label')}>调试面板<small>给卡作者用：看完整状态、历史与反馈，预演或提交操作，查看发给模型的内容。</small></span>
+          <K.Button size="sm" onClick={host.openDebug}>打开</K.Button>
         </div>
       ) : null}
     </div>
