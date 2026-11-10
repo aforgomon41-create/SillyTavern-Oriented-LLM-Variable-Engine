@@ -12,11 +12,17 @@ import { useKit } from '../kit.js';
 import { useWide } from '../statusbar/widgets.js';
 import { Json } from '../debug/shared.js';
 import type { FieldNode, FieldType, SpoilerLevel, StructureDescription, StructureModule } from '../../structure.js';
+import type { LogicalState } from '../../types.js';
 import {
   KEY_RE, addField, addrKey, blankStructure, childrenOf, commit, diffFields, duplicate, entityTypes, fieldHost, freeKey, fromKey, history, hosts,
   mentions, moveTo, nodeAt, redo, remove, rename, reorder, replaceNode, retype, rootNode, undo, update, type Addr, type History,
 } from './draft.js';
 import { Blueprint } from './blueprint.js';
+import { LayoutPage } from './layout.js';
+import { InteractPage } from './interact.js';
+import { PromptPage } from './prompt.js';
+import { InitialPage } from './initial.js';
+import { MusicPage } from './music.js';
 import { checkStructure, scriptFor, worldEntries, type CheckResult, type Issue } from './check.js';
 
 export interface BuilderHost {
@@ -27,14 +33,16 @@ export interface BuilderHost {
   official: StructureDescription;
   /** Character the world-book entry goes to. */
   character?: string;
+  /** State of the current chat: the status bar, prompt and music previews render the draft with it. */
+  sample?(): LogicalState | undefined;
   /** Writes the world-book entries; absent in the preview (shows what would be written). */
   writeWorldBook?(entries: { comment: string; content: string }[]): Promise<void>;
 }
 type Page = 'fields' | 'modules' | 'layout' | 'interact' | 'prompt' | 'initial' | 'music' | 'publish';
 const PAGES: { id: Page; label: string; soon?: string }[] = [
   { id: 'fields', label: '字段蓝图' }, { id: 'modules', label: '模块' },
-  { id: 'layout', label: '状态栏布局', soon: '预览二' }, { id: 'interact', label: '交互', soon: '预览三' }, { id: 'prompt', label: '提示词', soon: '预览三' },
-  { id: 'initial', label: '开局数据', soon: '预览三' }, { id: 'music', label: '音乐', soon: '预览三' }, { id: 'publish', label: '检查与发布' },
+  { id: 'layout', label: '状态栏布局' }, { id: 'interact', label: '交互' }, { id: 'prompt', label: '提示词' },
+  { id: 'initial', label: '开局数据' }, { id: 'music', label: '音乐' }, { id: 'publish', label: '检查与发布' },
 ];
 export const TYPES: { type: FieldType; label: string; tag: string }[] = [
   { type: 'string', label: '文字', tag: '文' }, { type: 'int', label: '整数', tag: '整' }, { type: 'number', label: '小数', tag: '数' },
@@ -101,7 +109,7 @@ export function StructureBuilder({ host, onClose, defaultPage = 'fields' }: { ho
   };
   const body = (id: Page) => (
     <div {...solve('builder-page', { page: id })}>
-      {id === 'fields' ? <FieldsPage /> : id === 'modules' ? <ModulesPage /> : id === 'publish' ? <PublishPage /> : <SoonPage page={id} />}
+      {id === 'fields' ? <FieldsPage /> : id === 'modules' ? <ModulesPage /> : id === 'layout' ? <LayoutPage /> : id === 'interact' ? <InteractPage /> : id === 'prompt' ? <PromptPage /> : id === 'initial' ? <InitialPage /> : id === 'music' ? <MusicPage /> : <PublishPage />}
     </div>
   );
   const title = <span {...solve('debug-title')}><b>结构制作</b><small>{d.label ?? d.id} · {d.version}</small></span>;
@@ -581,25 +589,4 @@ function PublishPage() {
 
 // ── 以后的页面 ──
 
-const SOON: Record<string, { title: string; text: string; data: (d: StructureDescription) => unknown }> = {
-  layout: { title: '状态栏布局（预览二）', text: '横条显示哪些字段；页签和每个页签里的区块（角色卡、列表、关系图、地图、图鉴、预制）用表单配置，旁边是真实状态栏，可切电脑 / 手机宽度。', data: d => d.display },
-  interact: { title: '交互（预览三）', text: '哪些字段玩家能在状态栏里改，条目上的动作按钮（显示条件、询问、操作、告诉模型的话），列表的新增表单。', data: d => collect(d, n => n.edit || n.actions || n.create ? { edit: n.edit, actions: n.actions, create: n.create } : undefined) },
-  prompt: { title: '提示词（预览三）', text: '全局指南、条件指南（条件编辑器，路径自动补全）、投影规则、轮次字段；预览模型实际收到的内容和字数。', data: d => ({ guide: d.guide, guides: d.guides, projection: d.projection, round: d.round }) },
-  initial: { title: '开局数据（预览三）', text: '用操作台同款编辑器（中文名、下拉、手机底部面板）编辑新聊天的开局数据；预制人物和模板在这里增删。', data: d => ({ initialData: d.initialData, prefabs: d.prefabs, templates: d.templates }) },
-  music: { title: '音乐（预览三）', text: '作者曲库：名称、链接、情绪，可以试听。', data: d => d.bgm },
-};
-function collect(d: StructureDescription, pick: (n: FieldNode) => unknown): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const walk = (n: FieldNode, a: Addr) => { for (const [k, c] of childrenOf(n)) { const v = pick(c); if (v) out[addrKey([...a, k])] = v; walk(c, [...a, k]); } };
-  walk(rootNode(d), []); return out;
-}
-function SoonPage({ page }: { page: Page }) {
-  const K = useKit(), { d } = useB(), s = SOON[page]!;
-  return (
-    <>
-      <K.Empty title={s.title} description={s.text} />
-      <Json value={s.data(d) ?? null} label="当前结构里的这一部分（只读）" max={420} />
-    </>
-  );
-}
 export { freeKey };

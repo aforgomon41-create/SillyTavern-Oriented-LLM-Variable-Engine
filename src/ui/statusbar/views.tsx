@@ -79,6 +79,28 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
   );
   return <ModelContext.Provider value={model}><NavigateContext.Provider value={navigate}><InteractLayer {...(interact ? { host: interact } : {})}>{content}</InteractLayer></NavigateContext.Provider></ModelContext.Provider>;
 }
+/**
+ * The panel's contents inline (no launcher, no floating window): the structure builder previews a draft layout with it.
+ * `tab` follows the builder's selection; interactions go to the given host (the builder's dry run).
+ */
+export function StatusPreview({ model, tab, onTab, interact }: { model: StatusModel; tab?: string; onTab?: (tab: string) => void; interact?: Interact }) {
+  const K = useKit();
+  const tabs = model.layout.filter((t: any) => model.moduleOn(t.module));
+  const [own, setOwn] = React.useState<string>(tabs[0]?.tab ?? '');
+  const current = tab && tabs.some((t: any) => t.tab === tab) ? tab : own;
+  const setTab = (t: string) => { setOwn(t); onTab?.(t); };
+  return (
+    <ModelContext.Provider value={model}><NavigateContext.Provider value={() => undefined}><InteractLayer {...(interact ? { host: interact } : {})}>
+      <K.TooltipProvider>
+        <div {...solve('status-preview')}>
+          <div {...part('title')}><Overview model={model} where="title" /></div>
+          <PanelBody tabs={tabs} tab={current} setTab={setTab} focus={undefined} />
+          {interact?.pending?.length ? <PendingNarration host={interact} /> : null}
+        </div>
+      </K.TooltipProvider>
+    </InteractLayer></NavigateContext.Provider></ModelContext.Provider>
+  );
+}
 /** The panel's main sections: a sidebar on PC, scrolling tabs on phones (same declaration). */
 function PanelBody({ tabs, tab, setTab, focus }: { tabs: any[]; tab: string; setTab: (t: string) => void; focus: Focus }) {
   const m = useModel(), K = useKit();

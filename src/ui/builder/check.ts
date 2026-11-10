@@ -5,12 +5,15 @@
 import { compileStructure, type FieldNode, type StructureDescription } from '../../structure.js';
 import { compile } from '../../schema.js';
 import { SolveCore } from '../../engine.js';
+import type { CompiledDefinition } from '../../types.js';
 import { addrKey, childrenOf, rootNode, type Addr } from './draft.js';
 
 export interface Issue { level: 'error' | 'warning'; code: string; message: string; addr?: Addr; where?: string }
 export interface CheckResult {
   issues: Issue[];
   fingerprint?: string;
+  /** The draft compiled (absent while it has a compile error): previews render with it. */
+  compiled?: CompiledDefinition;
   /** none: same as the published version; display: applies to every chat at once; structure: new chats only. */
   impact: 'none' | 'display' | 'structure' | 'unknown';
   fieldCount: number;
@@ -25,9 +28,9 @@ async function fingerprintOf(d: StructureDescription): Promise<string | undefine
 
 export async function checkStructure(draft: StructureDescription, published: StructureDescription): Promise<CheckResult> {
   const issues: Issue[] = [];
-  let fingerprint: string | undefined;
+  let fingerprint: string | undefined, compiled: CompiledDefinition | undefined;
   try {
-    const compiled = await compile(compileStructure(draft));
+    compiled = await compile(compileStructure(draft));
     fingerprint = compiled.fingerprint;
     try { await new SolveCore(compiled).initialize(draft.initialData ?? {}); }
     catch (error: any) { issues.push({ level: 'error', code: 'INITIAL_DATA', message: '开局数据不符合结构：' + (error?.message ?? String(error)), where: '开局数据' }); }
@@ -64,7 +67,7 @@ export async function checkStructure(draft: StructureDescription, published: Str
   const before = await fingerprintOf(published);
   const impact: CheckResult['impact'] = !fingerprint || !before ? 'unknown' : fingerprint !== before ? 'structure' : JSON.stringify(draft) === JSON.stringify(published) ? 'none' : 'display';
   let count = 0; const countAll = (n: FieldNode) => { for (const [, c] of childrenOf(n)) { count++; countAll(c); } }; countAll(rootNode(draft));
-  return { issues, ...(fingerprint ? { fingerprint } : {}), impact, fieldCount: count };
+  return { issues, ...(fingerprint ? { fingerprint } : {}), ...(compiled ? { compiled } : {}), impact, fieldCount: count };
 }
 
 /** World-book entries for a description (split when large). */

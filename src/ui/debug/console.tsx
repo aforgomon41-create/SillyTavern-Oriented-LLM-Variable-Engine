@@ -14,7 +14,7 @@ import type { Feedback, LogicalState } from '../../types.js';
 import { Diff, FeedbackList, describe, message, named, part, partsOf, short, solve, valueAt, type Controller } from './shared.js';
 
 /** json-edit-react's own stylesheet: the host adopts it in the SOLVE layer (the library only adds it to the page head). */
-export { jerCss };
+export { jerCss, ZH as jerZh };
 
 export interface ConsoleProps {
   c: Controller; m: StatusModel; state: LogicalState; ready: boolean; busy: boolean;
