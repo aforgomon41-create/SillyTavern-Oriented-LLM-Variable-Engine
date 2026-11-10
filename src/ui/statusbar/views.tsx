@@ -14,6 +14,7 @@ import { PlayerSheet, type SheetItem } from './sheet.js';
 import { Codex, type CodexCategory } from './codex.js';
 import { Art, Mono, Spoiler, part, solve, useWide } from './widgets.js';
 import { ActionBar, CreateForm, InteractLayer, PendingNarration, editFor, useInteract, type Interact } from './interact.js';
+import { SettingsBody, type SettingsHost } from './settings.js';
 
 export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
 export interface StatusBarProps {
@@ -26,11 +27,15 @@ export interface StatusBarProps {
   position?: { x: number; y: number }; onPositionChange?: (p: { x: number; y: number }) => void;
   /** Player interactions declared in the structure (edit / actions); omitted → read-only. */
   interact?: Interact;
+  /** Player settings (⚙ in the panel); omitted → no settings button. */
+  settings?: SettingsHost;
+  /** Open the panel on the settings page (the host restores it). */
+  defaultSettings?: boolean;
 }
 export type Mode = 'bar' | 'dot' | 'panel';
 const rel = (s: string): Path => s.split('.');
 
-export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = 'bar', onModeChange, position, onPositionChange, interact }: StatusBarProps) {
+export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = 'bar', onModeChange, position, onPositionChange, interact, settings, defaultSettings }: StatusBarProps) {
   const K = useKit();
   const tabs = model.layout.filter((t: any) => model.moduleOn(t.module));
   const [tab, setTabState] = React.useState<string>(tabs.some((t: any) => t.tab === defaultTab) ? defaultTab! : tabs[0]?.tab ?? '');
@@ -43,6 +48,7 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
   const anchor = React.useRef<DOMRect | null>(null);
   // The launcher unmounts while the panel is open, so its position lives here and survives folding.
   const [pos, setPos] = React.useState(position);
+  const [setup, setSetup] = React.useState(!!defaultSettings);
   const navigate = React.useCallback((path: Path) => {
     const key = path.join('.');
     const hit = (item: any) => {
@@ -52,16 +58,18 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
       return typeof base === 'string' && key.startsWith(base + '.') && !(item.exclude === '$user' && path[rel(base).length] === model.userId) && !item.graph;
     };
     const target = tabs.find((t: any) => t.items.some(hit));
-    if (target) { setTabState(target.tab); onTabChange?.(target.tab); setFocus({ path, at: Date.now() }); setModeState('panel'); }
+    if (target) { setTabState(target.tab); onTabChange?.(target.tab); setFocus({ path, at: Date.now() }); setModeState('panel'); setSetup(false); }
   }, [tabs, model]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const content = (
     <K.TooltipProvider>
       {mode === 'panel' ? (
         <K.Panel title={<Overview model={model} where="title" />} onClose={() => setMode(rest)} closeLabel="收起"
-          geometry={panelGeometry(anchor.current)} defaultSize={panelSize()} actions={bgm ? <BgmButton bgm={bgm} /> : undefined}
+          geometry={panelGeometry(anchor.current)} defaultSize={panelSize()}
+          actions={bgm || settings ? <>{bgm ? <BgmButton bgm={bgm} /> : null}{settings ? <SettingsButton open={setup} onToggle={() => setSetup(v => !v)} /> : null}</> : undefined}
           footer={interact?.pending?.length ? <PendingNarration host={interact} /> : undefined}>
-          <PanelBody tabs={tabs} tab={tab} setTab={setTab} focus={focus} />
+          {setup && settings ? <SettingsBody host={settings} {...(bgm ? { bgm } : {})} onBack={() => setSetup(false)} />
+            : <PanelBody tabs={tabs} tab={tab} setTab={setTab} focus={focus} />}
         </K.Panel>
       ) : (
         <Launcher mode={hasData ? rest : 'dot'} canBar={hasData} pos={pos} onMove={setPos} onMoved={p => onPositionChange?.(p)}
@@ -594,6 +602,16 @@ function PlaceMusic({ places, id, parentKey }: { places: Record<string, any>; id
 }
 
 /* ───────── background music ───────── */
+function SettingsButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" {...solve('settings-trigger', { open: open ? '' : undefined })} aria-pressed={open} aria-label={open ? '返回状态栏' : '设置'} title={open ? '返回状态栏' : '设置'} onClick={onToggle}>
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+      </svg>
+    </button>
+  );
+}
 function BgmButton({ bgm }: { bgm: BgmView }) {
   const K = useKit();
   return (
@@ -607,3 +625,4 @@ function BgmButton({ bgm }: { bgm: BgmView }) {
   );
 }
 export { StatusModel, RefChip };
+export type { SettingsHost, LocalPrefs } from './settings.js';

@@ -18,7 +18,8 @@ export class StatusModel {
   readonly spoilers: Record<string, Spoiler>;
   readonly widgets: Record<string, string>;
   readonly exempt?: Exempt;
-  constructor(readonly def: CompiledDefinition, readonly state: LogicalState) {
+  /** `revealSpoilers`: the player chose to see spoilers directly (hidden fields stay hidden). */
+  constructor(readonly def: CompiledDefinition, readonly state: LogicalState, readonly options: { revealSpoilers?: boolean } = {}) {
     const display = (def.display ?? {}) as Record<string, any>;
     this.fields = display.fields ?? {};
     this.labels = display.labels ?? {};
@@ -68,7 +69,7 @@ export class StatusModel {
         if (entry && typeof entry === 'object' && holds(reveal, entry, {}, p => this.value(p))) level = 'public';
       }
     }
-    if (level === 'spoiler' && this.exempt && this.isExempt(parts)) return 'public';
+    if (level === 'spoiler' && (this.options.revealSpoilers || (this.exempt && this.isExempt(parts)))) return 'public';
     return level;
   }
   private isExempt(parts: Path): boolean {
