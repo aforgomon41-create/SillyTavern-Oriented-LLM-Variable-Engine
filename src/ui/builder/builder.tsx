@@ -16,6 +16,7 @@ import {
   KEY_RE, addField, addrKey, blankStructure, childrenOf, commit, diffFields, duplicate, entityTypes, fieldHost, freeKey, fromKey, history, hosts,
   mentions, moveTo, nodeAt, redo, remove, rename, reorder, replaceNode, retype, rootNode, undo, update, type Addr, type History,
 } from './draft.js';
+import { Blueprint } from './blueprint.js';
 import { checkStructure, scriptFor, worldEntries, type CheckResult, type Issue } from './check.js';
 
 export interface BuilderHost {
@@ -31,7 +32,7 @@ export interface BuilderHost {
 }
 type Page = 'fields' | 'modules' | 'layout' | 'interact' | 'prompt' | 'initial' | 'music' | 'publish';
 const PAGES: { id: Page; label: string; soon?: string }[] = [
-  { id: 'fields', label: '字段' }, { id: 'modules', label: '模块' },
+  { id: 'fields', label: '字段蓝图' }, { id: 'modules', label: '模块' },
   { id: 'layout', label: '状态栏布局', soon: '预览二' }, { id: 'interact', label: '交互', soon: '预览三' }, { id: 'prompt', label: '提示词', soon: '预览三' },
   { id: 'initial', label: '开局数据', soon: '预览三' }, { id: 'music', label: '音乐', soon: '预览三' }, { id: 'publish', label: '检查与发布' },
 ];
@@ -41,7 +42,7 @@ export const TYPES: { type: FieldType; label: string; tag: string }[] = [
   { type: 'ref', label: '指向一个实体', tag: '→' }, { type: 'refs', label: '指向多个实体', tag: '⇉' }, { type: 'object', label: '一组字段', tag: '{}' },
   { type: 'record', label: '字典（按名字或 ID 存多条）', tag: '典' }, { type: 'array', label: '列表', tag: '[ ]' }, { type: 'oneOf', label: '多种写法（数值或描述）', tag: '或' },
 ];
-const typeInfo = (t: FieldType) => TYPES.find(x => x.type === t) ?? { type: t, label: t, tag: '?' };
+export const typeInfo = (t: FieldType) => TYPES.find(x => x.type === t) ?? { type: t, label: t, tag: '?' };
 const WIDGETS: [string, string][] = [
   ['paragraph', '段落'], ['tags', '标签'], ['chips', '小标签'], ['meters', '进度条组'], ['meter-center', '居中进度（−/+）'], ['stage', '阶段'], ['levels', '等级表'],
   ['checklist', '勾选清单'], ['timeline', '时间线'], ['quests', '任务日志'], ['inventory', '背包'], ['abilities', '能力'], ['datetime', '日期时间'], ['image', '图片'], ['bgm', '音乐'],
@@ -49,24 +50,23 @@ const WIDGETS: [string, string][] = [
 const FORMULAS: [string, string][] = [['wodTranscend', 'WOD 超凡（每 5 点一级）'], ['dndModifier', 'DND 调整值（(值−10)÷2）']];
 const ON_DELETE: [string, string][] = [['', '默认（可空就置空，可省略就去掉，否则阻止）'], ['null', '置为空缺'], ['unset', '去掉这个字段'], ['remove', '移除这一条'], ['restrict', '阻止删除目标']];
 
-const solve = (name: string, extra: Record<string, string | undefined> = {}) => ({ 'data-solve': name, ...Object.fromEntries(Object.entries(extra).filter(([, v]) => v !== undefined).map(([k, v]) => ['data-' + k, v])) });
-const part = (name: string) => ({ 'data-solve-part': name });
-const nameOf = (node: FieldNode | undefined, key: string, parent?: FieldNode) => key === '*' ? (parent?.entity && parent.label ? `每个${parent.label}` : '每一项') : node?.label || key;
+export const solve = (name: string, extra: Record<string, string | undefined> = {}) => ({ 'data-solve': name, ...Object.fromEntries(Object.entries(extra).filter(([, v]) => v !== undefined).map(([k, v]) => ['data-' + k, v])) });
+export const part = (name: string) => ({ 'data-solve-part': name });
+export const nameOf = (node: FieldNode | undefined, key: string, parent?: FieldNode) => key === '*' ? (parent?.entity && parent.label ? `每个${parent.label}` : '每一项') : node?.label || key;
 
-interface Ctx {
+export interface Ctx {
   d: StructureDescription; h: History; set: (next: StructureDescription) => void;
   selected?: Addr; select: (a: Addr | undefined, open?: boolean) => void; go: (p: Page) => void;
   check?: CheckResult; issuesAt: (a: Addr) => Issue[]; note: (text: string, tone?: 'error') => void; host: BuilderHost;
 }
 const BuilderContext = React.createContext<Ctx | null>(null);
-const useB = () => React.useContext(BuilderContext)!;
+export const useB = () => React.useContext(BuilderContext)!;
 
 export function StructureBuilder({ host, onClose, defaultPage = 'fields' }: { host: BuilderHost; onClose: () => void; defaultPage?: Page }) {
   const K = useKit();
   const [h, setH] = React.useState<History>(() => history(host.start));
   const [page, setPage] = React.useState<Page>(defaultPage);
   const [selected, setSelected] = React.useState<Addr | undefined>();
-  const [nodeView, setNodeView] = React.useState(false);
   const [check, setCheck] = React.useState<CheckResult | undefined>();
   const [notice, setNotice] = React.useState<{ text: string; tone?: 'error' } | undefined>();
   const [box, wide] = useWide(900);
@@ -79,7 +79,7 @@ export function StructureBuilder({ host, onClose, defaultPage = 'fields' }: { ho
   React.useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(undefined), 4000); return () => clearTimeout(t); }, [notice]);
   const ctx: Ctx = {
     d, h, set: next => setH(cur => commit(cur, next)),
-    ...(selected ? { selected } : {}), select: (a, open = true) => { setSelected(a); setNodeView(!!a && open); },
+    ...(selected ? { selected } : {}), select: a => setSelected(a),
     go: p => setPage(p), ...(check ? { check } : {}),
     issuesAt: a => (check?.issues ?? []).filter(i => i.addr && addrKey(i.addr) === addrKey(a)),
     note: (text, tone) => setNotice({ text, ...(tone ? { tone } : {}) }), host,
@@ -92,7 +92,7 @@ export function StructureBuilder({ host, onClose, defaultPage = 'fields' }: { ho
     if (v === 'import') { fileRef.current?.click(); return; }
     if (dirty && !confirm('换一个起点会丢掉当前的修改（可以撤销）。继续？')) return;
     const next = v === 'official' ? host.official : v === 'blank' ? blankStructure() : host.published;
-    setH(cur => commit(cur, JSON.parse(JSON.stringify(next)))); setSelected(undefined); setNodeView(false);
+    setH(cur => commit(cur, JSON.parse(JSON.stringify(next)))); setSelected(undefined);
   };
   const onFile = async (file?: File) => {
     if (!file) return; setImporting(true);
@@ -101,7 +101,7 @@ export function StructureBuilder({ host, onClose, defaultPage = 'fields' }: { ho
   };
   const body = (id: Page) => (
     <div {...solve('builder-page', { page: id })}>
-      {id === 'fields' ? <FieldsPage nodeView={nodeView} setNodeView={setNodeView} /> : id === 'modules' ? <ModulesPage /> : id === 'publish' ? <PublishPage /> : <SoonPage page={id} />}
+      {id === 'fields' ? <FieldsPage /> : id === 'modules' ? <ModulesPage /> : id === 'publish' ? <PublishPage /> : <SoonPage page={id} />}
     </div>
   );
   const title = <span {...solve('debug-title')}><b>结构制作</b><small>{d.label ?? d.id} · {d.version}</small></span>;
@@ -117,11 +117,11 @@ export function StructureBuilder({ host, onClose, defaultPage = 'fields' }: { ho
             </label>
             <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={e => void onFile(e.target.files?.[0])} />
             <span {...part('history')}>
-              <K.Button size="sm" variant="ghost" disabled={!h.past.length} onClick={() => setH(undo)} aria-label="撤销">↶ 撤销</K.Button>
-              <K.Button size="sm" variant="ghost" disabled={!h.future.length} onClick={() => setH(redo)} aria-label="重做">↷ 重做</K.Button>
+              <K.Button size="sm" variant="ghost" disabled={!h.past.length} onClick={() => setH(undo)} aria-label="撤销">↶<span data-text=""> 撤销</span></K.Button>
+              <K.Button size="sm" variant="ghost" disabled={!h.future.length} onClick={() => setH(redo)} aria-label="重做">↷<span data-text=""> 重做</span></K.Button>
             </span>
             <button type="button" {...part('status')} data-tone={!check ? 'busy' : errors ? 'error' : warnings ? 'warning' : 'ok'} onClick={() => setPage('publish')}>
-              {!check || importing ? '检查中…' : errors ? `${errors} 个错误` : '编译通过'}{check && warnings ? ` · ${warnings} 个提醒` : ''}{dirty ? ' · 有未发布的修改' : ''}
+              {!check || importing ? '检查中…' : errors ? `${errors} 个错误` : '编译通过'}{check && warnings ? ` · ${warnings} 个提醒` : ''}{dirty ? (wide ? ' · 有未发布的修改' : ' · 未发布') : ''}
             </button>
             {notice ? <span {...part('notice')} data-tone={notice.tone} role="status">{notice.text}</span> : null}
           </div>
@@ -140,87 +140,8 @@ export function StructureBuilder({ host, onClose, defaultPage = 'fields' }: { ho
 
 // ── 字段 ──
 
-function FieldsPage({ nodeView, setNodeView }: { nodeView: boolean; setNodeView: (v: boolean) => void }) {
-  const { selected } = useB();
-  const [box, wide] = useWide(780);
-  return (
-    <div ref={box} {...solve('builder-fields', { layout: wide ? 'split' : 'stack' })}>
-      {wide || !nodeView || !selected ? <FieldTree /> : null}
-      {wide ? (selected ? <Inspector addr={selected} /> : <aside {...part('placeholder')}><p>在左边选一个字段查看和修改它的设置。拖动 ⠿ 调整顺序。</p></aside>)
-        : nodeView && selected ? <Inspector addr={selected} onBack={() => setNodeView(false)} /> : null}
-    </div>
-  );
-}
-
-function FieldTree() {
-  const K = useKit(), { d, set, select, selected } = useB();
-  const [query, setQuery] = React.useState('');
-  const [open, setOpen] = React.useState<Set<string>>(() => new Set(Object.keys(d.fields)));
-  // Opening a field (from a check, from the inspector) unfolds its ancestors.
-  React.useEffect(() => { if (selected) setOpen(cur => { const next = new Set(cur); for (let i = 1; i < selected.length; i++) next.add(addrKey(selected.slice(0, i))); return next; }); }, [selected && addrKey(selected)]); // eslint-disable-line react-hooks/exhaustive-deps
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) return;
-    const a = fromKey(String(active.id)), o = fromKey(String(over.id));
-    if (addrKey(a.slice(0, -1)) !== addrKey(o.slice(0, -1))) return;
-    set(reorder(d, a.slice(0, -1), a.at(-1)!, o.at(-1)!));
-  };
-  const q = query.trim().toLowerCase();
-  const toggle = (k: string) => setOpen(cur => { const next = new Set(cur); if (next.has(k)) next.delete(k); else next.add(k); return next; });
-  const Text = K.TextField;
-  return (
-    <div {...solve('builder-tree')}>
-      <div {...part('tools')}>
-        {Text ? <Text size="sm" placeholder="搜索字段（名字或键名）" value={query} onChange={e => setQuery(e.target.value)} aria-label="搜索字段" /> : <input value={query} onChange={e => setQuery(e.target.value)} />}
-        <AddField host={[]} compact onAdded={a => select(a)} />
-      </div>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={onDragEnd}>
-        <Branch node={rootNode(d)} addr={[]} open={open} toggle={toggle} query={q} />
-      </DndContext>
-      <p {...part('hint')}>按住 ⠿ 拖动调整顺序（同一层内）；要挪到别的分组，在字段设置里用「移动到」。</p>
-    </div>
-  );
-}
-function matches(node: FieldNode, key: string, q: string): boolean {
-  return !q || (node.label ?? '').toLowerCase().includes(q) || key.toLowerCase().includes(q) || childrenOf(node).some(([k, c]) => matches(c, k, q));
-}
-function Branch({ node, addr, open, toggle, query }: { node: FieldNode; addr: Addr; open: Set<string>; toggle: (k: string) => void; query: string }) {
-  const kids = childrenOf(node).filter(([k, c]) => matches(c, k, query));
-  const ids = kids.filter(([k]) => k !== '*').map(([k]) => addrKey([...addr, k]));
-  return (
-    <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-      <ul {...solve('builder-branch')} role={addr.length ? 'group' : 'tree'} aria-label={addr.length ? undefined : '字段树'}>
-        {kids.map(([k, c]) => <Row key={k} node={c} parent={node} addr={[...addr, k]} open={open} toggle={toggle} query={query} />)}
-      </ul>
-    </SortableContext>
-  );
-}
-function Row({ node, parent, addr, open, toggle, query }: { node: FieldNode; parent: FieldNode; addr: Addr; open: Set<string>; toggle: (k: string) => void; query: string }) {
-  const { selected, select, issuesAt, d } = useB();
-  const id = addrKey(addr), key = addr.at(-1)!, star = key === '*';
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: star });
-  const kids = childrenOf(node), isOpen = open.has(id) || !!query;
-  const issues = issuesAt(addr), level = issues.some(i => i.level === 'error') ? 'error' : issues.length ? 'warning' : undefined;
-  const modules = ([] as string[]).concat(node.module ?? []);
-  const current = selected && addrKey(selected) === id;
-  return (
-    <li ref={setNodeRef} role="treeitem" aria-expanded={kids.length ? isOpen : undefined} aria-selected={current}
-      style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 2 : undefined }} data-dragging={isDragging ? '' : undefined}>
-      <div {...part('row')} data-current={current ? '' : undefined}>
-        {star ? <span {...part('handle')} data-disabled="" aria-hidden="true" /> : <button type="button" ref={setActivatorNodeRef} {...part('handle')} {...attributes} {...listeners} aria-label={`拖动 ${nameOf(node, key)} 调整顺序`}>⠿</button>}
-        {kids.length ? <button type="button" {...part('twist')} onClick={() => toggle(id)} aria-label={isOpen ? '收起' : '展开'}>{isOpen ? '▾' : '▸'}</button> : <span {...part('twist')} aria-hidden="true" />}
-        <button type="button" {...part('pick')} onClick={() => select(addr)}>
-          <i {...part('type')} data-type={node.type} title={typeInfo(node.type).label}>{typeInfo(node.type).tag}</i>
-          <span {...part('label')}>{nameOf(node, key, parent)}</span>
-          {!star ? <code>{key}</code> : null}
-          {node.entity ? <small {...part('tag')}>实体·{node.entity}</small> : null}
-          {modules.map(m => <small key={m} {...part('module')} title="所属模块">{d.modules?.[m]?.label ?? m}</small>)}
-          {level ? <b {...part('issue')} data-level={level} aria-label={level === 'error' ? '有错误' : '有提醒'} /> : null}
-        </button>
-      </div>
-      {kids.length && isOpen ? <Branch node={node} addr={addr} open={open} toggle={toggle} query={query} /> : null}
-    </li>
-  );
+function FieldsPage() {
+  return <Blueprint />;
 }
 
 /** Add a field under an object (or under each entry of a record / list of objects). */
@@ -252,7 +173,7 @@ function AddField({ host, compact, onAdded }: { host: Addr; compact?: boolean; o
 // ── 字段设置 ──
 
 /** Text that commits on blur / Enter (one history step per edit, not per keystroke). */
-function TextInput({ value, onCommit, multiline, placeholder, label, mono, validate }: { value: string; onCommit: (v: string) => void; multiline?: boolean; placeholder?: string; label: string; mono?: boolean; validate?: (v: string) => string | undefined }) {
+export function TextInput({ value, onCommit, multiline, placeholder, label, mono, validate }: { value: string; onCommit: (v: string) => void; multiline?: boolean; placeholder?: string; label: string; mono?: boolean; validate?: (v: string) => string | undefined }) {
   const [v, setV] = React.useState(value);
   React.useEffect(() => setV(value), [value]);
   const err = v !== value ? validate?.(v) : undefined;
@@ -265,17 +186,17 @@ function TextInput({ value, onCommit, multiline, placeholder, label, mono, valid
     </span>
   );
 }
-function NumberInput({ value, onCommit, label, placeholder }: { value?: number; onCommit: (v: number | undefined) => void; label: string; placeholder?: string }) {
+export function NumberInput({ value, onCommit, label, placeholder }: { value?: number; onCommit: (v: number | undefined) => void; label: string; placeholder?: string }) {
   return <TextInput label={label} value={value === undefined ? '' : String(value)} placeholder={placeholder ?? '不限'} mono
     validate={v => v.trim() === '' || Number.isFinite(Number(v)) ? undefined : '请填数字'} onCommit={v => onCommit(v.trim() === '' ? undefined : Number(v))} />;
 }
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return <div {...solve('builder-field')}><span {...part('label')}>{label}{hint ? <small>{hint}</small> : null}</span><div {...part('control')}>{children}</div></div>;
 }
-function Select({ value, onChange, options, label }: { value: string; onChange: (v: string) => void; options: [string, string][]; label: string }) {
+export function Select({ value, onChange, options, label }: { value: string; onChange: (v: string) => void; options: [string, string][]; label: string }) {
   return <select {...solve('builder-select')} value={value} aria-label={label} onChange={e => onChange(e.target.value)}>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>;
 }
-function Chips({ options, value, onChange, label }: { options: [string, string][]; value: string[]; onChange: (v: string[]) => void; label: string }) {
+export function Chips({ options, value, onChange, label }: { options: [string, string][]; value: string[]; onChange: (v: string[]) => void; label: string }) {
   return (
     <div {...solve('builder-chips')} role="group" aria-label={label}>
       {options.map(([v, l]) => <button type="button" key={v} aria-pressed={value.includes(v)} onClick={() => onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v])}>{l}</button>)}
@@ -284,7 +205,7 @@ function Chips({ options, value, onChange, label }: { options: [string, string][
   );
 }
 
-function Inspector({ addr, onBack }: { addr: Addr; onBack?: () => void }) {
+export function Inspector({ addr, onBack, backLabel = '‹ 字段树' }: { addr: Addr; onBack?: () => void; backLabel?: string }) {
   const K = useKit(), { d, set, select, issuesAt, note, go } = useB();
   const node = nodeAt(d, addr);
   if (!node) return <aside {...part('placeholder')}><p>这个字段已经不在了。</p>{onBack ? <K.Button size="sm" onClick={onBack}>‹ 字段树</K.Button> : null}</aside>;
@@ -300,7 +221,7 @@ function Inspector({ addr, onBack }: { addr: Addr; onBack?: () => void }) {
   return (
     <section {...solve('builder-inspector')} aria-label={`字段设置：${nameOf(node, key)}`}>
       <header>
-        {onBack ? <K.Button size="sm" variant="ghost" onClick={onBack}>‹ 字段树</K.Button> : null}
+        {onBack ? <K.Button size="sm" variant="ghost" onClick={onBack}>{backLabel}</K.Button> : null}
         <nav {...part('crumbs')} aria-label="位置">{crumbs.map(c => <button type="button" key={addrKey(c)} onClick={() => select(c)} aria-current={c.length === addr.length ? 'true' : undefined}>{nameOf(nodeAt(d, c), c.at(-1)!, nodeAt(d, c.slice(0, -1)))}</button>)}</nav>
         <h3><i {...part('type')} data-type={node.type}>{typeInfo(node.type).tag}</i>{nameOf(node, key, parent)}</h3>
         <code>{addrKey(addr)}</code>
@@ -539,16 +460,7 @@ function ModulesPage() {
             <li key={name} style={{ '--depth': depth } as React.CSSProperties}>
               <K.CollapseCard title={<span {...part('title')}>{m.label ?? name}<code>{name}</code></span>}
                 meta={<span {...part('meta')}>{m.exclusive ? <K.Badge>{groups[m.exclusive]?.label ?? m.exclusive}</K.Badge> : null}<K.Badge tone={m.enabled === false ? 'neutral' : 'success'}>{m.enabled === false ? '默认关' : '默认开'}</K.Badge><small>{counts[name] ?? 0} 个字段</small></span>}>
-                <Field label="显示名"><TextInput label="显示名" value={m.label ?? ''} placeholder={name} onCommit={v => patch(name, { label: v.trim() || undefined })} /></Field>
-                <Field label="上级模块" hint="上级关闭时它也不生效"><Select label="上级模块" value={m.parent ?? ''} options={[['', '无'], ...Object.keys(modules).filter(n => n !== name).map(n => [n, modules[n]!.label ?? n] as [string, string])]} onChange={v => patch(name, { parent: v || undefined })} /></Field>
-                <Field label="互斥组"><Select label="互斥组" value={m.exclusive ?? ''} options={groupOptions} onChange={v => patch(name, { exclusive: v || undefined })} /></Field>
-                <Field label="新聊天默认开启" hint={m.exclusive ? '同一互斥组只能有一个默认开启' : undefined}><K.Switch checked={m.enabled !== false} aria-label="默认开启" onCheckedChange={v => patch(name, { enabled: v ? undefined : false })} /></Field>
-                <Field label="模块指南" hint="开启时写进给模型的指南"><TextInput label="模块指南" value={m.guide ?? ''} multiline onCommit={v => patch(name, { guide: v.trim() || undefined })} /></Field>
-                <div {...part('actions')}>
-                  <K.Button size="sm" variant="danger" disabled={!!counts[name] || Object.values(modules).some(x => x.parent === name)}
-                    onClick={() => { const { [name]: _, ...rest } = modules; setModules(rest); note(`已删除模块「${m.label ?? name}」`); }}>删除模块</K.Button>
-                  {counts[name] || Object.values(modules).some(x => x.parent === name) ? <small>还有字段或下级模块用着它，先把它们移走</small> : null}
-                </div>
+                <ModuleEditor name={name} />
               </K.CollapseCard>
             </li>
           );
@@ -574,6 +486,32 @@ function ModulesPage() {
         <div {...part('add')}><input value={groupKey} onChange={e => setGroupKey(e.target.value.trim())} placeholder="新互斥组键名（英文）" aria-label="新互斥组键名" />
           <K.Button size="sm" disabled={!KEY_RE.test(groupKey) || Object.hasOwn(groups, groupKey)} onClick={() => { set({ ...d, groups: { ...groups, [groupKey]: {} } }); setGroupKey(''); }}>添加</K.Button></div>
       </K.Card>
+    </>
+  );
+}
+/** Settings of one module (modules page and the blueprint side panel). */
+export function ModuleEditor({ name, onDeleted }: { name: string; onDeleted?: () => void }) {
+  const K = useKit(), { d, set, note } = useB();
+  const modules = d.modules ?? {}, groups = d.groups ?? {}, m = modules[name];
+  if (!m) return null;
+  const counts: Record<string, number> = {};
+  const walk = (n: FieldNode) => { for (const [, c] of childrenOf(n)) { for (const x of ([] as string[]).concat(c.module ?? [])) counts[x] = (counts[x] ?? 0) + 1; walk(c); } };
+  walk(rootNode(d));
+  const setModules = (next: Record<string, StructureModule>) => set({ ...d, modules: next });
+  const patch = (n: string, p: Partial<StructureModule>) => setModules(Object.fromEntries(Object.entries(modules).map(([k, x]) => [k, k === n ? clean({ ...x, ...p }) : x])));
+  const groupOptions: [string, string][] = [['', '不在互斥组里'], ...Object.entries(groups).map(([g, x]) => [g, x.label ?? g] as [string, string])];
+  return (
+    <>
+                <Field label="显示名"><TextInput label="显示名" value={m.label ?? ''} placeholder={name} onCommit={v => patch(name, { label: v.trim() || undefined })} /></Field>
+                <Field label="上级模块" hint="上级关闭时它也不生效"><Select label="上级模块" value={m.parent ?? ''} options={[['', '无'], ...Object.keys(modules).filter(n => n !== name).map(n => [n, modules[n]!.label ?? n] as [string, string])]} onChange={v => patch(name, { parent: v || undefined })} /></Field>
+                <Field label="互斥组"><Select label="互斥组" value={m.exclusive ?? ''} options={groupOptions} onChange={v => patch(name, { exclusive: v || undefined })} /></Field>
+                <Field label="新聊天默认开启" hint={m.exclusive ? '同一互斥组只能有一个默认开启' : undefined}><K.Switch checked={m.enabled !== false} aria-label="默认开启" onCheckedChange={v => patch(name, { enabled: v ? undefined : false })} /></Field>
+                <Field label="模块指南" hint="开启时写进给模型的指南"><TextInput label="模块指南" value={m.guide ?? ''} multiline onCommit={v => patch(name, { guide: v.trim() || undefined })} /></Field>
+                <div {...part('actions')}>
+                  <K.Button size="sm" variant="danger" disabled={!!counts[name] || Object.values(modules).some(x => x.parent === name)}
+                    onClick={() => { const { [name]: _, ...rest } = modules; setModules(rest); onDeleted?.(); note(`已删除模块「${m.label ?? name}」`); }}>删除模块</K.Button>
+                  {counts[name] || Object.values(modules).some(x => x.parent === name) ? <small>还有字段或下级模块用着它，先把它们移走</small> : null}
+                </div>
     </>
   );
 }

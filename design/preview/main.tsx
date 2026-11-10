@@ -22,6 +22,7 @@ import debugCss from '../../src/ui/debug/debug.css';
 import { jerCss } from '../../src/ui/debug/console';
 import builderCss from '../../src/ui/builder/builder.css';
 import { StructureBuilder } from '../../src/ui/builder/builder';
+import { xyCss } from '../../src/ui/builder/blueprint';
 import { exampleStructure } from '../../examples/official/example';
 import { createDebugDemo } from '../debug-preview/demo';
 
@@ -31,7 +32,7 @@ const entries = (kamiSkins as unknown as SkinEntry[]).filter(e => e.manifest.id 
 const GROUPS: { title: string; views: [string, string][] }[] = [
   { title: '状态栏', views: [['bar', '横条'], ['dot', '按钮'], ['tab:角色', '角色'], ['tab:社交', '社交'], ['tab:地图', '地图'], ['tab:图鉴', '图鉴'], ['tab:势力', '势力'], ['tab:设定', '设定'], ['tab:建筑', '建筑']] },
   { title: '设置', views: [['settings', '设置']] },
-  { title: '结构制作', views: [['builder:fields', '字段'], ['builder:modules', '模块'], ['builder:publish', '检查与发布'], ['builder:layout', '其他页（预览二、三）']] },
+  { title: '结构制作', views: [['builder:fields', '字段蓝图'], ['builder:modules', '模块'], ['builder:publish', '检查与发布'], ['builder:layout', '其他页（预览二、三）']] },
   { title: '调试面板', views: [['debug:overview', '概览'], ['debug:state', '状态'], ['debug:history', '历史'], ['debug:console', '操作台'], ['debug:prompt', '提示词'], ['debug:structure', '结构'], ['debug:logs', '日志']] },
 ];
 const q = new URLSearchParams(location.search);
@@ -95,7 +96,7 @@ async function single(scheme: string, view: string, embed: boolean, attr: string
   document.documentElement.dataset.scheme = mgr.current.manifest.schemes[scheme] ? scheme : 'light';
   const layer = rt.layer();
   const sheet = new CSSStyleSheet();
-  sheet.replaceSync('@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;\n@layer k.components {\n' + statusCss + '\n' + jerCss + '\n' + debugCss + '\n' + builderCss + '\n}');
+  sheet.replaceSync('@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;\n@layer k.components {\n' + statusCss + '\n' + jerCss + '\n' + xyCss + '\n' + debugCss + '\n' + builderCss + '\n}');
   layer.shadow.adoptedStyleSheets = [...layer.shadow.adoptedStyleSheets, sheet];
 
   const demo = await createDebugDemo();

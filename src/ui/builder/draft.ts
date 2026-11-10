@@ -241,3 +241,27 @@ export function replaceNode(d: StructureDescription, addr: Addr, node: FieldNode
     if (key === '*') parent.of = node; else if (parent.fields) parent.fields = Object.fromEntries(Object.entries(parent.fields).map(([k, v]) => [k, k === key ? node : v]));
   });
 }
+
+/** Inserts (or re-inserts) a field at a position among its siblings. */
+export function insertAt(d: StructureDescription, host: Addr, key: string, node: FieldNode, index?: number): StructureDescription {
+  return edit(d, (_, root) => {
+    const h = at(root, host); if (!h) return;
+    const entries = Object.entries(h.fields ?? {}).filter(([k]) => k !== key);
+    entries.splice(index === undefined ? entries.length : Math.max(0, Math.min(index, entries.length)), 0, [key, node]);
+    h.fields = Object.fromEntries(entries);
+  });
+}
+/** a is b or inside b. */
+export const within = (a: Addr, b: Addr) => a.length >= b.length && b.every((s, i) => a[i] === s);
+/** Moves a field to a host object at a position (same host = reorder). index counts siblings before the move. */
+export function relocate(d: StructureDescription, addr: Addr, host: Addr, index?: number): { next: StructureDescription; addr: Addr } {
+  const node = nodeAt(d, addr), target = nodeAt(d, host), key = addr.at(-1)!;
+  if (!node || !target || key === '*' || target.type !== 'object' || within(host, addr)) return { next: d, addr };
+  if (addrKey(host) === addrKey(addr.slice(0, -1))) {
+    const keys = Object.keys(target.fields ?? {}), from = keys.indexOf(key);
+    const i = index === undefined ? keys.length - 1 : from < index ? index - 1 : index;
+    return { next: i === from ? d : insertAt(d, host, key, node, i), addr };
+  }
+  const k = freeKey(target.fields, key);
+  return { next: insertAt(remove(d, addr), host, k, clone(node), index), addr: [...host, k] };
+}
