@@ -125,7 +125,7 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
 }
 
 /** Opening view (previews) and the debug-panel entry. */
-export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean }; openDebug?: () => void }
+export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean }; openDebug?: () => void; openBuilder?: () => void }
 /** The status bar for one bound controller (the tavern host and the design preview both render this). */
 export function Bound({ scope, controller, def, state, bgm, extras = {} }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike; extras?: StatusBarExtras }) {
   const status = controller.getStatus();
@@ -172,6 +172,7 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
     ...(bgm ? { tracks: { list: bgmStatus!.library.player, add: t => bgm.addTracks([{ ...t, id: 'mine_' + Date.now().toString(36) }]), remove: id => bgm.removeTrack(id) } } : {}),
     ...(locked ? { locked } : {}),
     ...(extras.openDebug ? { openDebug: extras.openDebug } : {}),
+    ...(extras.openBuilder ? { openBuilder: extras.openBuilder } : {}),
   };
   const bgmView: BgmView | undefined = bgm && bgmStatus && bgmStatus.selection ? (() => {
     const sel = bgmStatus.selection as any, places = (state.data as any)?.places ?? {};

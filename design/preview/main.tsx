@@ -20,6 +20,9 @@ import { IMAGES, MUSIC, MUSIC_CREDIT } from '../../examples/official/media';
 import statusCss from '../../src/ui/statusbar/statusbar.css';
 import debugCss from '../../src/ui/debug/debug.css';
 import { jerCss } from '../../src/ui/debug/console';
+import builderCss from '../../src/ui/builder/builder.css';
+import { StructureBuilder } from '../../src/ui/builder/builder';
+import { exampleStructure } from '../../examples/official/example';
 import { createDebugDemo } from '../debug-preview/demo';
 
 declare const __BUILD__: string;
@@ -28,6 +31,7 @@ const entries = (kamiSkins as unknown as SkinEntry[]).filter(e => e.manifest.id 
 const GROUPS: { title: string; views: [string, string][] }[] = [
   { title: '状态栏', views: [['bar', '横条'], ['dot', '按钮'], ['tab:角色', '角色'], ['tab:社交', '社交'], ['tab:地图', '地图'], ['tab:图鉴', '图鉴'], ['tab:势力', '势力'], ['tab:设定', '设定'], ['tab:建筑', '建筑']] },
   { title: '设置', views: [['settings', '设置']] },
+  { title: '结构制作', views: [['builder:fields', '字段'], ['builder:modules', '模块'], ['builder:publish', '检查与发布'], ['builder:layout', '其他页（预览二、三）']] },
   { title: '调试面板', views: [['debug:overview', '概览'], ['debug:state', '状态'], ['debug:history', '历史'], ['debug:console', '操作台'], ['debug:prompt', '提示词'], ['debug:structure', '结构'], ['debug:logs', '日志']] },
 ];
 const q = new URLSearchParams(location.search);
@@ -39,7 +43,7 @@ function gallery(): void {
   const root = document.createElement('div');
   root.id = 'gallery';
   root.innerHTML = `<header><h1>SOLVE 界面 · 合并预览 <small class="build">构建于 ${__BUILD__}</small></h1>
-    <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。状态栏、设置、调试面板在同一段聊天里，皮肤只用卡密预设默认的「碎光」。状态栏用的是接进酒馆的同一个组件：在状态栏里做的操作（喝药、开关模块、改上限）会存进当前楼层，打开调试面板的「历史」就能看到。调试面板的入口在 ⚙ 设置 › 显示 › 调试面板。示例角色四套属性体系（WOD / DND / FATE / FU）都有数据，用下面的「属性体系」切换（等同玩家在设置里切换）。</p>
+    <p class="lead">审阅用预览，不是验证（能不能用以酒馆实机为准）。状态栏、设置、调试面板在同一段聊天里，皮肤只用卡密预设默认的「碎光」。状态栏用的是接进酒馆的同一个组件：在状态栏里做的操作（喝药、开关模块、改上限）会存进当前楼层，打开调试面板的「历史」就能看到。调试面板和结构制作的入口都在 ⚙ 设置 › 显示。示例角色四套属性体系（WOD / DND / FATE / FU）都有数据，用下面的「属性体系」切换（等同玩家在设置里切换）。</p>
     <p class="lead">演示聊天：示例世界在模拟酒馆里跑了 3 轮（好感度超上限被夹住、两条被拒绝的操作、玩家喝药带旁白、同一楼两个回复版本）。所有操作只改这个页面的内存，刷新即复原。</p>
     ${GROUPS.map(g => `<nav class="tabs" aria-label="${g.title}"><span>${g.title}：</span>${g.views.map(([id, label]) => `<button type="button" data-view="${id}">${label}</button>`).join('')}</nav>`).join('')}
     <nav class="tabs attrs" aria-label="属性体系"><span>属性体系：</span>${ATTRS.map(([id, label]) => `<button type="button" data-attr="${id}">${label}</button>`).join('')}</nav>
@@ -91,7 +95,7 @@ async function single(scheme: string, view: string, embed: boolean, attr: string
   document.documentElement.dataset.scheme = mgr.current.manifest.schemes[scheme] ? scheme : 'light';
   const layer = rt.layer();
   const sheet = new CSSStyleSheet();
-  sheet.replaceSync('@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;\n@layer k.components {\n' + statusCss + '\n' + jerCss + '\n' + debugCss + '\n}');
+  sheet.replaceSync('@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;\n@layer k.components {\n' + statusCss + '\n' + jerCss + '\n' + debugCss + '\n' + builderCss + '\n}');
   layer.shadow.adoptedStyleSheets = [...layer.shadow.adoptedStyleSheets, sheet];
 
   const demo = await createDebugDemo();
@@ -110,16 +114,20 @@ async function single(scheme: string, view: string, embed: boolean, attr: string
   };
   const initial = view === 'dot' ? { mode: 'dot' as const } : view === 'settings' ? { mode: 'panel' as const, settings: true } : view.startsWith('tab:') ? { mode: 'panel' as const, tab: view.slice(4) } : { mode: 'bar' as const };
   const firstDebug = view.startsWith('debug:') ? view.slice(6) : undefined;
+  const firstBuilder = view.startsWith('builder:') ? view.slice(8) : undefined;
+  const builderHost = { start: exampleStructure, published: exampleStructure, official: exampleStructure, character: '灰烬纪元' };
   function App() {
     const [, tick] = React.useReducer((n: number) => n + 1, 0);
     React.useEffect(() => sessions.subscribe(tick), []);
     const [debug, setDebug] = React.useState<string | undefined>(firstDebug);
+    const [builder, setBuilder] = React.useState<string | undefined>(firstBuilder);
     const c = sessions.controller!;
     let state; try { state = c.getState(); } catch { state = undefined; }
     return (
       <KitProvider value={DS as unknown as Kit}>
         {/* Separate stacking contexts: the debug panel stays above the status bar's launcher and panel. */}
-        <div style={{ position: 'relative', zIndex: 1 }}>{state ? <Bound key={c.core.definition.fingerprint} scope={scope} controller={c as never} def={c.core.definition} state={state} bgm={bgm} extras={{ initial, openDebug: () => setDebug('overview') }} /> : null}</div>
+        <div style={{ position: 'relative', zIndex: 1 }}>{state ? <Bound key={c.core.definition.fingerprint} scope={scope} controller={c as never} def={c.core.definition} state={state} bgm={bgm} extras={{ initial, openDebug: () => setDebug('overview'), openBuilder: () => setBuilder('fields') }} /> : null}</div>
+        <div style={{ position: 'relative', zIndex: 3 }}>{builder ? <StructureBuilder key={builder} host={builderHost} onClose={() => setBuilder(undefined)} defaultPage={builder as never} /> : null}</div>
         <div style={{ position: 'relative', zIndex: 2 }}>{debug ? <DebugPanel key={debug} host={host} onClose={() => setDebug(undefined)} defaultPage={debug as never} /> : null}</div>
       </KitProvider>
     );

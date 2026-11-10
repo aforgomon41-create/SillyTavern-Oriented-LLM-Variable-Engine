@@ -36,6 +36,8 @@ export interface SettingsHost {
   kami?: boolean;
   /** Opens the debug panel (for card authors). */
   openDebug?: () => void;
+  /** Opens the structure builder (for card authors). */
+  openBuilder?: () => void;
 }
 
 type Section = 'modules' | 'lists' | 'delta' | 'display' | 'music';
@@ -272,6 +274,12 @@ function Display({ host }: { host: SettingsHost }) {
         <div {...solve('pref', { kind: 'action' })}>
           <span {...part('label')}>调试面板<small>给卡作者用：看完整状态、历史与反馈，预演或提交操作，查看发给模型的内容。</small></span>
           <K.Button size="sm" onClick={host.openDebug}>打开</K.Button>
+        </div>
+      ) : null}
+      {host.openBuilder ? (
+        <div {...solve('pref', { kind: 'action' })}>
+          <span {...part('label')}>结构制作<small>给卡作者用：修改这张卡的数据结构（字段、模块、布局），检查后写进角色世界书或导出脚本。</small></span>
+          <K.Button size="sm" onClick={host.openBuilder}>打开</K.Button>
         </div>
       ) : null}
     </div>
