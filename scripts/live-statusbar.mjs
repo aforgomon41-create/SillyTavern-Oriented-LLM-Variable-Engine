@@ -161,7 +161,8 @@ try {
   const prompt = await lastRequestText();
   check('下一轮请求里带有玩家在状态栏中的操作', prompt.includes('玩家在状态栏中'), (prompt.match(/玩家在状态栏中[^"\\]{0,40}/u) ?? [''])[0]);
   // The SOP in the card describes the block format, so look for the player's block and its JSON instead.
-  check('请求里没有玩家操作块与动作数据', !prompt.includes('solve_mutual_operate>') && !prompt.includes('narrate') && !prompt.includes('actionId'));
+  // The SOP names the tag in prose; a real block is the tag followed by its JSON.
+  check('请求里没有玩家操作块与动作数据', !/solve_mutual_operate>(?:\\n|\s)*[[{]/u.test(prompt) && !prompt.includes('narrate') && !prompt.includes('actionId'));
   void narration;
 
   phase = 'settings';
