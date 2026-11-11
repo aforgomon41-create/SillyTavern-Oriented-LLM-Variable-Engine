@@ -1,164 +1,113 @@
 # SOLVE · SillyTavern-Oriented-LLM-Variable-Engine
 
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-365c49.svg)](LICENSE)
-[![Version: 0.9.0-preview.1](https://img.shields.io/badge/Version-0.9.0--preview.1-647063.svg)](docs/release-guide.md)
+[![Version: 0.9.0-preview.1](https://img.shields.io/badge/Version-0.9.0--preview.1-647063.svg)](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.9.0-preview.1)
 
-面向 **SillyTavern 1.19.x 单角色聊天**的结构化变量引擎。模型输出 JSON 指令，Core 执行与校验，聊天文件保存实际结果。现包含 React + Radix 调试工作台，松绿与暖灰配色，支持浅色/深色以及电脑/手机。
+面向 **SillyTavern 1.19.x 单角色聊天**的结构化变量引擎。模型在回复里输出 JSON 操作，引擎按数据结构校验并执行，结果随聊天保存，删楼、切换回复、分支都能准确回到对应状态。玩家在状态栏里查看和修改变量，作者用声明式的数据结构描述字段、规则和状态栏布局。
 
-![SOLVE 调试工作台](docs/images/debug-desktop-light.jpg)
+![酒馆里的 SOLVE 状态栏：角色页](docs/images/statusbar-desktop-role.jpg)
 
-当前预览版为 **0.9.0-preview.1**（预发布）。在 0.9.0-dev 系列（内联作者工具、世界书接入、Facet 生命周期、条件指南、长聊天性能）之上，加入官方数据结构、按结构声明渲染的状态栏、调试面板和结构制作。264 项自动测试通过，当前完成情况与接手任务集中在实施状态中。[当前状态](docs/implementation-status.md)
-
-## 开发与文档入口
-
-| 目的 | 入口 |
+| 社交页（电脑） | 角色页（手机） |
 | --- | --- |
-| 参与开发、分工和提交合并申请 | [协作指南](CONTRIBUTING.md) |
-| 编写角色定义、世界书和条件指南 | [作者接入](docs/authoring.md) |
-| 查找设计、接口、验收和交付文档 | [文档目录](docs/README.md) |
-| 查看长聊天测量与剩余瓶颈 | [性能记录](docs/performance.md) |
+| ![社交页](docs/images/statusbar-desktop-social.jpg) | ![手机角色页](docs/images/statusbar-mobile-role.jpg) |
 
-## 安装到酒馆
+当前版本 **0.9.0-preview.1**（预发布）。截图为本机酒馆实际页面，使用官方数据结构和示例数据。界面设计预览（含结构制作、新调试面板等尚未接入酒馆的部分）：[设计预览](https://aforgomon41-create.github.io/sillytavern-kami-preset/solve/preview/)。
 
-已发布的预览版可从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.9.0-preview.1) 下载 `SOLVE-native-0.9.0-preview.1.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
+## 安装
 
-安装本地开发版时，运行下列构建与打包命令，使用 `artifacts/releases/0.9.0-preview.1/` 中对应分发包。不要将本机验收辅助脚本放进正式扩展。
+1. 从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.9.0-preview.1) 下载 `SOLVE-native-0.9.0-preview.1.zip`。
+2. 解压到酒馆的第三方扩展目录 `public/scripts/extensions/third-party/`，得到独立的 `solve/` 文件夹，`manifest.json` 直接位于其中。
+3. 重载酒馆，右下角出现 **◈ SOLVE** 入口。
 
-```sh
-npm ci
-npm run check:portable
-npm run package
-npm run test:release
+另有 dynamic（托管 `solve/` 目录，作者脚本导入 `dynamic.js`）和 embedded（酒馆助手脚本 JSON）两种分发，三种用同一份构建，见 [分发与安装](docs/distributions.md)。每个包都附带对应的 `SOURCE_CODE.zip`。
+
+## 快速开始：用官方数据结构
+
+官方数据结构给没有自带变量的角色卡补上一套开箱即用的变量：角色（属性、能力、状态、动机、关系）、物品与货币、地点与地图、势力、建筑、设定与伏笔、时间天气和场景情绪。规格见 [官方数据结构](docs/official-structure.md)。
+
+在酒馆助手里给角色卡加一个脚本（每次页面加载运行一次）：
+
+```js
+await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characters: ['角色文件名.png'] });
 ```
 
-原生包解压后的 `solve/manifest.json` 位于扩展根部。动态包托管整个 `solve/`；内嵌包提供酒馆助手脚本 JSON 和入门定义。每包都有 `SOURCE_CODE.zip`，它是本次实际对应源码，不依赖尚未发布的远程标签。
+再在角色描述或预设里放上给模型看的内容：
 
-## 先试用调试面板
-
-```sh
-npm ci
-npm run dev
+```text
+{{solve_SOP}}
+{{solve_guide}}
+当前变量：{{solve_toon}}
 ```
 
-打开终端给出的本机演示链接，默认 `http://127.0.0.1:4173/debug.html?demo=1`。如果端口占用，用环境变量 `SOLVE_DEBUG_PORT` 换端口。
+开始聊天后，模型在回复末尾输出 `<solve_operate>` 操作块，SOLVE 执行后更新状态栏。扩展不会自动给未注册的角色卡启用 SOLVE；进入聊天时自动检测卡片自带变量（MVU / ERA / SOLVE）并询问是否使用默认结构的功能正在做，界面见设计预览。
 
-演示使用真实 Core 与 Controller、内存聊天宿主，刷新即重置，不调用模型、不访问真实聊天。`/host-preview.html` 可验证同源嵌入、关闭与未绑定时的只读检查。
+## 状态栏
 
-- 状态探索：可展开/搜索的状态树、JSON、路径查询、实体与引用、模块和作者约束。
-- 操作实验室：JSON 格式提示与格式化、示例、作者输入、预演变更/反馈/状态/别名、绑定基线后正式提交。
-- 历史与恢复：旧修订检查、双版本差异、楼层/回复信息、单层和后续重放、归档校验与缓存重建。
-- 上下文预览：视图与路径筛选，JSON/TOON/指南/指令/反馈/独立操作提示词，字符和字节统计。
-- 诊断：日志搜索与级别过滤、宿主能力、请求取消、本地报告下载、保存失败草稿重试/放弃。
+状态栏按数据结构里声明的布局渲染，任何符合标准的结构都能显示，不只官方结构。
 
-界面里的查询和预演不会保存聊天；正式提交、模块切换与重放会保存。报告里的历史变更可能含变量值，分享前请检查。
+- **横条 / 按钮 / 面板**：平时是一条显示地点、时间、天气、在场角色的横条，可收成按钮；点开是面板。电脑上是侧栏导航，手机上是底部弹出的页签。
+- **页面**：人物卡（立绘、量表、状态、效果、货币、属性、能力、背包、任务、档案）、关系图与人物列表、地图、图鉴、势力、设定、建筑等，由作者在结构里组合。
+- **玩家操作**：作者允许的字段可以直接改，按钮可以使用、装备、交给、丢弃，可以新建条目；操作先预演再提交，记入聊天，下一轮以一句旁白告诉模型，可以撤销。
+- **⚙ 设置**：模块开关、清单上限、变化上限（按聊天保存）；剧透显示、皮肤、背景音乐与自己的曲目（本机）。「数据结构」「变量更新」两节目前只有界面，开关还不生效。
+- **皮肤**：有卡密预设时跟随它的皮肤，单独使用时用 SOLVE 自带的皮肤；支持浅色和深色。
 
-## 运行
+## 变量操作
 
-要求 Node.js 22 或更新版本。
+模型在 `<solve_operate>` 里输出一个操作对象或按顺序执行的对象数组。实体用 `@ID` 开头定位（`@erin.items.gold.count`），其他数据从根写起（`meta.weather`）。
 
-```sh
-npm ci
-npm run check
-npm run test:host
-```
+| 算子 | 写法 | 作用 |
+| --- | --- | --- |
+| `$set` | `{路径: 值}` | 写入；对象只合并写到的键。集合下写新 ID 等于新建实体 |
+| `$inc` | `{路径: 数}` | 加减数值 |
+| `$transfer` | `{来源: {目标: 数}}` | 从来源转给目标，总数守恒（付钱、交易、存取） |
+| `$push` / `$pull` | `{数组路径: 元素}` | 追加 / 删除数组元素 |
+| `$createEntity` | `{"集合.新ID": {字段}}` | 新建实体；`$from` 以模板或预制为底 |
+| `$move` / `$swap` | `{路径A: 路径B}` | 搬移 / 交换 |
+| `$unset` / `$deleteEntity` | `"路径"` 或数组 | 删除字段 / 删除实体 |
+| `$group` | `[操作对象, …]` | 按顺序执行，全部成功才生效，否则整组撤回 |
 
-`test:host` 默认连接 `http://localhost:11451`，只创建和清理本次 UUID 命名的临时角色及聊天，不调用模型。地址通过 `SOLVE_TEST_URL` 环境变量修改，只允许本机。最新实测结果位于 `test-results/host-1.19.json`。
-
-## 已实现
-
-- Zod 定义编译、会话指纹、开局状态、默认值、异步校验、输入变换与输出校验分离。
-- 原十算子、`$valueOf`、五阶段流水线、局部失败隔离。
-- `$group` 有序原子组，支持嵌套和完整回退。
-- 实体 ID、拥有关系、移动/交换、反向引用及删除清理；初始数据、预制、模板。
-- 模块休眠与开启补默认值；TOON/紧凑 JSON 同一投影、双宏输出。
-- 不可变历史修订、累计 Patch、Restore、Replay、Greeting 变体与旧分支保留。
-- 单会话队列、动作去重、保存失败草稿和迟到请求检查；IndexedDB 派生快照与草稿。
-- 酒馆 1.19 保存/回读确认、Swipe 同步、原生请求准入、渲染与提示词过滤。
-- 酒馆助手标准变量：楼层按 Swipe 展示操作、双 Patch 与提交信息，聊天保存当前确认快照；旧聊天自动补齐。
-- 随正文和独立操作模型模式；独立连接预设、自定义请求函数、超时、取消。
-- 作者定义注册与按角色绑定；切聊天自动释放旧控制器并恢复原定义。
-- 多文件定义组合、世界书条目编译与实际文件读取、带版本的 Facet 收集、来源诊断与可序列化编译清单；聊天头保存一份固定声明用于冷恢复。
-- 浏览器默认启用快照与草稿缓存；草稿重试、放弃与损坏隔离。
-- 调试接口：状态/实体/引用、定义与模块、操作预演、历史对比、归档检查、上下文预览和有界日志。
-- 原生删除后的恢复与重放；被保留旧修订依赖的已删楼祖先，随存活回复归档。
-
-## group
+任何值都可以写 `{"$valueOf": "路径", "$mul": 系数}` 读取已有的值。数值上下限、单次变化上限、清单上限、独一无二的物品由引擎按结构处理，被修正或失败的操作会在下一轮反馈给模型。完整说明就是 `{{solve_SOP}}` 的内容，可在调试工作台的「上下文预览」里查看。
 
 ```json
 {"$group":[
-  {"$inc":{"@player.gold":-30}},
-  {"$move":{"@sword":"@player.inventory"}}
+  {"$transfer":{"@erin.items.gold.count":{"@mira.items.gold.count":30}}},
+  {"$inc":{"@erin.items.healing_draught.count":1}}
 ]}
 ```
-
-任一步失败撤回整组。组内越界直接失败，避免截断数值掩盖余额不足。普通组外 `$inc` / `$set` 按上下限截断；`$transfer` 为保持守恒，在任何位置都不截断。
-
-数组成员按序执行，每个成员内部沿用五阶段。同一对象中先执行普通五阶段，再执行 group；需明确前后顺序时使用顶层有序数组。
-
-## 作者入口
-
-完整示例：`examples/rpg-definition.ts`。核心入口：`src/index.ts`。酒馆入口：`src/host/controller.ts`。
-
-```ts
-import { compile, SolveCore, toJson, toToon } from './src/index.js';
-import { rpgDefinition, buySword } from './examples/rpg-definition.js';
-const definition = await compile(rpgDefinition);
-const core = new SolveCore(definition);
-const result = await core.execute(buySword, await core.initialize());
-console.log(toJson(definition, result.state));
-console.log(toToon(definition, result.state));
-```
-
-三种分发的配置示例见 [分发与安装](docs/distributions.md)。构建后的 `dist/solve.js` 是浏览器核心 ESM，`sillytavern.js` 是绑定入口，`dynamic.js` 是动态加载器，`embedded.js` 是卡内单文件入口，`index.js` 和 `manifest.json` 是原生扩展；`debug.html`、`debug.js`、`debug.css` 是调试面板，必须一起复制。`rpg-example.js` 是可直接导入的示例定义。
-
-将 `dist/` 文件放进酒馆自定义扩展目录的独立 `solve/` 文件夹，重载后由作者脚本绑定：
-
-```js
-// 路径按实际安装位置替换。
-const { rpgDefinition } = await import('/scripts/extensions/third-party/solve/rpg-example.js');
-const backend = await SOLVE.attach(rpgDefinition);
-await backend.submit({$inc:{'@player.hp':-10}});
-```
-
-扩展加载不会自动初始化未绑定的角色卡。推荐作者脚本注册固定定义，并明确绑定角色文件名：
-
-```js
-await SOLVE.register(rpgDefinition, {
-  characters: ['你的角色文件名.png'],
-  attach: { mode: 'in-band' }
-});
-```
-
-注册后切换聊天会自动恢复；旧聊天按定义指纹寻找原版本，缺少时不会自动套用新版。作者脚本仍需在页面加载时运行一次注册。单次手动使用可继续调用 `SOLVE.attach()`；`SOLVE.detach()` 停止自动绑定，后续注册或绑定可重新开启。缓存默认开启，可用 `cache: false` 关闭。
-
-控制器方法：`processMessage(index)` 同步模型回复；`submit(batch,{actionId,index})` 提交玩家动作；`setModule(name,enabled)` 切换模块；`replayMessage(index)` 重算指定楼层；`replayFrom(index)` 重算后续选中楼层；`dispose()` 释放控制器。重试使用相同 actionId，不同点击使用不同编号。
-
-调试与恢复接口的完整说明见 [调试 API](docs/debug-api.md)。扩展加载后，点击酒馆右下角 **◈ SOLVE** 打开面板，也可调用 `SOLVE.openDebugger()`；关闭使用面板按钮或 Escape。样式在同源 iframe 内隔离，关闭后焦点回到入口。没有绑定定义时会显示具体原因，并提供只读归档检查。
 
 ## 宏
 
 | 宏 | 内容 |
 |---|---|
-| `{{solve_toon}}` / `{{solve_json}}` | 完整启用模块状态 |
+| `{{solve_SOP}}` | 怎么写 `<solve_operate>`：每个算子的用法、执行规则和示例 |
+| `{{solve_guide}}` | 结构作者写的指南：总指南、开启模块的指南、满足条件的指南，以及迁移和清单整理提示 |
+| `{{solve_toon}}` / `{{solve_json}}` | 当前启用模块的状态（同一投影，两种格式） |
 | `{{solve_toon::narrative}}` / `{{solve_json::narrative}}` | 去除 internal 字段 |
-| `{{solve_toon::operator}}` / `{{solve_json::operator}}` | 去除 readonly 长文本 |
-| `{{solve_toon::@player.hp, world.weather}}` / 相同参数的 solve_json | 局部投影 |
-| `{{solve_val::@player.hp}}` | 单值 |
-| `{{solve_SOP}}` / `{{solve_guide}}` / `{{solve_feedback}}` | 指令说明、指南、反馈 |
+| `{{solve_toon::operator}}` / `{{solve_json::operator}}` | 去除 readonly 字段 |
+| `{{solve_toon::@erin.condition, meta.weather}}` | 局部投影 |
+| `{{solve_val::@erin.condition}}` | 单值 |
+| `{{solve_feedback}}` | 上一轮的反馈 |
 
-两种格式使用相同筛选规则，由作者选择。readonly/internal 是披露策略，不是写权限。`@` 只标记投影，真实 Key 不带 @。宏只读已归档且对应选中历史的状态。数组局部投影用 null 占位，保留原下标。
+readonly/internal 是披露策略，不是写权限。`@` 只标记投影中的实体，真实键不带 `@`。宏只读已归档且对应当前选中历史的状态。
 
-## 作者函数与历史
+## 给作者
 
-输入 schema 的 transform/preprocess 只在输入边界运行。改变输出类型时提供纯校验 `outputSchema`；程序无法从任意 JS 函数推断输出约束。`validateState(state,context)` 支持跨字段异步规则，在组的最终候选上校验。函数行为、默认值、闭包捕获值或依赖变化必须更新定义版本；编译阶段不会调用动态默认函数来采样指纹。
+- **数据结构**：`compileStructure` 把 JSON 可序列化的字段树编译成定义，显示名、剧透等级、控件和状态栏布局不进入定义指纹。格式见 [官方数据结构 §11](docs/official-structure.md)，可以从官方结构改起。
+- **作者工具与世界书**：`SOLVE.author()` 内联规则、多文件组合、世界书 `[SOLVE:…]` 条目、条件指南和 Facet，见 [作者接入](docs/authoring.md)。
+- **更新方式**：随正文输出，或独立操作模型（独立连接预设或自定义请求函数，支持超时与取消），在注册时用 `attach: { mode }` 指定。
+- **结构制作**：可视化编辑字段蓝图、模块、状态栏布局、交互、提示词、视图、开局数据和音乐，目前在 [设计预览](https://aforgomon41-create.github.io/sillytavern-kami-preset/solve/preview/) 里，尚未接入酒馆。
 
-时间、随机数、远程结果在调用前准备并以 authorInputs 归档。普通 Replay 复用这些值；Restore 不执行作者函数、模型请求或外部写入。外部副作用不在变量回退保证内。
+注册后切换聊天会自动恢复；旧聊天按定义指纹寻找原版本，缺少时不会自动套用新版。`SOLVE.attach()` 可单次手动绑定，`SOLVE.detach()` 停止自动绑定。控制器方法：`processMessage(index)`、`submit(batch, {actionId, index})`、`setModule(name, enabled)`、`setSettings(patch)`、`replayMessage(index)`、`replayFrom(index)`、`dispose()`。
 
-聊天元数据保存 Genesis 和共享校验/执行上下文；楼层变量按 Swipe 保存唯一的不可变提交修订，消息元数据只保留短指针，各回复 HEAD 按指针恢复。旧格式在打开时自动无损转换。清缓存后可离线恢复；缓存不能掩盖归档损坏。
+作者函数与历史：输入 schema 的 transform 只在输入边界运行；跨字段规则用 `validateState`。时间、随机数、远程结果在调用前准备并以 authorInputs 归档，Replay 复用这些值，Restore 不执行作者函数或模型请求。函数行为变化时必须更新定义版本。
+
+## 调试工作台
+
+点击酒馆右下角 **◈ SOLVE** 或调用 `SOLVE.openDebugger()` 打开：状态树与路径查询、操作预演与提交、历史对比与重放、上下文预览（JSON/TOON/指南/操作说明/反馈/独立操作提示词，带字数）、诊断日志与报告。查询和预演不保存聊天；报告里可能含变量值，分享前请检查。接口见 [调试 API](docs/debug-api.md)。
 
 ## 酒馆助手变量
 
-更新引擎并刷新酒馆后，在酒馆助手的变量面板展开 `solve`：
+在酒馆助手的变量面板展开 `solve`：
 
 | 位置 | 字段 | 内容 |
 | --- | --- | --- |
@@ -169,15 +118,39 @@ await SOLVE.register(rpgDefinition, {
 | 聊天变量 | `solve.data` / `solve.engineState` | 当前已确认的数据快照与引擎状态 |
 | 聊天变量 | `solve.headId` / `solve.stateHash` / `solve.ready` | 快照对应提交、校验值和是否可用于当前聊天 |
 
-切换回复会同步活跃快照；预演不写入。保存失败时保留上次确认状态，并将内存中的 `ready` 标为 false。旧聊天自动迁移，不重跑模型操作或增加提交。0.8.3 的楼层 `solve.version` 为 3，是唯一正式记录；空的 `enginePatch`、反馈与别名省略，旧修订放在 `history`，默认动作类型/来源省略。完整内容可用 `SOLVE.controller.inspectCommit(solve.commit.id)` 查看，支持短编号。聊天快照只保留 data、engineState、headId、stateHash、ready 和必要时的 reason，会话身份从状态 API 获取。请通过操作 API 修改正式状态。脚本读取方式见 [调试 API](docs/debug-api.md#酒馆助手标准变量)。
+切换回复会同步活跃快照；预演不写入。保存失败时保留上次确认状态，`ready` 标为 false。楼层格式为 3，JSON Patch 是唯一正式变更格式；旧聊天自动无损迁移。请通过操作 API 修改正式状态，脚本读取方式见 [调试 API](docs/debug-api.md#酒馆助手标准变量)。
+
+## 开发
+
+要求 Node.js 22 或更新版本。
+
+```sh
+npm ci
+npm run check      # 类型、全部回归（264 项）、三载体构建
+npm run dev        # 本机调试工作台演示，默认 http://127.0.0.1:4173/debug.html?demo=1
+npm run package    # 打包到 artifacts/releases/<版本>/
+npm run test:release
+```
+
+真实酒馆验收脚本在 `scripts/live-*.mjs`（需要本机测试酒馆和假模型，用法见各脚本开头）。
+
+| 目的 | 入口 |
+| --- | --- |
+| 参与开发、分工和合并 | [协作指南](CONTRIBUTING.md) |
+| 编写角色定义、世界书和条件指南 | [作者接入](docs/authoring.md) |
+| 官方数据结构与结构描述格式 | [官方数据结构](docs/official-structure.md) |
+| 设计、接口、验收和交付文档 | [文档目录](docs/README.md) |
+| 完成情况与接手任务 | [当前状态](docs/implementation-status.md) |
+| 变更记录 | [CHANGELOG](CHANGELOG.md) |
 
 ## 当前边界
 
-已验证 1.19.0 单聊。原生拦截器覆盖原生生成入口，不承诺拦住助手或第三方自行联网。服务端没有版本比较后原子写入接口；浏览器锁与回读协调 SOLVE 实例，第三方绕过队列保存仍可能竞争。
+- 已验证 SillyTavern 1.19 单聊；原生拦截器覆盖原生生成入口，不承诺拦住酒馆助手或第三方自行联网。服务端没有比较后原子写入接口，第三方绕过队列保存仍可能竞争。
+- 进入聊天时的变量框架检测、默认数据结构、随正文输出的提示词注入、玩家可选的独立操作模型设置：只有界面，正在接入。
+- 结构制作和新调试面板只在设计预览里；酒馆里是原有的调试工作台。
+- 指南正文热更新、宿主关键词触发、不同版本引擎共存仍待推进；浏览器、IndexedDB 和真实保存的大规模验收未完成。
 
-已支持内联作者声明、Facet编译/投影/保存后回调、registerWorldInfo固定恢复和按状态条件选择指南；指南正文热更新、宿主关键词触发、不同版本引擎共存和复杂查询仍待推进。保存后回调异步执行，后续操作基线变化时明确拒绝；恢复不重发外部通知，不提供跨进程通知送达保证。已完成 Node 大数据/长历史测量，浏览器、IndexedDB、控制器和真实保存的规模验收仍未完成。调试工作台已实现；面向玩家的状态栏和作者可视化制作工具仍属后续范围。
-
-实施规范：`docs/backend-design.md`。实施与验证进度见 [当前交付](docs/implementation-status.md)。主企划保留原文件名。
+实施规范：`docs/backend-design.md`。主企划保留原文件名。
 
 ## 开源协议
 
