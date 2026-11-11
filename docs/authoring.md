@@ -146,7 +146,7 @@ const result = await compileAuthorDefinition(base, {
 | [SOLVE:MODULES] | 模块名到模块定义的对象 |
 | [SOLVE:NUMERIC] | 路径到数值约束的对象 |
 | [SOLVE:VISIBILITY] | 含 readonly/internal 路径数组的对象 |
-| [SOLVE:PREFABS] / [SOLVE:TEMPLATES] | 名称到 {type, data} 的对象 |
+| [SOLVE:PREFABS] / [SOLVE:TEMPLATES] | 名称到 {type, data} 的对象。预制以自己的 ID 登场一次；模板经 `$from` 生成任意多个独立实体，`$from` 也可指向预制实体。未登场的预制与全部模板会自动列在给模型的指南里 |
 | [SOLVE:GUIDE] | 普通指南文本 |
 | [SOLVE:GUIDE module=combat] | 已声明 combat 模块的指南，模块启用时披露 |
 | [SOLVE:GUIDE id=critical module=combat when="@player.hp < 30"] | 模块启用且条件成立时披露正文；id可省略，由内容生成稳定标识 |

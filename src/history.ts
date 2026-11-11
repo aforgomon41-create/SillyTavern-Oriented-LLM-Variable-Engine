@@ -76,9 +76,9 @@ export function parseArchive(text: string): Archive {
   return a;
 }
 export async function applyAction(core: SolveCore, action: Action, state: LogicalState): Promise<ExecutionResult> {
-  return action.kind === 'module'
-    ? core.setModule(action.module, action.enabled, state, { source: action.source, authorInputs: action.authorInputs })
-    : core.execute(action.operations, state, { source: action.source, authorInputs: action.authorInputs });
+  if (action.kind === 'module') return core.setModule(action.module, action.enabled, state, { source: action.source, authorInputs: action.authorInputs });
+  if (action.kind === 'settings') return core.setSettings(action.settings, state, { source: action.source, authorInputs: action.authorInputs });
+  return core.execute(action.operations, state, { source: action.source, authorInputs: action.authorInputs });
 }
 export async function replay(core: SolveCore, archive: Archive, oldIds: string[], newParent: string,
   replacements: Record<string, Action[]> = {}): Promise<{ archive: Archive; headId: string }> {

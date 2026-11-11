@@ -5,6 +5,7 @@ import { compileGuideRules, describeGuideRules } from './guides.js';
 import { hasInline, isAuthorPrepared } from './inline.js';
 import { compileAuthorDefinition } from './authoring.js';
 import { copyFacets, describeFacetHooks } from './facets.js';
+import { assertUniqueHolds, describeProjection, formulaName } from './features.js';
 
 export function unwrap(schema: any): any {
   for (let i = 0; i < 32; i++) {
@@ -32,7 +33,12 @@ export function childSchema(schema: any, key: string): any {
     const left = childSchema(d.left, key), right = childSchema(d.right, key);
     return left && right ? z.intersection(left, right) : left ?? right;
   }
-  if (d?.type === 'union') return undefined; // validate the enclosing union as a whole
+  if (d?.type === 'union') {
+    // Descend only when exactly one option has this child (e.g. a gauge {value, max} or a text);
+    // the enclosing union is still validated as a whole.
+    const found = (d.options as any[]).map(option => childSchema(option, key)).filter(Boolean);
+    return found.length === 1 ? found[0] : undefined;
+  }
   return undefined;
 }
 export function schemaAt(schema: any, parts: string[]): any {
@@ -104,11 +110,14 @@ export async function compilePrepared(definition: Definition): Promise<CompiledD
     const allowed = ref.kind === 'single' ? ['null', 'unset', 'restrict'] : ref.kind === 'array' ? ['remove', 'restrict'] : ['unset', 'restrict'];
     if (!allowed.includes(ref.onDelete)) fail('REF_DELETE_POLICY', `${ref.kind} 引用不支持 ${ref.onDelete} 清理策略`);
   }
+  const engineRules = describeEngineRules(definition);
   const metadata = { id: definition.id, version: definition.version, schemaShape,
     entities: definition.entities ?? [], refs: definition.refs ?? [], modules: definition.modules ?? {},
     numeric: definition.numeric ?? {}, readonly: definition.readonly ?? [], internal: definition.internal ?? [],
     templates: definition.templates ?? {}, prefabs: definition.prefabs ?? {},
-    ...(definition.runtimeBindings !== undefined ? { runtimeBindings: definition.runtimeBindings } : {}) };
+    ...(definition.runtimeBindings !== undefined ? { runtimeBindings: definition.runtimeBindings } : {}),
+    // Only present when used, so fingerprints of existing definitions are unchanged.
+    ...(engineRules ? { engineRules } : {}) };
   const outputShape = definition.outputSchema ? schemaDescription(definition.outputSchema) : null;
   const fingerprint = await hash({ ...metadata, outputShape, ...(guides.length ? { guides: describeGuideRules(guides) } : {}), ...(facetRuntime.length ? { facetRuntime } : {}) });
   const storedSchema = definition.outputSchema ?? storedProjection(definition.schema);
@@ -122,6 +131,40 @@ export async function compilePrepared(definition: Definition): Promise<CompiledD
     guides: guides.length ? guides : undefined,
     ...(facets ? { facets: Object.freeze(facets) as typeof facets } : {}),
     fingerprint, schemaShape, outputShape, storedSchema, structuralSchema: storedProjection(storedSchema, true) };
+}
+/** Behavior-relevant engine rules. bgm and display are presentation and stay outside the fingerprint. */
+function describeEngineRules(definition: Definition): Json | undefined {
+  const keys = (path: string) => path.split('.').forEach(part => { if (part !== '*') safeKey(part); });
+  const rules: Record<string, Json> = {};
+  if (definition.round !== undefined) {
+    keys(definition.round);
+    const leaf = unwrap(schemaAt(definition.schema, definition.round.split('.')));
+    if (leaf?._zod?.def?.type !== 'number') fail('ROUND_PATH', '轮次路径必须指向数值字段');
+    rules.round = definition.round;
+  }
+  if (definition.stamps && Object.keys(definition.stamps).length) {
+    for (const [pattern, rule] of Object.entries(definition.stamps)) { keys(pattern); safeKey(rule.field); safeKey(rule.text); }
+    rules.stamps = clone(definition.stamps) as unknown as Json;
+  }
+  if (definition.lists && Object.keys(definition.lists).length) {
+    for (const [pattern, rule] of Object.entries(definition.lists)) {
+      keys(pattern);
+      if (!Number.isInteger(rule.max) || !Number.isInteger(rule.warn) || rule.max < 1 || rule.warn < 0 || rule.warn > rule.max) fail('LIST_RULE', `清单上限无效：${pattern}`);
+    }
+    rules.lists = clone(definition.lists) as unknown as Json;
+  }
+  if (definition.computed && Object.keys(definition.computed).length) {
+    rules.computed = Object.fromEntries(Object.entries(definition.computed).map(([pattern, rule]) => { keys(pattern); return [pattern, { label: rule.label, formula: formulaName(rule.formula) }]; }));
+  }
+  const projection = describeProjection(definition.projection);
+  if (projection !== undefined) rules.projection = projection;
+  if (definition.groups && Object.keys(definition.groups).length) rules.groups = clone(definition.groups) as unknown as Json;
+  if (definition.uniqueHolds?.length) {
+    for (const rule of definition.uniqueHolds) { keys(rule.path); safeKey(rule.flag); }
+    rules.uniqueHolds = clone(definition.uniqueHolds) as unknown as Json;
+  }
+  for (const [name, module] of Object.entries(definition.modules ?? {})) if (module.exclusive !== undefined && !module.exclusive) fail('MODULE_EXCLUSIVE', `互斥组名不能为空：${name}`);
+  return Object.keys(rules).length ? rules : undefined;
 }
 // Input effects are one-way and must never run on already stored output.
 // A transform's output cannot be inferred from JS; use outputSchema for its constraints.
@@ -187,7 +230,7 @@ export async function validateStored(def: CompiledDefinition, state: LogicalStat
     const activeIssues = result.error.issues.filter((issue: any) => !dormant(def, state, issue.path.map(String)));
     if (activeIssues.length) fail('SCHEMA_REJECTED', activeIssues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; '));
   } else if (canonical(result.data) !== canonical(state.data)) fail('STORED_STATE_CHANGED', '状态含未声明字段或需要再次转换的值');
-  if (!structuralOnly) await def.validateState?.(clone(state), clone(context));
+  if (!structuralOnly) { assertUniqueHolds(def, state); await def.validateState?.(clone(state), clone(context)); }
 }
 function normalizeInput(def: CompiledDefinition, state: LogicalState, parts: string[], input: any, strict: boolean, feedback: Feedback[], allowDormant: boolean): any {
   if (input === undefined) return undefined;

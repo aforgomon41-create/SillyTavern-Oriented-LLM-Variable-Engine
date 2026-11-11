@@ -2,10 +2,10 @@ import { encode } from '@toon-format/toon';
 import { at, assertJson, clone, covered, expand, fail, matches, pointer, segments } from './json.js';
 import { EntityGraph } from './entities.js';
 import { dormant, isModuleEnabled } from './schema.js';
-import { OPERATORS } from './engine.js';
 import { selectGuides } from './guides.js';
 import { projectFacets } from './facets.js';
 import type { CompiledDefinition, Feedback, Json, LogicalState, View } from './types.js';
+import { applyProjectionRules, computedFor, listWarnings, migrationText, presetText } from './features.js';
 
 export interface ProjectionOptions { view?: View; paths?: string[] }
 export function project(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): Json {
@@ -35,12 +35,18 @@ export function project(def: CompiledDefinition, state: LogicalState, options: P
         const outputKey = entity ? `@${entity.id}` : key;
         if (Object.hasOwn(out, outputKey)) fail('PROJECTION_KEY_COLLISION', `实体标记导致键冲突：${outputKey}`);
         out[outputKey] = result;
+        for (const computed of computedFor(def, p, child)) {
+          const computedKey = `${outputKey}(${computed.label})`;
+          if (!Object.hasOwn(value, computedKey)) out[computedKey] = computed.value;
+        }
       }
       return out;
     }
     return value;
   }
-  const filtered = projectFacets(def, walk(state.data, []), view, options.paths);
+  // Declarative prompt rules only shape whole-state projections; explicit paths stay exact.
+  const source = options.paths?.length ? state.data : applyProjectionRules(def.projection, state.data);
+  const filtered = projectFacets(def, walk(source, []), view, options.paths);
   // Custom projectors only receive filtered state; they cannot recover dormant data.
   const custom = def.views?.[view];
   const result = custom ? custom(clone(filtered)) : filtered;
@@ -50,10 +56,54 @@ export function project(def: CompiledDefinition, state: LogicalState, options: P
 export function toJson(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): string { return JSON.stringify(project(def, state, options)); }
 export function toToon(def: CompiledDefinition, state: LogicalState, options: ProjectionOptions = {}): string { return encode(project(def, state, options)); }
 export function guide(def: CompiledDefinition, state: LogicalState, tag?: string): string {
-  return [tag ? '' : def.guide ?? '', ...Object.entries(def.modules ?? {}).filter(([name]) => (!tag || tag === name) && isModuleEnabled(def, state, name)).map(([, m]) => m.guide ?? ''), ...selectGuides(def, state, tag)].filter(Boolean).join('\n');
+  const engine = tag ? [] : [
+    ...(state.engineState.migration ? [migrationText(def, state.engineState.migration)] : []),
+    ...listWarnings(def, state, parts => dormant(def, state, parts)),
+    presetText(def, state),
+  ];
+  return [tag ? '' : def.guide ?? '', ...Object.entries(def.modules ?? {}).filter(([name]) => (!tag || tag === name) && isModuleEnabled(def, state, name)).map(([, m]) => m.guide ?? ''), ...selectGuides(def, state, tag), ...engine].filter(Boolean).join('\n');
 }
+/** How to write operations, for the model: every operator with its argument shape, the execution rules and an example. */
 export function sop(): string {
-  return `通过 <solve_operate> 输出 JSON。实体路径用 @ID.field；真实数据键不带 @。支持 ${OPERATORS.join(', ')}。普通算子按创建、移动/交换、数值、数组、销毁执行。$group 接收有序操作数组，全部成功才生效；组内越界直接失败。$valueOf 读取本条开始时状态，可选 $mul。示例：{"$group":[{"$inc":{"@player.gold":-50}},{"$move":{"@sword":"@player.items"}}]}。`;
+  return [
+    '## SOLVE 变量操作说明',
+    '变量有变化时，在回复末尾输出唯一一个 <solve_operate>…</solve_operate>，里面是 JSON：一个操作对象，或按顺序执行的操作对象数组。只写本回合实际发生的变化；没有变化可以不输出。<solve_mutual_operate> 记录的是玩家在状态栏里的操作，不要自己写。',
+    '',
+    '### 路径',
+    '- 键名用 . 连接。实体用 @ID 开头，不管它放在哪里：@erin.condition、@erin.items.gold.count。不属于实体的数据从根写起：meta.weather。',
+    '- 数据里带 @ 的键（如 @erin）是实体 ID，真实键名不带 @。键名照抄数据里出现的，不要翻译或自造字段。',
+    '',
+    '### 算子',
+    '一个操作对象里可以放多个算子，每个算子的参数里可以写多条。',
+    '- $set {路径: 值}：写入。值为对象时只合并写到的键，其余键保留；数组和其他值整体替换。在集合下写一个不存在的新 ID（不带 @，如 characters.bandit）等于新建实体。同一个 $set 里不要同时写父路径和它的子路径。',
+    '- $inc {路径: 数}：加减数值，负数为减。',
+    '- $transfer {来源路径: {目标路径: 数, …}}：从来源扣除、加到各目标，总数守恒；数量不能为负，目标还没有时从 0 开始；来源扣到下限以下时整条失败。用于付钱、交易、存取。',
+    '- $push {数组路径: 元素}：在数组末尾追加一个元素；引用列表里已有的 ID 不会重复添加。',
+    '- $pull {数组路径: 元素}：删除数组里所有等于该元素的项。',
+    '- $createEntity {"集合.新ID": {字段…}}：新建实体，没写的字段用默认值。加 "$from": "模板ID" 以模板或预制实体为底另建一个独立实体。预制实体用它自己的 ID 创建（如 {"characters.cassius": {}}），只能登场一次。新 ID 被占用时引擎会改名为 ID_2 并在反馈里告知，本回合后面的操作再用原 ID 会失败，所以新建前先确认 ID 没被用过。',
+    '- $move {来源路径: 目标路径}：搬移。实体搬到另一个接受同类实体的容器（目标写容器路径，ID 不变）；普通值搬到目标路径，目标处不能已有值。',
+    '- $swap {路径A: 路径B}：交换两处的值；交换实体时两边必须是同类实体。',
+    '- $unset "路径" 或 ["路径", …]：删除字段；指向实体时等于删除该实体。',
+    '- $deleteEntity "@ID" 或 ["@ID", …]：删除实体，连同它下面的实体。',
+    '- $group [操作对象, …]：按顺序执行，全部成功才生效，有一条失败就整组撤回。组内数值越界、超过单次变化上限会直接失败，不再自动修正。用于必须一起成立的变化（如交易的付钱和交货）。可嵌套，最多 8 层。',
+    '- 取值：任何算子的值都可以写 {"$valueOf": "路径"}，读取这条操作开始前该路径的值；可加 "$mul": 系数。如回满生命：{"$set": {"@erin.rp.gauges.生命.value": {"$valueOf": "@erin.rp.gauges.生命.max"}}}。',
+    '',
+    '### 执行规则',
+    '- 数组里的操作对象按先后执行。同一个对象里的算子按固定顺序执行：$createEntity → $move → $swap → $set → $inc → $transfer → $push → $pull → $unset → $deleteEntity → $group。有先后依赖时（如先新建再修改），拆成数组里的两个对象。',
+    '- 每条操作单独生效，一条失败不影响其他条（$group 内除外）。',
+    '- 数值有上下限时超出部分截到边界；有单次变化上限时超出部分被截掉；要求整数的字段写小数会失败；某些数量归零时引擎会自动删除所属实体。',
+    '- 轮次等系统字段由引擎维护，不能改；已关闭模块的字段不能读写；清单满了不能再加，先合并或删除旧条目；独一无二的东西加到新持有者名下时，引擎自动从原持有者处移除。',
+    '- 被修正或失败的操作会出现在下一回合的反馈里，照反馈改正。',
+    '',
+    '### 示例',
+    '<solve_operate>',
+    '[',
+    '  {"$set": {"meta.weather": "暴雨", "@erin.condition": "左臂流血"}, "$inc": {"@erin.rp.gauges.生命.value": -12}},',
+    '  {"$createEntity": {"characters.zealot_a": {"$from": "cult_zealot", "name": "持火把的狂信徒"}}},',
+    '  {"$group": [{"$transfer": {"@erin.items.gold.count": {"@mira.items.gold.count": 30}}}, {"$inc": {"@erin.items.healing_draught.count": 1}}]}',
+    ']',
+    '</solve_operate>',
+  ].join('\n');
 }
 export interface MacroRegistry { registerMacro(name: string, options: Record<string, unknown>): unknown; unregisterMacro?(name: string): unknown }
 export function registerMacros(registry: MacroRegistry, read: () => { definition: CompiledDefinition; state: LogicalState; feedback: Feedback[] }): () => void {

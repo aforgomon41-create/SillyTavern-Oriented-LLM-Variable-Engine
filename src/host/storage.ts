@@ -1,5 +1,5 @@
 import { canonical, clone, fail } from '../json.js';
-import type { Action, Archive, Batch, Commit, Json } from '../types.js';
+import type { Action, Archive, Batch, Commit, Json, SettingsPatch } from '../types.js';
 import { readToken, storeToken } from './storage-tokens.js';
 
 interface CommitContext { genesisId: string; semantics: string; chatId: string; generationToken?: string }
@@ -13,7 +13,7 @@ interface CompactCommit {
   checks?: number[];
   binding?: { messageId: string; swipeId: string } | [string, string];
 }
-interface StoredAction { actionId: string; operations?: Batch; source?: 'model' | 'user'; module?: string; enabled?: boolean; authorInputs?: Json }
+interface StoredAction { actionId: string; operations?: Batch; source?: 'model' | 'user'; module?: string; enabled?: boolean; settings?: SettingsPatch; authorInputs?: Json }
 interface StoredRecord {
   commit: CompactCommit;
   operations?: StoredAction[]; operationsPrefix?: number;
@@ -46,6 +46,7 @@ function isPrefix(value: unknown[], full: unknown[]): boolean {
 function storeAction(action: Action): StoredAction {
   return { actionId: storeToken(action.actionId),
     ...(action.kind === 'module' ? { module: action.module, enabled: action.enabled }
+      : action.kind === 'settings' ? { settings: clone(action.settings) }
       : { operations: clone(action.operations), ...(action.source === 'user' ? { source: 'user' as const } : {}) }),
     ...(action.authorInputs === undefined ? {} : { authorInputs: clone(action.authorInputs) }) };
 }
@@ -54,6 +55,10 @@ function readAction(action: StoredAction): Action {
   if (Object.hasOwn(action, 'module')) {
     if (typeof action.module !== 'string' || typeof action.enabled !== 'boolean') fail('STORAGE_INVALID', '模块动作无效');
     return { ...common, kind: 'module', source: 'user', module: action.module, enabled: action.enabled };
+  }
+  if (Object.hasOwn(action, 'settings')) {
+    if (!action.settings || typeof action.settings !== 'object' || Array.isArray(action.settings)) fail('STORAGE_INVALID', '设置动作无效');
+    return { ...common, kind: 'settings', source: 'user', settings: clone(action.settings) };
   }
   if (!Object.hasOwn(action, 'operations') || (action.source !== undefined && action.source !== 'user')) fail('STORAGE_INVALID', '操作记录来源无效');
   return { ...common, kind: 'operations', source: action.source ?? 'model', operations: clone(action.operations!) };

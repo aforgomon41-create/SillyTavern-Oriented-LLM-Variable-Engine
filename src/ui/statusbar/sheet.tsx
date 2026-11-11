@@ -1,0 +1,81 @@
+/**
+ * Player character sheet, RPG style: a hero card (portrait, name, rank, vitals, status, effects,
+ * money) and paged sections (attributes, skills, inventory, quests, profile).
+ * Which field plays which role is declared by the structure author in the layout item:
+ *   { sheet: 'characters', id: '$user', subtitle, badges, tags, vitals, status, effects, currency, pages: [{ label, paths, as }] }
+ */
+import * as React from 'react';
+import { useKit } from '../kit.js';
+import { type Path } from './model.js';
+import { Mixed, useModel } from './fields.js';
+import { Pages, visible } from './body.js';
+import { CurrencyList } from './currency.js';
+import { Art, Mono, part, solve } from './widgets.js';
+import { artOf } from './model.js';
+
+export interface SheetItem {
+  sheet: string; id: string; subtitle?: string; badges?: string[]; tags?: string;
+  /** Gauges; with several paths (数值 / 描述 modes) the first active one is shown. */
+  vitals?: string | string[]; status?: string;
+  effects?: string; currency?: string;
+  /** With `currency` pointing at holdings (`items`): the item type counted as money; amounts are what the character carries. */
+  currencyType?: string;
+  pages: { label: string; paths: string[]; as?: string }[];
+}
+const rel = (s: string): Path => s.split('.');
+
+export function PlayerSheet({ item, page, onPage }: { item: SheetItem; page?: string; onPage?: (p: string) => void }) {
+  const m = useModel(), K = useKit();
+  const id = item.id === '$user' ? m.userId : item.id;
+  const path = id ? [...rel(item.sheet), id] : undefined;
+  if (!path || !m.value(path)) return <K.Empty title="还没有玩家角色" description="角色定位为「用户角色」的角色会显示在这里。" />;
+  return (
+    <div {...solve('sheet')}>
+      <div {...part('layout')}>
+        <Hero path={path} item={item} />
+        <Pages base={path} pages={item.pages} label="角色页" {...(page !== undefined ? { page } : {})} {...(onPage ? { onPage } : {})} />
+      </div>
+    </div>
+  );
+}
+
+function Hero({ path, item }: { path: Path; item: SheetItem }) {
+  const m = useModel(), K = useKit(), v = m.value(path) ?? {};
+  const at = (r?: string) => r ? m.value([...path, ...rel(r)]) : undefined;
+  const on = (r?: string) => !!r && visible(m, [...path, ...rel(r)]);
+  const name: string = v.name ?? path.at(-1);
+  const vitalPath = (Array.isArray(item.vitals) ? item.vitals : item.vitals ? [item.vitals] : []).find(on);
+  const vitals = vitalPath ? Object.entries(at(vitalPath) as Record<string, unknown>) : [];
+  const effects = on(item.effects) ? Object.entries(at(item.effects) as Record<string, any>) : [];
+  const money: [string, unknown][] = !on(item.currency) ? [] : !item.currencyType ? Object.entries(at(item.currency) as Record<string, unknown>)
+    : Object.entries((at(item.currency) ?? {}) as Record<string, any>).flatMap(([id, own]) => {
+      const where = m.locate(id), inst = where ? m.value(where) : undefined;
+      if (inst?.type !== item.currencyType) return [];
+      const count = own?.count;
+      return typeof count === 'number' && count > 0 ? [[inst.name ?? id, count] as [string, unknown]] : own?.note ? [[inst.name ?? id, own.note] as [string, unknown]] : [];
+    });
+  const art = artOf(v);
+  return (
+    <section {...solve('hero', { art: art ? '' : undefined })} data-k-level="surface-1">
+      {art ? <Art src={art} alt={name} variant="hero" /> : null}
+      <div {...part('top')}>
+        {art ? null : <div {...part('portrait')} aria-hidden="true"><span><Mono name={name} src={v.thumb} /></span></div>}
+        <div {...part('ident')}>
+          <h3 {...part('name')}>{name}{item.subtitle && at(item.subtitle) ? <small>「{at(item.subtitle)}」</small> : null}</h3>
+          <div {...part('badges')}>{(item.badges ?? []).filter(on).map((b, i) => <K.Badge key={b} tone={i === 0 ? 'accent' : 'neutral'}>{String(at(b))}</K.Badge>)}</div>
+          {on(item.tags) ? <div {...part('tags')}>{(at(item.tags) as string[]).join(' · ')}</div> : null}
+        </div>
+      </div>
+      {vitals.length ? <div {...part('vitals')}><Mixed entries={vitals} /></div> : null}
+      {on(item.status) ? <div {...part('status')}><span {...part('label')}>{m.label([...path, ...rel(item.status!)])}</span><span>{String(at(item.status))}</span></div> : null}
+      {effects.length ? (
+        <div {...part('effects')}>
+          <span {...part('label')}>{m.label([...path, ...rel(item.effects!)])}</span>
+          <ul>{effects.map(([k, e]) => <li key={k}><b>{k}</b><span>{e?.desc}{e?.until ? <small>（直到{e.until}）</small> : null}</span></li>)}</ul>
+        </div>
+      ) : null}
+      {money.length ? <div {...part('money')}><CurrencyList entries={money} label={item.currencyType ?? m.label([...path, ...rel(item.currency!)])} /></div> : null}
+    </section>
+  );
+}
+

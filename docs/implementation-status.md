@@ -1,6 +1,6 @@
 # SOLVE 当前实施状态
 
-更新日期为 2026-11-08，当前开发基线为 **0.9.0-dev.8**。已记录的公开预览基线为 **0.8.4-preview.2**，实际发布列表以仓库 Releases 为准。协作接手和提交步骤见贡献指南。[协作指南](../CONTRIBUTING.md)
+更新日期为 2026-11-11，当前版本为 **0.9.0-preview.1**（预发布），上一个公开预览版为 0.8.4-preview.2，实际发布列表以仓库 Releases 为准。协作接手和提交步骤见贡献指南。[协作指南](../CONTRIBUTING.md)
 
 ## 当前能力
 
@@ -52,4 +52,4 @@
 
 ## 接手与交付
 
-构建输出为 dist，版本安装包输出为 artifacts/releases/0.9.0-dev.8。开发者按协作指南创建任务分支和 PR，维护者按交付指南检查版本及安装包。许可记录集中在许可文档中。[协作指南](../CONTRIBUTING.md) · [交付指南](release-guide.md) · [许可说明](licensing.md)
+构建输出为 dist，版本安装包输出为 artifacts/releases/0.9.0-preview.1。开发者按协作指南创建任务分支和 PR，维护者按交付指南检查版本及安装包。许可记录集中在许可文档中。[协作指南](../CONTRIBUTING.md) · [交付指南](release-guide.md) · [许可说明](licensing.md)

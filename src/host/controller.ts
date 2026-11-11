@@ -5,8 +5,8 @@ import { SolveRuntime } from '../runtime.js';
 import { PerformanceTrace, measure } from '../performance.js';
 import { VerifiedHistory } from '../verified-history.js';
 import { IndexedDbCache } from '../cache.js';
-import { assertJson, clone, fail, hash, id } from '../json.js';
-import { extractRawBlocks, parseOperations, stripBlocks } from '../parser.js';
+import { assertJson, canonical, clone, fail, hash, id } from '../json.js';
+import { extractRawBlocks, parseOperations, promptText, stripBlocks } from '../parser.js';
 import { guide, registerMacros, sop, toJson, toToon } from '../projection.js';
 import { archiveFromChat, browserWriteLock, preserveOrphanAncestors, SillyTavern119Adapter } from './sillytavern.js';
 import { DiagnosticJournal, describeError, inspectCapabilities } from '../diagnostics.js';
@@ -21,7 +21,8 @@ import { readToken } from './storage-tokens.js';
 import { reconcileSwipeDeletion } from './storage-pointers.js';
 import { verifyDefinitionSnapshot } from '../definition-snapshot.js';
 import type { HostContext } from './sillytavern.js';
-import type { Action, Batch, Commit, Definition, Json } from '../types.js';
+import type { Action, Batch, Commit, Definition, Json, SettingsPatch } from '../types.js';
+import { computeAll, listLimit, nextRound } from '../features.js';
 
 export interface AttachOptions {
   mode?: 'in-band' | 'out-of-band';
@@ -302,7 +303,8 @@ export class SillyTavernController {
     try {
       if (!this.ready || this.runtime.pendingCount || this.pendingImportError || (this.busy && !this.options.allowRequestsDuringOperatorBusy) || this.findParent(this.context().chat.length) !== this.runtime.headId) { this.record('REQUEST_BLOCKED', '状态未就绪、存在待保存操作或正在同步，请求已阻止', 'warning'); abort(true); return; }
     } catch { abort(true); return; }
-    for (const message of chat) message.mes = stripBlocks(message.mes);
+    // Player actions reach the model as one line of narration (what they did in the status bar); operations never do.
+    for (const message of chat) message.mes = promptText(message.mes);
   }
   processMessage(index = this.context().chat.length - 1): Promise<Commit | undefined> {
     const candidate = this.context().chat[index];
@@ -329,8 +331,9 @@ export class SillyTavernController {
       let operations: Batch;
       let finalText = text!;
       if ((this.options.mode ?? 'in-band') === 'in-band') {
-        if (!raw.model) { await this.syncVariableViews(); return undefined; }
-        operations = parseOperations(raw.model);
+        // A reply without operations still advances the engine round.
+        if (!raw.model && !this.core.definition.round) { await this.syncVariableViews(); return undefined; }
+        operations = raw.model ? parseOperations(raw.model) : [];
       } else {
         const prompt = this.operatorPrompt(index);
         const output = await this.requestOperator(prompt);
@@ -340,7 +343,9 @@ export class SillyTavernController {
         finalText = stripBlocks(text!) + `\n<solve_operate>\n${JSON.stringify(operations)}\n</solve_operate>`;
       }
       const actionId = 'model:' + await hash({ messageId: binding.messageId, swipeId: binding.swipeId, parent, sourceText: text!, operations });
-      return this.persist(() => this.runtime.submit({ actionId, kind: 'operations', source: 'model', operations }, binding, finalText, { sourceText: text! }));
+      // The round is fixed in the action, so Replay and Restore reproduce it exactly.
+      const authorInputs = this.core.definition.round ? { solveRound: nextRound(this.core.definition, this.runtime.getState(), index) } : undefined;
+      return this.persist(() => this.runtime.submit({ actionId, kind: 'operations', source: 'model', operations, ...(authorInputs ? { authorInputs } : {}) }, binding, finalText, { sourceText: text! }));
     });
   }
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -397,6 +402,52 @@ export class SillyTavernController {
   async setModule(module: string, enabled: boolean, options: { actionId?: string; index?: number } = {}): Promise<Commit> {
     return this.submitUser({ actionId: options.actionId ?? id('action'), kind: 'module', source: 'user', module, enabled }, options.index);
   }
+  /**
+   * Revert the latest player action on the current reply (status bar 撤销). The archive keeps every revision, so this
+   * re-selects the revision before that action and restores its message text; nothing is recomputed.
+   */
+  async undoUser(options: { index?: number } = {}): Promise<Commit> {
+    this.assertReady();
+    const index = options.index ?? this.lastAssistantIndex(), binding = this.adapter.binding(index);
+    return this.enqueue(async () => {
+      this.assertReady(); if (this.pendingImportError) fail('PENDING_CONFLICT', this.pendingImportError); this.adapter.assertCurrent(binding);
+      const head = await this.adapter.selectedHead(binding);
+      if (!head) fail('NO_SWIPE_STATE', '当前回复尚未完成变量同步');
+      if (this.runtime.headId !== head) await this.runtime.select(head);
+      const current = this.runtime.getCommit(head)!, last = current.actions.at(-1);
+      if (!last || last.source !== 'user') fail('NOTHING_TO_UNDO', '当前回复没有可以撤销的玩家操作');
+      const want = canonical(current.actions.slice(0, -1)), archive = this.runtime.archive;
+      const before = Object.values(archive.commits).find(c => c.id !== current.id && c.parentId === current.parentId
+        && headKey(c.binding) === headKey(current.binding) && canonical(c.actions) === want);
+      if (!before) fail('UNDO_UNAVAILABLE', '找不到这次操作之前的记录，无法撤销');
+      const message = this.context().chat.find(m => m.extra?.solve?.messageId === binding.messageId)!;
+      const prefix = message.mes.replace(/<solve_mutual_operate>[\s\S]*?<\/solve_mutual_operate>/gu, '').trimEnd();
+      const users = current.actions.slice(0, -1).filter(a => a.source === 'user');
+      const candidates = users.length ? [prefix + `\n<solve_mutual_operate>\n${JSON.stringify(users)}\n</solve_mutual_operate>`] : [prefix, message.mes.replace(/\n?<solve_mutual_operate>[\s\S]*?<\/solve_mutual_operate>/gu, '')];
+      let text: string | undefined;
+      for (const candidate of candidates) if (await hash(candidate) === before.textDigest) { text = candidate; break; }
+      if (text === undefined) fail('UNDO_UNAVAILABLE', '回复正文已变化，无法撤销');
+      archive.heads[headKey(binding)] = before.id;
+      const draft = { archive, commit: before, binding, text, sourceTextDigest: await hash(message.mes), expectedHead: this.runtime.headId, prepared: true as const };
+      return this.persist(() => this.runtime.savePrepared(draft, message.mes));
+    });
+  }
+  /** Player settings: list caps/warnings and per-change limits. `null` restores a default. */
+  async setSettings(settings: SettingsPatch, options: { actionId?: string; index?: number } = {}): Promise<Commit> {
+    return this.submitUser({ actionId: options.actionId ?? id('action'), kind: 'settings', source: 'user', settings: clone(settings) }, options.index);
+  }
+  getSettings() {
+    const state = this.getState(), def = this.core.definition;
+    return {
+      lists: Object.fromEntries(Object.entries(def.lists ?? {}).map(([pattern, rule]) => [pattern, { ...listLimit(def, state, pattern)!, default: { max: rule.max, warn: rule.warn }, ...(rule.label ? { label: rule.label } : {}) }])),
+      maxDelta: Object.fromEntries(Object.entries(def.numeric ?? {}).filter(([, rule]) => rule.maxDelta !== undefined).map(([pattern, rule]) => [pattern, { value: state.engineState.settings?.maxDelta?.[pattern] ?? rule.maxDelta!, default: rule.maxDelta! }])),
+    };
+  }
+  /** Derived values (e.g. WOD transcendence) keyed by JSON pointer, for status bars. */
+  getComputed() { return computeAll(this.core.definition, this.getState()); }
+  /** Presentation metadata (labels, spoiler levels, widgets, layout) declared by the structure. */
+  getDisplay() { return clone(this.core.definition.display ?? {}); }
+  getMigration() { return clone(this.getState().engineState.migration); }
   private lastAssistantIndex(): number { return this.context().chat.findLastIndex(m => !m.is_user && !m.is_system); }
   private async submitUser(action: Action, index = this.lastAssistantIndex(), expectedHead?: string): Promise<Commit> {
     this.assertReady();
@@ -432,9 +483,10 @@ export class SillyTavernController {
       const old = archive?.commits[message.extra?.solve?.headId];
       if (!old) fail('NO_SWIPE_STATE', '该回复没有可重放的归档');
       const raw = extractRawBlocks(originalText), actions: Action[] = [];
-      if (raw.model) {
-        const prior = old.actions.find(a => a.source === 'model');
-        actions.push({ actionId: prior?.actionId ?? id('model-replay'), kind: 'operations', source: 'model', operations: parseOperations(raw.model),
+      const prior = old.actions.find(a => a.source === 'model');
+      // An operation-free reply still carries its engine round and must be replayed with it.
+      if (raw.model || (this.core.definition.round && prior)) {
+        actions.push({ actionId: prior?.actionId ?? id('model-replay'), kind: 'operations', source: 'model', operations: raw.model ? parseOperations(raw.model) : [],
           ...(prior?.authorInputs !== undefined ? { authorInputs: prior.authorInputs } : {}) });
       }
       if (raw.mutual) {
@@ -442,9 +494,10 @@ export class SillyTavernController {
         if (!Array.isArray(values)) fail('MUTUAL_FORMAT', '玩家动作块必须为有序数组');
         for (let i = 0; i < values.length; i++) {
           const value: any = values[i];
-          if (value?.kind === 'operations' || value?.kind === 'module') {
+          if (value?.kind === 'operations' || value?.kind === 'module' || value?.kind === 'settings') {
             if (value.source !== 'user' || typeof value.actionId !== 'string') fail('MUTUAL_FORMAT', '玩家动作身份无效');
             if (value.kind === 'operations') parseOperations(JSON.stringify(value.operations));
+            else if (value.kind === 'settings') { if (!value.settings || typeof value.settings !== 'object' || Array.isArray(value.settings)) fail('MUTUAL_FORMAT', '设置动作无效'); }
             else if (typeof value.module !== 'string' || typeof value.enabled !== 'boolean') fail('MUTUAL_FORMAT', '模块动作无效');
             actions.push(value as Action);
           } else actions.push({ actionId: `replay:${old.id}:${i}`, kind: 'operations', source: 'user', operations: parseOperations(JSON.stringify(value)) });
@@ -496,6 +549,7 @@ export class SillyTavernController {
       cache: { enabled: Boolean(this.cache), error: this.cacheError, source: this.cache?.lastRestoreSource ?? 'archive' },
       facetHooksPending: this.runtime?.pendingHookCount ?? 0,
       capabilities: inspectCapabilities(this.context(), this.hostVersion), mode: this.options.mode ?? 'in-band', operatorBusy: Boolean(this.operator),
+      generating: this.generated || this.finalizingGeneration,
     };
   }
   getState() { this.assertReady(); return this.runtime.getState(); }

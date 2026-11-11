@@ -1,6 +1,6 @@
 # 参与 SOLVE 开发
 
-当前开发基线为 0.9.0-dev.8，运行环境为 Node.js 22 或更新版本。接手前先阅读当前状态和文档目录，确认任务涉及的能力与验证范围。[当前状态](docs/implementation-status.md) · [文档目录](docs/README.md)
+当前版本为 0.9.0-preview.1，运行环境为 Node.js 22 或更新版本。接手前先阅读当前状态和文档目录，确认任务涉及的能力与验证范围。[当前状态](docs/implementation-status.md) · [文档目录](docs/README.md)
 
 ## 准备开发环境
 

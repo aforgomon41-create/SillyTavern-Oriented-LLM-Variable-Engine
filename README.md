@@ -1,13 +1,13 @@
 # SOLVE · SillyTavern-Oriented-LLM-Variable-Engine
 
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-365c49.svg)](LICENSE)
-[![Version: 0.9.0-dev.8](https://img.shields.io/badge/Version-0.9.0--dev.8-647063.svg)](docs/release-guide.md)
+[![Version: 0.9.0-preview.1](https://img.shields.io/badge/Version-0.9.0--preview.1-647063.svg)](docs/release-guide.md)
 
 面向 **SillyTavern 1.19.x 单角色聊天**的结构化变量引擎。模型输出 JSON 指令，Core 执行与校验，聊天文件保存实际结果。现包含 React + Radix 调试工作台，松绿与暖灰配色，支持浅色/深色以及电脑/手机。
 
 ![SOLVE 调试工作台](docs/images/debug-desktop-light.jpg)
 
-当前开发基线为 **0.9.0-dev.8**，已记录的公开预览基线为 **0.8.4-preview.2**。开发版包含内联作者工具、世界书接入、Facet 生命周期、宏与 API 条件指南，以及长聊天第一阶段性能优化。235 项自动测试通过，当前完成情况与接手任务集中在实施状态中。[当前状态](docs/implementation-status.md)
+当前预览版为 **0.9.0-preview.1**（预发布）。在 0.9.0-dev 系列（内联作者工具、世界书接入、Facet 生命周期、条件指南、长聊天性能）之上，加入官方数据结构、按结构声明渲染的状态栏、调试面板和结构制作。264 项自动测试通过，当前完成情况与接手任务集中在实施状态中。[当前状态](docs/implementation-status.md)
 
 ## 开发与文档入口
 
@@ -20,9 +20,9 @@
 
 ## 安装到酒馆
 
-已发布的预览版可从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.8.4-preview.2) 下载 `SOLVE-native-0.8.4-preview.2.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
+已发布的预览版可从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.9.0-preview.1) 下载 `SOLVE-native-0.9.0-preview.1.zip`，解压到酒馆自定义扩展目录下的独立 `solve/` 文件夹，确保 `manifest.json` 直接位于该文件夹内。重载酒馆后，右下角会出现 **◈ SOLVE** 入口。作者定义的注册方式见下方“作者入口”。
 
-安装本地开发版时，运行下列构建与打包命令，使用 `artifacts/releases/0.9.0-dev.8/` 中对应分发包。不要将本机验收辅助脚本放进正式扩展。
+安装本地开发版时，运行下列构建与打包命令，使用 `artifacts/releases/0.9.0-preview.1/` 中对应分发包。不要将本机验收辅助脚本放进正式扩展。
 
 ```sh
 npm ci

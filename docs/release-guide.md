@@ -1,6 +1,6 @@
 # 预览交付与复现
 
-当前工作区为未发布的 0.9.0-dev.8；最近公开预览版为 0.8.4-preview.2。开发版产物和已发布附件分开保存。本地接口边界检查通过不代表全部页面验收完成，真实页面证据和范围见 acceptance-release-plan.md 和 verification.md。JSON Patch 是唯一正式变更格式。
+当前版本为 0.9.0-preview.1（预发布），上一个公开预览版为 0.8.4-preview.2。开发版产物和已发布附件分开保存。本地接口边界检查通过不代表全部页面验收完成，真实页面证据和范围见 acceptance-release-plan.md 和 verification.md。JSON Patch 是唯一正式变更格式。
 
 ## 构建与打包
 

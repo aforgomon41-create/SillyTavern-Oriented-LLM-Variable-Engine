@@ -46,3 +46,19 @@ export function stripBlocks(text: string): string {
   // Complete blocks only: an incomplete streaming block must not be treated as executable.
   return text.replace(/<solve_(mutual_)?operate>[\s\S]*?<\/solve_\1operate>/gu, '').trimEnd();
 }
+
+/**
+ * Prompt form of a message: model operation blocks are dropped; a player block becomes one line telling the model
+ * what the player did in the status bar (the `narrate` of each action), or nothing when the actions were silent.
+ */
+export function promptText(text: string): string {
+  return text.replace(/<solve_(mutual_)?operate>([\s\S]*?)<\/solve_\1operate>/gu, (_all, mutual: string | undefined, body: string) => {
+    if (!mutual) return '';
+    let notes: string[] = [];
+    try {
+      const actions = JSON.parse(body) as { authorInputs?: { narrate?: unknown } }[];
+      notes = (Array.isArray(actions) ? actions : []).map(a => a?.authorInputs?.narrate).filter((n): n is string => typeof n === 'string' && !!n.trim()).map(n => n.trim());
+    } catch { notes = []; }
+    return notes.length ? `\n\n（玩家在状态栏中：${notes.join('；')}）` : '';
+  }).trimEnd();
+}

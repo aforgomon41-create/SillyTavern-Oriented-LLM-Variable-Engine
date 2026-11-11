@@ -147,3 +147,24 @@ test('独立模型结果保存失败，重试复用草稿而不再次调用模�
   assert.equal(calls, 1); assert.equal((controller.runtime.getState().data.characters as any).alice.hp, 80);
   controller.dispose();
 });
+test('状态栏撤销只退回最新一次玩家操作，正文同步；旁白进入发送副本', async () => {
+  const { controller, ctx, addReply } = await setup();
+  const index = addReply(); await controller.processMessage(index);
+  const original = ctx.chat[index]!.mes, hp = () => (controller.runtime.getState().data.characters as any).alice.hp;
+  const start = hp();
+  await controller.submit({ $inc: { '@alice.hp': 5 } }, { actionId: 'a1', index, authorInputs: { narrate: '艾琳喝下药水' } });
+  await controller.submit({ $inc: { '@alice.hp': 1 } }, { actionId: 'a2', index });
+  assert.equal(hp(), start + 6);
+  const copy = structuredClone(ctx.chat); controller.intercept(copy, 1000, () => {});
+  assert.match(copy[index]!.mes, /（玩家在状态栏中：艾琳喝下药水）$/u);
+  assert.doesNotMatch(copy[index]!.mes, /solve_/u);
+  await controller.undoUser({ index });
+  assert.equal(hp(), start + 5);
+  assert.deepEqual(JSON.parse(extractRawBlocks(ctx.chat[index]!.mes).mutual!).map((a: any) => a.actionId), ['a1']);
+  await controller.undoUser({ index });
+  assert.equal(hp(), start); assert.equal(ctx.chat[index]!.mes, original);
+  await assert.rejects(controller.undoUser({ index }), /没有可以撤销/u);
+  await controller.submit({ $inc: { '@alice.hp': 2 } }, { actionId: 'a3', index });
+  assert.equal(hp(), start + 2);
+  controller.dispose();
+});
