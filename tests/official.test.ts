@@ -383,3 +383,21 @@ test('设定：玩家可新增、修改与撤回自己写的设定；主角不�
   assert.equal(m.spoiler(['lore', 'lost_score', 'truth']), 'hidden');
   assert.throws(() => compileStructure({ id: 't', version: '1', fields: { x: { type: 'record', of: { type: 'object', fields: { a: { type: 'string' } } }, create: { label: 'A', fields: ['b'] } } } }), /不存在/u);
 });
+
+test('操作说明：每个算子都有用法，自带的示例在官方结构上能原样执行', async () => {
+  const { sop, OPERATORS, extractBlocks } = await import('../src/index.js');
+  const text = sop();
+  for (const op of OPERATORS) assert.match(text, new RegExp(`\\${op} `), `${op} 缺少说明`);
+  const { core, state } = await official();
+  const operations = extractBlocks(text.slice(text.indexOf('### 示例'))).model!;
+  const result = await applyAction(core, model(operations), state);
+  assert.deepEqual(result.feedback.filter(f => f.level === 'L3'), []);
+  const d = data(result.state);
+  assert.equal(d.meta.weather, '暴雨');
+  assert.equal(d.characters.erin.rp.gauges['生命'].value, 60);
+  assert.equal(d.characters.zealot_a.name, '持火把的狂信徒');
+  assert.equal(d.characters.zealot_a.role, '一次性敌人', '$from 带入模板字段');
+  assert.equal(d.characters.erin.items.gold.count, 110);
+  assert.equal(d.characters.mira.items.gold.count, 30);
+  assert.equal(d.characters.erin.items.healing_draught.count, 3);
+});
