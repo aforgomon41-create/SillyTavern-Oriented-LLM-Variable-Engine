@@ -14,6 +14,7 @@ import { StatusBar, type BgmView, type Mode } from '../ui/statusbar/views.js';
 import { StatusModel } from '../ui/statusbar/model.js';
 import type { Interact } from '../ui/statusbar/interact.js';
 import type { LocalPrefs, SettingsHost } from '../ui/statusbar/settings.js';
+import { UPDATE_DEFAULTS, type UpdateHost, type UpdatePrefs } from '../ui/statusbar/update.js';
 import type { BgmStatus } from './bgm.js';
 import type { BgmTrack, Batch, CompiledDefinition, LogicalState } from '../types.js';
 import tokensCss from '../ui/kit-solve/tokens.css';
@@ -21,6 +22,7 @@ import kitCss from '../ui/kit-solve/kit.css';
 import statusCss from '../ui/statusbar/statusbar.css';
 
 const PREFS = 'solve.statusbar.prefs.v1';
+const UPDATE = 'solve.update.v1';
 const LAYERS = '@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;';
 interface ControllerLike {
   core: { definition: CompiledDefinition };
@@ -125,7 +127,7 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
 }
 
 /** Opening view (previews) and the debug-panel entry. */
-export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean }; openDebug?: () => void; openBuilder?: () => void }
+export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean; section?: string }; openDebug?: () => void; openBuilder?: () => void; update?: Partial<UpdateHost> }
 /** The status bar for one bound controller (the tavern host and the design preview both render this). */
 export function Bound({ scope, controller, def, state, bgm, extras = {} }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike; extras?: StatusBarExtras }) {
   const status = controller.getStatus();
@@ -163,6 +165,18 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
     ...(locked ? { locked } : {}),
     pending,
   };
+  // Who writes the operations (this browser). Read by the settings page; the controller does not use it yet.
+  const [updatePrefs, setUpdatePrefs] = React.useState<UpdatePrefs>(() => ({ ...UPDATE_DEFAULTS, ...read<Partial<UpdatePrefs>>(scope, UPDATE, {}) }));
+  React.useEffect(() => { write(scope, UPDATE, updatePrefs); }, [updatePrefs]); // eslint-disable-line react-hooks/exhaustive-deps
+  let ctx: any; try { ctx = scope.SillyTavern?.getContext?.(); } catch { ctx = undefined; }
+  const savedProfiles = (ctx?.extensionSettings?.connectionManager?.profiles ?? []) as { id: string; name: string; model?: string }[];
+  const update: UpdateHost = {
+    prefs: updatePrefs, onPrefs: patch => setUpdatePrefs(p => ({ ...p, ...patch })),
+    cardMode: (status as { mode?: 'in-band' | 'out-of-band' }).mode ?? 'in-band',
+    ...(savedProfiles.length ? { profiles: savedProfiles.map(x => ({ id: x.id, name: x.name, ...(x.model ? { detail: x.model } : {}) })) } : {}),
+    ...((controller as { getContextPreview?: () => { operatorPrompt?: string } }).getContextPreview ? { prompt: () => (controller as any).getContextPreview().operatorPrompt ?? '' } : {}),
+    ...extras.update,
+  };
   const bgmStatus = bgm?.status();
   const settings: SettingsHost = {
     setModule: (name, on) => locked ? Promise.resolve({ ok: false, error: locked }) : guard(() => controller.setModule(name, on)),
@@ -173,6 +187,8 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
     ...(locked ? { locked } : {}),
     ...(extras.openDebug ? { openDebug: extras.openDebug } : {}),
     ...(extras.openBuilder ? { openBuilder: extras.openBuilder } : {}),
+    update,
+    ...(extras.initial?.section ? { section: extras.initial.section } : {}),
   };
   const bgmView: BgmView | undefined = bgm && bgmStatus && bgmStatus.selection ? (() => {
     const sel = bgmStatus.selection as any, places = (state.data as any)?.places ?? {};

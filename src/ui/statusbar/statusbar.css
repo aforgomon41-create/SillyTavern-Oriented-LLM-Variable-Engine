@@ -1036,3 +1036,36 @@
   [data-solve="pref"]:not([data-kind="switch"], [data-kind="action"]) > :last-child:not([data-solve-part="label"]) { flex-basis: 160px; }
   [data-solve="module"][data-kind="group"] > [data-solve-part="row"] { flex-wrap: wrap; padding-block: var(--k-space-2); }
 }
+/* 设置 · 变量更新 */
+[data-solve="update-modes"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--k-space-2); }
+[data-solve="update-modes"] > [data-solve-part="mode"] {
+  display: flex; flex-direction: column; gap: 4px; text-align: start; padding: var(--k-space-3); border-radius: var(--k-r-md); cursor: pointer;
+  background: var(--k-sunken); color: var(--k-on-sunken); border: var(--k-border-w, 1px) solid var(--k-divider); font: inherit;
+}
+[data-solve="update-modes"] > [data-solve-part="mode"][aria-checked="true"] { border-color: var(--k-accent); box-shadow: inset 0 0 0 1px var(--k-accent); background: color-mix(in srgb, var(--k-accent) 8%, var(--k-sunken)); }
+[data-solve="update-modes"] > [data-solve-part="mode"]:focus-visible { outline: 2px solid var(--k-accent); outline-offset: 2px; }
+[data-solve="update-modes"] > [data-solve-part="mode"] > b { display: flex; align-items: center; gap: var(--k-space-2); flex-wrap: wrap; }
+[data-solve="update-modes"] > [data-solve-part="mode"] > small { font-size: var(--k-fs-xs); color: var(--k-on-sunken-muted); line-height: var(--k-lh); }
+[data-solve="settings-section"] [data-solve-part="hint"] { margin: var(--k-space-2) 0 0; font-size: var(--k-fs-xs); color: var(--k-on-muted); line-height: var(--k-lh); }
+[data-solve="pref-list"] > [data-solve-part="hint"] { margin: 0; padding: var(--k-space-2) var(--k-space-3); border-top: var(--k-border-w, 1px) solid var(--k-divider); color: var(--k-on-sunken-muted); }
+[data-solve="settings-section"] [data-solve-part="hint"][data-tone="warn"] { color: var(--k-warning, var(--k-danger)); }
+[data-solve="settings-section"] [data-solve-part="link"] { all: unset; cursor: pointer; color: var(--k-accent); text-decoration: underline; margin-inline-start: 4px; }
+[data-solve="pref"] small[data-tone="ok"] { color: var(--k-success); }
+[data-solve="pref"] small[data-tone="error"] { color: var(--k-danger); }
+[data-solve="settings-section"] [data-solve="select"], [data-solve="pref"] > input, [data-solve="update-model"] > input {
+  min-height: 32px; box-sizing: border-box; width: 100%; padding: var(--k-space-1) var(--k-space-2); font: inherit; font-size: 16px;
+  color: var(--k-on); background: var(--k-surface-1); border: var(--k-border-w, 1px) solid var(--k-divider); border-radius: var(--k-r-md);
+}
+[data-solve="update-model"] { display: flex; gap: var(--k-space-2); align-items: center; min-width: 0; }
+[data-solve="update-model"] > :first-child { flex: 1 1 auto; min-width: 0; }
+[data-solve="update-prompt"] { display: flex; flex-direction: column; gap: 4px; padding: 0 var(--k-space-3) var(--k-space-3); }
+[data-solve="update-prompt"] > small { color: var(--k-on-sunken-muted); font-size: var(--k-fs-xs); }
+[data-solve="update-prompt"] > pre { margin: 0; max-height: 40dvh; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--k-surface-1); border-radius: var(--k-r-sm); padding: var(--k-space-2); }
+@container (max-width: 520px) {
+  [data-solve="settings-section"] [data-solve="pref"]:is([data-kind="text"]), [data-solve="settings-section"] [data-solve="pref"]:has(> [data-solve="update-model"], > select) { flex-direction: column; align-items: stretch; gap: var(--k-space-2); }
+  [data-solve="settings-section"] [data-solve="pref"]:is([data-kind="text"]) > :last-child, [data-solve="settings-section"] [data-solve="pref"]:has(> [data-solve="update-model"], > select) > :last-child { flex: 1 1 auto; }
+}
+[data-solve="pref"][data-kind="stack"] { flex-direction: column; align-items: stretch; gap: var(--k-space-2); }
+[data-solve="pref"][data-kind="stack"] > :last-child:not([data-solve-part="label"]) { flex: none; }
+[data-solve="update-modes"][data-size="sm"] { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+[data-solve="update-modes"][data-size="sm"] > [data-solve-part="mode"] { padding: var(--k-space-2) var(--k-space-3); background: var(--k-surface-1); }

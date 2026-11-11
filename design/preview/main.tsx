@@ -29,9 +29,19 @@ import { createDebugDemo } from '../debug-preview/demo';
 declare const __BUILD__: string;
 const SKIN = 'suiguang';
 const entries = (kamiSkins as unknown as SkinEntry[]).filter(e => e.manifest.id === SKIN);
+// 设置 · 变量更新：预览里没有真实的酒馆连接，用假的连接配置和测试结果。
+const wait = <T,>(ms: number, v: T) => new Promise<T>(r => setTimeout(() => r(v), ms));
+const fakeUpdate = {
+  current: 'DeepSeek V3（当前连接）',
+  profiles: [{ id: 'p1', name: '便宜快速', detail: 'gemini-2.5-flash' }, { id: 'p2', name: '正文主力', detail: 'claude-sonnet-4.5' }, { id: 'p3', name: '本地', detail: 'qwen3-32b' }],
+  test: () => wait(900, { ok: true, at: Date.now(), ms: 870 }),
+  models: () => wait(500, ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'deepseek-chat', 'gpt-4.1-mini']),
+  last: { ok: true, at: Date.now() - 60_000, ms: 3200, chars: 412 },
+  rerun: () => wait(1500, { ok: false, at: Date.now(), error: '操作模型超时（60 秒）' }),
+};
 const GROUPS: { title: string; views: [string, string][] }[] = [
   { title: '状态栏', views: [['bar', '横条'], ['dot', '按钮'], ['tab:角色', '角色'], ['tab:社交', '社交'], ['tab:地图', '地图'], ['tab:图鉴', '图鉴'], ['tab:势力', '势力'], ['tab:设定', '设定'], ['tab:建筑', '建筑']] },
-  { title: '设置', views: [['settings', '设置']] },
+  { title: '设置', views: [['settings', '设置'], ['settings:update', '变量更新']] },
   { title: '结构制作', views: [['builder:fields', '字段蓝图'], ['builder:modules', '模块'], ['builder:publish', '检查与发布'], ['builder:layout', '状态栏布局'], ['builder:interact', '交互'], ['builder:prompt', '提示词'], ['builder:views', '视图'], ['builder:initial', '开局数据'], ['builder:music', '音乐']] },
   { title: '调试面板', views: [['debug:overview', '概览'], ['debug:state', '状态'], ['debug:history', '历史'], ['debug:console', '操作台'], ['debug:prompt', '提示词'], ['debug:structure', '结构'], ['debug:logs', '日志']] },
 ];
@@ -113,7 +123,7 @@ async function single(scheme: string, view: string, embed: boolean, attr: string
     sessions: { get controller() { return sessions.controller; }, subscribe: l => sessions.subscribe(l), getStatus: () => sessions.getStatus() },
     demo: demo.simulation,
   };
-  const initial = view === 'dot' ? { mode: 'dot' as const } : view === 'settings' ? { mode: 'panel' as const, settings: true } : view.startsWith('tab:') ? { mode: 'panel' as const, tab: view.slice(4) } : { mode: 'bar' as const };
+  const initial = view === 'dot' ? { mode: 'dot' as const } : view === 'settings' ? { mode: 'panel' as const, settings: true } : view.startsWith('settings:') ? { mode: 'panel' as const, settings: true, section: view.slice(9) } : view.startsWith('tab:') ? { mode: 'panel' as const, tab: view.slice(4) } : { mode: 'bar' as const };
   const firstDebug = view.startsWith('debug:') ? view.slice(6) : undefined;
   const firstBuilder = view.startsWith('builder:') ? view.slice(8) : undefined;
   const builderHost = { start: exampleStructure, published: exampleStructure, official: exampleStructure, character: '灰烬纪元', sample: () => { try { return sessions.controller?.getState(); } catch { return undefined; } } };
@@ -127,7 +137,7 @@ async function single(scheme: string, view: string, embed: boolean, attr: string
     return (
       <KitProvider value={DS as unknown as Kit}>
         {/* Separate stacking contexts: the debug panel stays above the status bar's launcher and panel. */}
-        <div style={{ position: 'relative', zIndex: 1 }}>{state ? <Bound key={c.core.definition.fingerprint} scope={scope} controller={c as never} def={c.core.definition} state={state} bgm={bgm} extras={{ initial, openDebug: () => setDebug('overview'), openBuilder: () => setBuilder('fields') }} /> : null}</div>
+        <div style={{ position: 'relative', zIndex: 1 }}>{state ? <Bound key={c.core.definition.fingerprint} scope={scope} controller={c as never} def={c.core.definition} state={state} bgm={bgm} extras={{ initial, openDebug: () => setDebug('overview'), openBuilder: () => setBuilder('fields'), update: fakeUpdate }} /> : null}</div>
         <div style={{ position: 'relative', zIndex: 3 }}>{builder ? <StructureBuilder key={builder} host={builderHost} onClose={() => setBuilder(undefined)} defaultPage={builder as never} /> : null}</div>
         <div style={{ position: 'relative', zIndex: 2 }}>{debug ? <DebugPanel key={debug} host={host} onClose={() => setDebug(undefined)} defaultPage={debug as never} /> : null}</div>
       </KitProvider>
