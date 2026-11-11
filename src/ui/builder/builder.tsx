@@ -23,6 +23,7 @@ import { InteractPage } from './interact.js';
 import { PromptPage } from './prompt.js';
 import { InitialPage } from './initial.js';
 import { MusicPage } from './music.js';
+import { ViewsPage } from './views.js';
 import { checkStructure, scriptFor, worldEntries, type CheckResult, type Issue } from './check.js';
 
 export interface BuilderHost {
@@ -38,10 +39,10 @@ export interface BuilderHost {
   /** Writes the world-book entries; absent in the preview (shows what would be written). */
   writeWorldBook?(entries: { comment: string; content: string }[]): Promise<void>;
 }
-type Page = 'fields' | 'modules' | 'layout' | 'interact' | 'prompt' | 'initial' | 'music' | 'publish';
+type Page = 'fields' | 'modules' | 'layout' | 'interact' | 'prompt' | 'views' | 'initial' | 'music' | 'publish';
 const PAGES: { id: Page; label: string; soon?: string }[] = [
   { id: 'fields', label: '字段蓝图' }, { id: 'modules', label: '模块' },
-  { id: 'layout', label: '状态栏布局' }, { id: 'interact', label: '交互' }, { id: 'prompt', label: '提示词' },
+  { id: 'layout', label: '状态栏布局' }, { id: 'interact', label: '交互' }, { id: 'prompt', label: '提示词' }, { id: 'views', label: '视图' },
   { id: 'initial', label: '开局数据' }, { id: 'music', label: '音乐' }, { id: 'publish', label: '检查与发布' },
 ];
 export const TYPES: { type: FieldType; label: string; tag: string }[] = [
@@ -109,7 +110,7 @@ export function StructureBuilder({ host, onClose, defaultPage = 'fields' }: { ho
   };
   const body = (id: Page) => (
     <div {...solve('builder-page', { page: id })}>
-      {id === 'fields' ? <FieldsPage /> : id === 'modules' ? <ModulesPage /> : id === 'layout' ? <LayoutPage /> : id === 'interact' ? <InteractPage /> : id === 'prompt' ? <PromptPage /> : id === 'initial' ? <InitialPage /> : id === 'music' ? <MusicPage /> : <PublishPage />}
+      {id === 'fields' ? <FieldsPage /> : id === 'modules' ? <ModulesPage /> : id === 'layout' ? <LayoutPage /> : id === 'interact' ? <InteractPage /> : id === 'prompt' ? <PromptPage /> : id === 'views' ? <ViewsPage /> : id === 'initial' ? <InitialPage /> : id === 'music' ? <MusicPage /> : <PublishPage />}
     </div>
   );
   const title = <span {...solve('debug-title')}><b>结构制作</b><small>{d.label ?? d.id} · {d.version}</small></span>;
