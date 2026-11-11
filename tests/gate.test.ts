@@ -23,3 +23,12 @@ test('进入聊天检测：卡自带 SOLVE 结构优先；只提到变量的普�
   assert.equal(both.framework, 'solve');
   assert.equal(detectFrameworks(snap({ entries: [{ comment: '关于变量的说明', content: '这里讲 MVU 的历史' }] })).framework, undefined);
 });
+
+test('提示词注入：自动模式跳过卡里已写的宏，关闭的项与「不注入」都不注入', async () => {
+  const { injected, INJECT_DEFAULTS } = await import('../src/ui/statusbar/inject.js');
+  assert.equal(injected(INJECT_DEFAULTS, 'sop').on, true);
+  assert.equal(injected(INJECT_DEFAULTS, 'guide', ['guide']).on, false);
+  assert.equal(injected({ ...INJECT_DEFAULTS, mode: 'always' }, 'guide', ['guide']).on, true);
+  assert.equal(injected({ ...INJECT_DEFAULTS, mode: 'off' }, 'sop').on, false);
+  assert.equal(injected({ ...INJECT_DEFAULTS, items: { ...INJECT_DEFAULTS.items, data: { ...INJECT_DEFAULTS.items.data, on: false } } }, 'data').on, false);
+});

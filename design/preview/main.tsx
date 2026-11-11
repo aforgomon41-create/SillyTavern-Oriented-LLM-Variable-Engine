@@ -46,6 +46,8 @@ const SAMPLE_CARDS: Record<string, { name: string; snap: CardSnapshot }> = {
 };
 const fakeUpdate = {
   current: 'DeepSeek V3（当前连接）',
+  // 示例卡在角色设定里写了 {{solve_guide}}：自动模式下指南不重复注入。
+  cardMacros: ['guide'] as ('sop' | 'guide' | 'data' | 'feedback')[],
   profiles: [{ id: 'p1', name: '便宜快速', detail: 'gemini-2.5-flash' }, { id: 'p2', name: '正文主力', detail: 'claude-sonnet-4.5' }, { id: 'p3', name: '本地', detail: 'qwen3-32b' }],
   test: () => wait(900, { ok: true, at: Date.now(), ms: 870 }),
   models: () => wait(500, ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'deepseek-chat', 'gpt-4.1-mini']),

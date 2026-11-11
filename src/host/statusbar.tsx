@@ -177,6 +177,10 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
     cardMode: (status as { mode?: 'in-band' | 'out-of-band' }).mode ?? 'in-band',
     ...(savedProfiles.length ? { profiles: savedProfiles.map(x => ({ id: x.id, name: x.name, ...(x.model ? { detail: x.model } : {}) })) } : {}),
     ...((controller as { getContextPreview?: () => { operatorPrompt?: string } }).getContextPreview ? { prompt: () => (controller as any).getContextPreview().operatorPrompt ?? '' } : {}),
+    ...((controller as { getContextPreview?: unknown }).getContextPreview ? { injectTexts: () => {
+      const v = (controller as any).getContextPreview({ view: 'narrative' }) as { sop: string; guide: string; toon: string; json: string; feedback: unknown[] };
+      return { sop: v.sop, guide: v.guide, data: updatePrefs.inject?.format === 'json' ? v.json : v.toon, feedback: v.feedback.length ? JSON.stringify(v.feedback) : '' };
+    } } : {}),
     ...extras.update,
   };
   // Default structure and the chat-entry checks (this browser). Read by the settings page; chat entry does not use it yet.

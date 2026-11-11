@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { useKit } from '../kit.js';
 import { part, solve } from './widgets.js';
+import { INJECT_DEFAULTS, InjectSection, type InjectKey, type InjectPrefs } from './inject.js';
 
 export type UpdateMode = 'in-band' | 'out-of-band';
 export interface UpdatePrefs {
@@ -24,11 +25,14 @@ export interface UpdatePrefs {
   retries: number;
   timeout: number;
   notify: { working: boolean; failed: boolean };
+  /** 随正文输出: what SOLVE injects into the story model's prompt. */
+  inject: InjectPrefs;
 }
 export const UPDATE_DEFAULTS: UpdatePrefs = {
   source: 'same', api: { url: '', key: '', model: '', temperature: 0.3, maxTokens: 2048 },
   format: 'toon', history: 4, preset: 'builtin', auto: true, minLength: 0, trigger: '', retries: 1, timeout: 60,
   notify: { working: true, failed: true },
+  inject: INJECT_DEFAULTS,
 };
 export interface UpdateRun { ok: boolean; at: number; ms?: number; chars?: number; error?: string }
 export interface UpdateHost {
@@ -46,6 +50,10 @@ export interface UpdateHost {
   last?: UpdateRun;
   /** Re-run the operator model on the latest reply. */
   rerun?(): Promise<UpdateRun>;
+  /** Macros the card already uses (随正文输出 injection skips those in auto mode). */
+  cardMacros?: InjectKey[];
+  /** Current text of each injected prompt. */
+  injectTexts?(): Partial<Record<InjectKey, string>>;
 }
 
 const MODES: { value: UpdateMode; label: string; text: string }[] = [
@@ -86,6 +94,8 @@ export function UpdateSection({ host }: { host: UpdateHost }) {
           <p {...part('hint')}>这张角色卡默认「{label(host.cardMode)}」，你改成了「{label(p.mode)}」。<button type="button" {...part('link')} onClick={() => set({ mode: undefined })}>恢复跟随角色卡</button></p>
         ) : null}
       </section>
+      {mode === 'in-band' ? <InjectSection host={{ prefs: p.inject ?? INJECT_DEFAULTS, onPrefs: patch => set({ inject: { ...(p.inject ?? INJECT_DEFAULTS), ...patch } }),
+        ...(host.cardMacros ? { cardMacros: host.cardMacros } : {}), ...(host.injectTexts ? { texts: host.injectTexts } : {}) }} /> : null}
       {mode === 'out-of-band' ? <>
         <section {...solve('limit-group')}>
           <h4>操作模型</h4>

@@ -1119,3 +1119,22 @@
 }
 [data-solve="gate-off"] [data-solve-part="pop"] small { font-size: var(--k-fs-xs); color: var(--k-on-muted); line-height: var(--k-lh); }
 [data-solve="gate-off"] [data-solve-part="pop"] small[data-tone="warn"] { color: var(--k-warning, var(--k-danger)); }
+/* 设置 · 变量更新 · 提示词注入 */
+[data-solve="inject"] { display: flex; flex-direction: column; gap: var(--k-space-2); padding: var(--k-space-2) var(--k-space-3); border-top: var(--k-border-w, 1px) solid var(--k-divider); }
+[data-solve="inject"] > [data-solve-part="head"] { display: flex; align-items: center; justify-content: space-between; gap: var(--k-space-3); }
+[data-solve="inject"] > [data-solve-part="head"] > [data-solve-part="label"] { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+[data-solve="inject"] > [data-solve-part="head"] small { font-size: var(--k-fs-xs); color: var(--k-on-sunken-muted); line-height: var(--k-lh); }
+[data-solve="inject"] [data-solve-part="state"] { color: var(--k-accent) !important; }
+[data-solve="inject"][data-off] [data-solve-part="state"] { color: var(--k-on-sunken-muted) !important; }
+[data-solve="inject"][data-off] > [data-solve-part="head"] b { opacity: .6; }
+[data-solve="inject"] > [data-solve-part="where"] { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-2); }
+[data-solve="inject"] > [data-solve-part="where"] > select { width: auto; flex: 0 1 auto; min-width: 0; }
+[data-solve="inject"] > [data-solve-part="where"] [data-solve="stepper"] > input { width: 3em; }
+[data-solve="inject"] > [data-solve-part="text"] { margin: 0; max-height: 30dvh; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--k-surface-1); border-radius: var(--k-r-sm); padding: var(--k-space-2); }
+[data-solve="inject-stack"] { margin-top: var(--k-space-2); display: flex; flex-direction: column; gap: 4px; padding: var(--k-space-3); border-radius: var(--k-r-md); border: var(--k-border-w, 1px) dashed var(--k-divider); }
+[data-solve="inject-stack"] > [data-solve-part="title"] { font-size: var(--k-fs-xs); color: var(--k-on-muted); }
+[data-solve="inject-stack"] > [data-solve-part="fixed"] { padding: 6px var(--k-space-3); border-radius: var(--k-r-sm); background: var(--k-sunken); color: var(--k-on-sunken-muted); font-size: var(--k-fs-xs); }
+[data-solve="inject-stack"] > [data-solve-part="fixed"][data-kind="msgs"] { background: none; border: var(--k-border-w, 1px) solid var(--k-divider); }
+[data-solve="inject-stack"] > [data-solve-part="slot"] { display: flex; flex-wrap: wrap; gap: 4px; padding-inline-start: var(--k-space-3); border-inline-start: 2px solid var(--k-accent); }
+[data-solve="inject-stack"] [data-solve-part="chip"] { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px; border-radius: var(--k-r-pill, 999px); background: color-mix(in srgb, var(--k-accent) 16%, transparent); color: var(--k-on); font-size: var(--k-fs-xs); }
+[data-solve="inject-stack"] [data-solve-part="chip"] small { color: var(--k-on-muted); }
