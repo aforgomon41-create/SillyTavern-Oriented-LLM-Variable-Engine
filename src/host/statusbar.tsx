@@ -15,6 +15,7 @@ import { StatusModel } from '../ui/statusbar/model.js';
 import type { Interact } from '../ui/statusbar/interact.js';
 import type { LocalPrefs, SettingsHost } from '../ui/statusbar/settings.js';
 import { UPDATE_DEFAULTS, type UpdateHost, type UpdatePrefs } from '../ui/statusbar/update.js';
+import { GATE_DEFAULTS, type GatePrefs, type StructureHost } from '../ui/statusbar/gate.js';
 import type { BgmStatus } from './bgm.js';
 import type { BgmTrack, Batch, CompiledDefinition, LogicalState } from '../types.js';
 import tokensCss from '../ui/kit-solve/tokens.css';
@@ -23,6 +24,7 @@ import statusCss from '../ui/statusbar/statusbar.css';
 
 const PREFS = 'solve.statusbar.prefs.v1';
 const UPDATE = 'solve.update.v1';
+export const GATE = 'solve.gate.v1';
 const LAYERS = '@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;';
 interface ControllerLike {
   core: { definition: CompiledDefinition };
@@ -127,7 +129,7 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
 }
 
 /** Opening view (previews) and the debug-panel entry. */
-export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean; section?: string }; openDebug?: () => void; openBuilder?: () => void; update?: Partial<UpdateHost> }
+export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean; section?: string }; openDebug?: () => void; openBuilder?: () => void; update?: Partial<UpdateHost>; structure?: Partial<StructureHost> }
 /** The status bar for one bound controller (the tavern host and the design preview both render this). */
 export function Bound({ scope, controller, def, state, bgm, extras = {} }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike; extras?: StatusBarExtras }) {
   const status = controller.getStatus();
@@ -177,6 +179,15 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
     ...((controller as { getContextPreview?: () => { operatorPrompt?: string } }).getContextPreview ? { prompt: () => (controller as any).getContextPreview().operatorPrompt ?? '' } : {}),
     ...extras.update,
   };
+  // Default structure and the chat-entry checks (this browser). Read by the settings page; chat entry does not use it yet.
+  const [gatePrefs, setGatePrefs] = React.useState<GatePrefs>(() => ({ ...GATE_DEFAULTS, ...read<Partial<GatePrefs>>(scope, GATE, {}) }));
+  React.useEffect(() => { write(scope, GATE, gatePrefs); }, [gatePrefs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const structure: StructureHost = {
+    prefs: gatePrefs, onPrefs: patch => setGatePrefs(p => ({ ...p, ...patch })),
+    choices: [{ id: 'official', label: '官方数据结构', detail: 'SOLVE 自带' }],
+    chat: { on: true, reason: `正在使用「${(def as { label?: string }).label ?? def.id}」${def.version ? ' ' + def.version : ''}` },
+    ...extras.structure,
+  };
   const bgmStatus = bgm?.status();
   const settings: SettingsHost = {
     setModule: (name, on) => locked ? Promise.resolve({ ok: false, error: locked }) : guard(() => controller.setModule(name, on)),
@@ -188,6 +199,7 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
     ...(extras.openDebug ? { openDebug: extras.openDebug } : {}),
     ...(extras.openBuilder ? { openBuilder: extras.openBuilder } : {}),
     update,
+    structure,
     ...(extras.initial?.section ? { section: extras.initial.section } : {}),
   };
   const bgmView: BgmView | undefined = bgm && bgmStatus && bgmStatus.selection ? (() => {

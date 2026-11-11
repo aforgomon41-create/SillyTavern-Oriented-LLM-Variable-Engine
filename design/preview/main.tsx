@@ -25,12 +25,25 @@ import { StructureBuilder } from '../../src/ui/builder/builder';
 import { xyCss } from '../../src/ui/builder/blueprint';
 import { exampleStructure } from '../../examples/official/example';
 import { createDebugDemo } from '../debug-preview/demo';
+import { AskDefaultDialog, OffLauncher, OtherFrameworkDialog, OwnStructureNotice, detectFrameworks, type CardSnapshot, type ChatGateState } from '../../src/ui/statusbar/gate';
 
 declare const __BUILD__: string;
 const SKIN = 'suiguang';
 const entries = (kamiSkins as unknown as SkinEntry[]).filter(e => e.manifest.id === SKIN);
 // 设置 · 变量更新：预览里没有真实的酒馆连接，用假的连接配置和测试结果。
 const wait = <T,>(ms: number, v: T) => new Promise<T>(r => setTimeout(() => r(v), ms));
+// 进入聊天：几张样例卡，识别依据由 detectFrameworks 实际算出。
+const snap = (p: Partial<CardSnapshot>): CardSnapshot => ({ greeting: '', scripts: [], entries: [], chatVariables: {}, messages: [], ...p });
+const SAMPLE_CARDS: Record<string, { name: string; snap: CardSnapshot }> = {
+  none: { name: '咖啡馆的午后', snap: snap({ greeting: '午后的阳光照进窗边的座位。' }) },
+  mvu: { name: '雾都侦探', snap: snap({ greeting: '雨夜的伦敦，你推开了事务所的门。\n<initvar>\n侦探:\n  体力: 100\n</initvar>',
+    scripts: [{ name: 'MVU', content: "import 'https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate/artifact/bundle.js'" }],
+    entries: [{ comment: '[initvar]变量初始化勿开', content: '侦探:\n  体力: 100' }, { comment: '[mvu_update]变量更新规则', content: '' }] }) },
+  era: { name: '星舰日志', snap: snap({ greeting: '舰桥的警报响了。\n<VariableInsert>{"舰船":{"耐久":100}}</VariableInsert>',
+    scripts: [{ name: 'ERA变量框架', content: '/* ERA - Efficient Rollback Architecture */' }],
+    entries: [{ comment: '变量更新规则', content: '用 <VariableEdit> 修改变量' }] }) },
+  own: { name: '灰烬纪元', snap: snap({ entries: [{ comment: '[SOLVE:STRUCTURE] 灰烬纪元', content: '{}' }] }) },
+};
 const fakeUpdate = {
   current: 'DeepSeek V3（当前连接）',
   profiles: [{ id: 'p1', name: '便宜快速', detail: 'gemini-2.5-flash' }, { id: 'p2', name: '正文主力', detail: 'claude-sonnet-4.5' }, { id: 'p3', name: '本地', detail: 'qwen3-32b' }],
@@ -41,7 +54,8 @@ const fakeUpdate = {
 };
 const GROUPS: { title: string; views: [string, string][] }[] = [
   { title: '状态栏', views: [['bar', '横条'], ['dot', '按钮'], ['tab:角色', '角色'], ['tab:社交', '社交'], ['tab:地图', '地图'], ['tab:图鉴', '图鉴'], ['tab:势力', '势力'], ['tab:设定', '设定'], ['tab:建筑', '建筑']] },
-  { title: '设置', views: [['settings', '设置'], ['settings:update', '变量更新']] },
+  { title: '设置', views: [['settings', '设置'], ['settings:structure', '数据结构'], ['settings:update', '变量更新']] },
+  { title: '进入聊天', views: [['gate:none', '没有自带变量'], ['gate:mvu', '自带 MVU'], ['gate:era', '自带 ERA'], ['gate:own', '自带 SOLVE'], ['gate:off', 'SOLVE 已关闭']] },
   { title: '结构制作', views: [['builder:fields', '字段蓝图'], ['builder:modules', '模块'], ['builder:publish', '检查与发布'], ['builder:layout', '状态栏布局'], ['builder:interact', '交互'], ['builder:prompt', '提示词'], ['builder:views', '视图'], ['builder:initial', '开局数据'], ['builder:music', '音乐']] },
   { title: '调试面板', views: [['debug:overview', '概览'], ['debug:state', '状态'], ['debug:history', '历史'], ['debug:console', '操作台'], ['debug:prompt', '提示词'], ['debug:structure', '结构'], ['debug:logs', '日志']] },
 ];
@@ -134,10 +148,24 @@ async function single(scheme: string, view: string, embed: boolean, attr: string
     const [builder, setBuilder] = React.useState<string | undefined>(firstBuilder);
     const c = sessions.controller!;
     let state; try { state = c.getState(); } catch { state = undefined; }
+    // 进入聊天的预览：SOLVE 开关、弹窗、提示
+    const gate = view.startsWith('gate:') ? view.slice(5) : undefined;
+    const card = gate ? SAMPLE_CARDS[gate === 'off' ? 'mvu' : gate] : undefined;
+    const detection = card ? { ...detectFrameworks(card.snap), ...(gate === 'own' ? { structure: { label: '灰烬纪元', version: '1.2' } } : {}) } : undefined;
+    const [on, setOn] = React.useState(!gate || gate === 'own');
+    const [dialog, setDialog] = React.useState(gate === 'none' || gate === 'mvu' || gate === 'era');
+    const [notice, setNotice] = React.useState(gate === 'own');
+    const offReason = detection?.framework && detection.framework !== 'solve' ? `这张卡自带 ${detection.framework.toUpperCase()} 变量，SOLVE 自动关闭了。` : gate ? '你选择了这次不用 SOLVE。' : '你在设置里关闭了 SOLVE。';
+    const chat: ChatGateState = on ? { on: true, reason: gate ? '你在这个聊天开启了 SOLVE，使用「官方数据结构」。' : '正在使用「官方数据结构」。' } : { on: false, reason: offReason, ...(detection?.framework ? { framework: detection.framework } : {}) };
     return (
       <KitProvider value={DS as unknown as Kit}>
         {/* Separate stacking contexts: the debug panel stays above the status bar's launcher and panel. */}
-        <div style={{ position: 'relative', zIndex: 1 }}>{state ? <Bound key={c.core.definition.fingerprint} scope={scope} controller={c as never} def={c.core.definition} state={state} bgm={bgm} extras={{ initial, openDebug: () => setDebug('overview'), openBuilder: () => setBuilder('fields'), update: fakeUpdate }} /> : null}</div>
+        <div style={{ position: 'relative', zIndex: 1 }}>{state && on ? <Bound key={c.core.definition.fingerprint} scope={scope} controller={c as never} def={c.core.definition} state={state} bgm={bgm} extras={{ initial, openDebug: () => setDebug('overview'), openBuilder: () => setBuilder('fields'), update: fakeUpdate, structure: { chat, setChat: setOn } }} /> : null}
+          {!on && !dialog ? <OffLauncher chat={chat} onEnable={() => setOn(true)} /> : null}
+          {gate && dialog && card && detection ? (detection.framework && detection.framework !== 'solve'
+            ? <OtherFrameworkDialog card={card.name} detection={detection} onClose={() => setDialog(false)} onEnable={() => { setDialog(false); setOn(true); }} />
+            : <AskDefaultDialog card={card.name} structure={{ id: 'official', label: '官方数据结构', detail: '角色、物品、地点、关系、设定等 · SOLVE 自带' }} onUse={() => { setDialog(false); setOn(true); }} onSkip={() => setDialog(false)} />) : null}
+          {notice && card && detection ? <OwnStructureNotice card={card.name} detection={detection} onClose={() => setNotice(false)} /> : null}</div>
         <div style={{ position: 'relative', zIndex: 3 }}>{builder ? <StructureBuilder key={builder} host={builderHost} onClose={() => setBuilder(undefined)} defaultPage={builder as never} /> : null}</div>
         <div style={{ position: 'relative', zIndex: 2 }}>{debug ? <DebugPanel key={debug} host={host} onClose={() => setDebug(undefined)} defaultPage={debug as never} /> : null}</div>
       </KitProvider>

@@ -15,6 +15,7 @@ import { part, solve, useWide } from './widgets.js';
 import type { InteractResult } from './interact.js';
 import type { BgmView } from './views.js';
 import { UpdateSection, type UpdateHost } from './update.js';
+import { StructureSection, type StructureHost } from './gate.js';
 
 export interface LocalPrefs {
   /** Show spoiler content directly instead of the 「剧透 · 点击查看」 veil. */
@@ -41,15 +42,18 @@ export interface SettingsHost {
   openBuilder?: () => void;
   /** Who writes the operations: the story model, or a separate operator model (this browser). */
   update?: UpdateHost;
+  /** Which structure new chats use, and what happens with cards that bring MVU / ERA (this browser). */
+  structure?: StructureHost;
   /** Section to open first (previews). */
   section?: string;
 }
 
-type Section = 'modules' | 'lists' | 'delta' | 'update' | 'display' | 'music';
+type Section = 'modules' | 'lists' | 'delta' | 'structure' | 'update' | 'display' | 'music';
 const SECTIONS: { id: Section; label: string; note: string }[] = [
   { id: 'modules', label: '模块', note: '按聊天保存' },
   { id: 'lists', label: '清单上限', note: '按聊天保存' },
   { id: 'delta', label: '变化上限', note: '按聊天保存' },
+  { id: 'structure', label: '数据结构', note: '本机' },
   { id: 'update', label: '变量更新', note: '本机' },
   { id: 'display', label: '显示', note: '本机' },
   { id: 'music', label: '音乐', note: '本机' },
@@ -58,7 +62,7 @@ const SECTIONS: { id: Section; label: string; note: string }[] = [
 export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: BgmView; onBack: () => void }) {
   const K = useKit(), m = useModel();
   const [box, wide] = useWide(900);
-  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update);
+  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure);
   const [current, setCurrent] = React.useState<Section>(() => sections.some(x => x.id === host.section) ? host.section as Section : 'modules');
   const [status, setStatus] = React.useState<{ text: string; tone?: 'error' } | undefined>();
   const report = (r: InteractResult, done: string) => setStatus(r.ok ? { text: done } : { text: r.error, tone: 'error' });
@@ -67,6 +71,7 @@ export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: 
       {id === 'modules' ? <Modules host={host} report={report} />
         : id === 'lists' ? <Limits host={host} report={report} kind="lists" />
         : id === 'delta' ? <Limits host={host} report={report} kind="delta" />
+        : id === 'structure' ? <StructureSection host={host.structure!} />
         : id === 'update' ? <UpdateSection host={host.update!} />
         : id === 'display' ? <Display host={host} />
         : <Music host={host} {...(bgm ? { bgm } : {})} />}
