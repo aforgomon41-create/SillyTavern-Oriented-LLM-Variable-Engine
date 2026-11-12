@@ -31,11 +31,13 @@ export interface StatusBarProps {
   settings?: SettingsHost;
   /** Open the panel on the settings page (the host restores it). */
   defaultSettings?: boolean;
+  /** Changing this number opens the panel on the settings page (the wand-menu entry). */
+  openSettings?: number;
 }
 export type Mode = 'bar' | 'dot' | 'panel';
 const rel = (s: string): Path => s.split('.');
 
-export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = 'bar', onModeChange, position, onPositionChange, interact, settings, defaultSettings }: StatusBarProps) {
+export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = 'bar', onModeChange, position, onPositionChange, interact, settings, defaultSettings, openSettings }: StatusBarProps) {
   const K = useKit();
   const tabs = model.layout.filter((t: any) => model.moduleOn(t.module));
   const [tab, setTabState] = React.useState<string>(tabs.some((t: any) => t.tab === defaultTab) ? defaultTab! : tabs[0]?.tab ?? '');
@@ -49,6 +51,7 @@ export function StatusBar({ model, bgm, defaultTab, onTabChange, defaultMode = '
   // The launcher unmounts while the panel is open, so its position lives here and survives folding.
   const [pos, setPos] = React.useState(position);
   const [setup, setSetup] = React.useState(!!defaultSettings);
+  React.useEffect(() => { if (openSettings && settings) { setModeState('panel'); setSetup(true); } }, [openSettings]); // eslint-disable-line react-hooks/exhaustive-deps
   const navigate = React.useCallback((path: Path) => {
     const key = path.join('.');
     const hit = (item: any) => {

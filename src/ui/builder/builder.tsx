@@ -581,7 +581,7 @@ function PublishPage() {
         <K.Card title={`将写入 ${entries.length} 条世界书条目`} meta={<K.Button size="sm" variant="ghost" onClick={() => setEntries(undefined)}>关闭</K.Button>}>
           <ul {...solve('builder-entries')}>{entries.map(e => <li key={e.comment}><code>{e.comment}</code><small>{e.content.length.toLocaleString()} 字</small></li>)}</ul>
           {host.writeWorldBook ? <K.Button variant="primary" onClick={() => void host.writeWorldBook!(entries).then(() => { note('已写入世界书'); setEntries(undefined); }, e => note('写入失败：' + (e?.message ?? e), 'error'))}>确认写入</K.Button>
-            : <p {...part('hint')}>这是设计预览，不会真的写入。接进酒馆后，这里会直接写进角色世界书。</p>}
+            : <p {...part('hint')}>还不能直接写进世界书：SOLVE 目前还不读取这种条目。请先用上面的「下载 .js」，放进角色卡的酒馆助手脚本。</p>}
         </K.Card>
       ) : null}
     </>

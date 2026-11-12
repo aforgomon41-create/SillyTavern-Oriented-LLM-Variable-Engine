@@ -6,7 +6,7 @@ import { fail } from '../json.js';
 import { readWorldInfoSelection } from './world-info.js';
 import type { WorldInfoSelection } from './world-info.js';
 import type { Definition } from '../types.js';
-import { closeDebugger, installLauncher, openDebugger } from '../debug/launcher.js';
+import { closeDebugger, openDebugger } from '../debug/launcher.js';
 import type { DebugTarget } from '../debug/launcher.js';
 import { engineRequest, nativeSaveBody } from './fetch-origin.js';
 import { guardUnboundNativeSave } from './native-save.js';
@@ -101,7 +101,6 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     use(options: { kind: Exclude<Carrier, 'native'>; debugger?: DebugTarget }) {
       const owner = `card:${scope.crypto.randomUUID()}`;
       providers.set(owner, options.kind); if (options.debugger) target = options.debugger;
-      if (scope.document?.body) installLauncher(launch, scope.document);
       let disposed = false;
       return Object.freeze({ ...engine, version: engine.VERSION, openDebugger: launch, closeDebugger,
         getGuide(tag?: string) { if (disposed) throw new Error('该脚本入口已停用'); return getGuide(tag); },
@@ -125,7 +124,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
         async dispose() {
           if (disposed) return; disposed = true; providers.delete(owner);
           if (sessions) await sessions.unregister(owner);
-          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; sessions?.dispose(); sessions = undefined; for (const watcher of sessionWatchers) watcher(); closeDebugger(); scope.document?.getElementById('solve-debug-launcher')?.remove(); }
+          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; sessions?.dispose(); sessions = undefined; for (const watcher of sessionWatchers) watcher(); closeDebugger(); }
         }
       });
     }
@@ -157,7 +156,6 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
   const configure = (options: { debugger?: DebugTarget; native?: boolean }) => {
     if (options.debugger) target = options.debugger;
     native ||= Boolean(options.native);
-    if (scope.document?.body && (native || providers.size)) installLauncher(launch, scope.document);
   };
   configure(initial);
   // Status bar in the page (browser only; the declared layout decides whether anything is shown).

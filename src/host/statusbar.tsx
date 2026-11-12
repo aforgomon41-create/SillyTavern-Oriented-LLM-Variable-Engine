@@ -21,6 +21,15 @@ import type { BgmTrack, Batch, CompiledDefinition, LogicalState } from '../types
 import tokensCss from '../ui/kit-solve/tokens.css';
 import kitCss from '../ui/kit-solve/kit.css';
 import statusCss from '../ui/statusbar/statusbar.css';
+import debugCss from '../ui/debug/debug.css';
+import builderCss from '../ui/builder/builder.css';
+import { jerCss } from '../ui/debug/console.js';
+import { xyCss } from '../ui/builder/blueprint.js';
+import { DebugPanel } from '../ui/debug/panel.js';
+import type { DebugHost } from '../ui/debug/shared.js';
+import { StructureBuilder, type BuilderHost } from '../ui/builder/builder.js';
+import { officialStructure } from '../official/structure.js';
+import { VERSION } from '../version.js';
 
 const PREFS = 'solve.statusbar.prefs.v1';
 const UPDATE = 'solve.update.v1';
@@ -38,7 +47,7 @@ interface ControllerLike {
   setModule(name: string, enabled: boolean): Promise<unknown>;
   setSettings(patch: any): Promise<unknown>;
 }
-interface SessionsLike { controller?: ControllerLike; subscribe(listener: () => void): () => void }
+interface SessionsLike { controller?: ControllerLike; subscribe(listener: () => void): () => void; getStatus?(): any; inspectArchive?(commitId?: string): Promise<any> }
 interface BgmLike { status(): BgmStatus; setEnabled(v: boolean): void; setVolume(v: number): void; addTracks(t: BgmTrack[]): void; removeTrack(id: string): void; subscribe(l: () => void): () => void }
 export interface StatusBarHost { sessions(): SessionsLike | undefined; onSessions(listener: () => void): () => void; bgm(): BgmLike | undefined }
 
@@ -63,7 +72,7 @@ export function installStatusBar(scope: any, host: StatusBarHost): () => void {
 
   // ── styles: Kami's sheets when the preset runtime is present, SOLVE's default skin otherwise ──
   const sheet = (css: string) => { const s = new scope.CSSStyleSheet(); s.replaceSync(css); return s as CSSStyleSheet; };
-  const own = sheet(LAYERS + '\n@layer k.components {\n' + statusCss + '\n}\n'
+  const own = sheet(LAYERS + '\n@layer k.components {\n' + statusCss + '\n' + jerCss + '\n' + xyCss + '\n' + debugCss + '\n' + builderCss + '\n}\n'
     + '[data-k-surface="layer"] { position: absolute; inset: 0; pointer-events: none; background: none; }\n'
     + '[data-k-surface="layer"] > div > * { pointer-events: auto; }');
   const standalone = [sheet(LAYERS + '\n' + tokensCss), sheet(LAYERS + '\n' + kitCss)];
@@ -103,13 +112,45 @@ export function installStatusBar(scope: any, host: StatusBarHost): () => void {
 
   const root: Root = createRoot(app);
   root.render(<PortalContext.Provider value={portal}><KitProvider value={solveKit}><Live scope={scope} host={host} /></KitProvider></PortalContext.Provider>);
+  const removeMenu = installWandMenu(scope);
   return () => {
     doc.removeEventListener('kami:skin-changed', onSkin); doc.removeEventListener('kami-runtime-ready', onSkin); doc.removeEventListener('solve:statusbar-prefs', onSkin);
-    detachKami?.(); root.unmount(); el.remove();
+    removeMenu(); detachKami?.(); root.unmount(); el.remove();
   };
 }
 
-/** Re-renders on every engine change of the bound chat; renders nothing while unbound or without a layout. */
+/** Entries in the tavern's wand menu (bottom left). Each one asks the layer to open a surface. */
+export type Surface = 'settings' | 'debug' | 'builder';
+export const OPEN_EVENT = 'solve:open';
+const MENU: [Surface, string, string][] = [['settings', 'fa-sliders', 'SOLVE 设置'], ['debug', 'fa-bug', 'SOLVE 调试'], ['builder', 'fa-pen-ruler', 'SOLVE 结构制作']];
+function installWandMenu(scope: any): () => void {
+  const doc: Document = scope.document;
+  let box: HTMLElement | undefined, timer: any;
+  const add = () => {
+    const menu = doc.getElementById('extensionsMenu');
+    if (!menu) return false;
+    if (doc.getElementById('solve_wand_container')) return true;
+    box = doc.createElement('div'); box.id = 'solve_wand_container'; box.className = 'extension_container';
+    for (const [id, icon, label] of MENU) {
+      const item = doc.createElement('div');
+      item.className = 'list-group-item flex-container flexGap5 interactable'; item.tabIndex = 0; item.dataset.solveOpen = id;
+      const i = doc.createElement('div'); i.className = `fa-fw fa-solid ${icon} extensionsMenuExtensionButton`;
+      const span = doc.createElement('span'); span.textContent = label;
+      item.append(i, span);
+      const open = () => doc.dispatchEvent(new scope.CustomEvent(OPEN_EVENT, { detail: id }));
+      item.addEventListener('click', open);
+      item.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+      box.append(item);
+    }
+    menu.append(box);
+    return true;
+  };
+  // The tavern renders the wand menu after extensions load; wait for it.
+  if (!add()) { let tries = 0; timer = scope.setInterval(() => { if (add() || ++tries > 120) scope.clearInterval(timer); }, 500); }
+  return () => { scope.clearInterval?.(timer); box?.remove(); };
+}
+
+/** Re-renders on every engine change; the status bar shows only for a bound chat with a layout, the debug panel and builder open from the wand menu. */
 function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
   const [, tick] = React.useReducer((n: number) => n + 1, 0);
   const sessions = host.sessions();
@@ -118,18 +159,63 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
   React.useEffect(() => controller?.subscribe(tick), [controller]);
   const bgm = host.bgm();
   React.useEffect(() => bgm?.subscribe(tick), [bgm]);
-  if (!controller) return null;
-  const def = controller.core.definition;
-  const display = (def.display ?? {}) as { layout?: unknown[]; render?: unknown };
-  if (display.render === false || !Array.isArray(display.layout) || !display.layout.length) return null;
-  let state: LogicalState | undefined;
-  try { state = controller.getState(); } catch { state = undefined; }
-  if (!state) return null;
-  return <Bound key={def.fingerprint} scope={scope} controller={controller} def={def} state={state} {...(bgm ? { bgm } : {})} />;
+  const [debug, setDebug] = React.useState(false);
+  const [builder, setBuilder] = React.useState(false);
+  const [settingsAt, setSettingsAt] = React.useState(0);
+  let bar: { def: CompiledDefinition; state: LogicalState } | undefined;
+  if (controller) {
+    const def = controller.core.definition;
+    const display = (def.display ?? {}) as { layout?: unknown[]; render?: unknown };
+    let state: LogicalState | undefined;
+    try { state = controller.getState(); } catch { state = undefined; }
+    if (state && display.render !== false && Array.isArray(display.layout) && display.layout.length) bar = { def, state };
+  }
+  const hasBar = React.useRef(false); hasBar.current = !!bar;
+  React.useEffect(() => {
+    const doc: Document = scope.document;
+    const onOpen = (e: Event) => {
+      const what = (e as CustomEvent).detail as Surface;
+      if (what === 'debug') setDebug(true);
+      else if (what === 'builder') setBuilder(true);
+      else if (what === 'settings') {
+        if (hasBar.current) setSettingsAt(Date.now());
+        else { const why = '当前聊天没有启用 SOLVE（或这个结构没有状态栏），没有可设置的内容。可以在「SOLVE 调试」里查看原因。'; if (scope.toastr?.info) scope.toastr.info(why, 'SOLVE'); else scope.alert?.(why); }
+      }
+    };
+    doc.addEventListener(OPEN_EVENT, onOpen);
+    return () => doc.removeEventListener(OPEN_EVENT, onOpen);
+  }, [scope]);
+  const debugHost = React.useMemo<DebugHost>(() => ({
+    version: `SOLVE ${VERSION}`,
+    sessions: {
+      get controller() { return host.sessions()?.controller as DebugHost['sessions']['controller']; },
+      subscribe: (listener: () => void) => host.onSessions(listener),
+      getStatus: () => host.sessions()?.getStatus?.() ?? { phase: 'idle', reason: 'SOLVE 尚未加载' },
+      inspectArchive: (commitId?: string) => { const s = host.sessions(); if (!s?.inspectArchive) throw new Error('SOLVE 尚未加载'); return s.inspectArchive(commitId); },
+    },
+  }), [host]);
+  let character: string | undefined;
+  try { const ctx = scope.SillyTavern?.getContext?.(); character = ctx?.characters?.[ctx.characterId]?.name; } catch { character = undefined; }
+  const builderHost: BuilderHost = {
+    start: officialStructure, published: officialStructure, official: officialStructure,
+    ...(character ? { character } : {}),
+    sample: () => { try { return host.sessions()?.controller?.getState(); } catch { return undefined; } },
+  };
+  return (
+    <>
+      {/* Separate stacking contexts: the builder above the debug panel above the status bar. */}
+      <div style={{ position: 'relative', zIndex: 1 }}>{controller && bar
+        ? <Bound key={bar.def.fingerprint} scope={scope} controller={controller} def={bar.def} state={bar.state} {...(bgm ? { bgm } : {})}
+          extras={{ openDebug: () => setDebug(true), openBuilder: () => setBuilder(true), ...(settingsAt ? { openSettings: settingsAt } : {}) }} />
+        : null}</div>
+      <div style={{ position: 'relative', zIndex: 2 }}>{debug ? <DebugPanel host={debugHost} onClose={() => setDebug(false)} /> : null}</div>
+      <div style={{ position: 'relative', zIndex: 3 }}>{builder ? <StructureBuilder host={builderHost} onClose={() => setBuilder(false)} /> : null}</div>
+    </>
+  );
 }
 
 /** Opening view (previews) and the debug-panel entry. */
-export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean; section?: string }; openDebug?: () => void; openBuilder?: () => void; update?: Partial<UpdateHost>; structure?: Partial<StructureHost> }
+export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean; section?: string }; openDebug?: () => void; openBuilder?: () => void; openSettings?: number; update?: Partial<UpdateHost>; structure?: Partial<StructureHost> }
 /** The status bar for one bound controller (the tavern host and the design preview both render this). */
 export function Bound({ scope, controller, def, state, bgm, extras = {} }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike; extras?: StatusBarExtras }) {
   const status = controller.getStatus();
@@ -222,6 +308,7 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
   return (
     <StatusBar model={model} interact={interact} settings={settings} {...(bgmView ? { bgm: bgmView } : {})}
       defaultMode={saved.mode ?? 'bar'} {...(saved.settings ? { defaultSettings: true } : {})} onModeChange={mode => { if (mode !== 'panel') remember({ mode }); }}
+      {...(extras.openSettings ? { openSettings: extras.openSettings } : {})}
       {...(saved.tab ? { defaultTab: saved.tab } : {})} onTabChange={tab => remember({ tab })}
       {...(saved.pos ? { position: saved.pos } : {})} onPositionChange={pos => remember({ pos })} />
   );
