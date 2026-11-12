@@ -18,7 +18,7 @@ npm run test:release
 | 文件 | 用途 |
 | --- | --- |
 | SOLVE-native-版本.zip | 解压 solve 文件夹到酒馆自定义扩展目录，manifest.json 位于该文件夹根部 |
-| SOLVE-dynamic-版本.zip | 将 solve 全目录托管到 HTTP(S)，作者脚本导入 dynamic.js |
+| SOLVE-dynamic-版本.zip | 将 solve 全目录托管到 HTTP(S)，作者脚本导入 dynamic.js（只用官方数据结构时导入 auto.js） |
 | SOLVE-embedded-版本.zip | 酒馆助手脚本 JSON、完整内嵌引擎及作者入门定义 |
 | SOLVE-source-版本.zip | 此次实际源码、锁文件、构建脚本、测试和文档 |
 | release.json / SHA256SUMS.txt | 版本、文件大小和 SHA256 校验；远程发布状态不由打包命令推定 |

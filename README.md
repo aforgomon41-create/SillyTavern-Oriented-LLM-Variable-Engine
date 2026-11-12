@@ -19,7 +19,7 @@
 2. 解压到酒馆的第三方扩展目录 `public/scripts/extensions/third-party/`，得到独立的 `solve/` 文件夹，`manifest.json` 直接位于其中。
 3. 重载酒馆，右下角出现 **◈ SOLVE** 入口。
 
-另有 dynamic（托管 `solve/` 目录，作者脚本导入 `dynamic.js`）和 embedded（酒馆助手脚本 JSON）两种分发，三种用同一份构建，见 [分发与安装](docs/distributions.md)。每个包都附带对应的 `SOURCE_CODE.zip`。
+另有 dynamic（托管 `solve/` 目录，作者脚本导入 `dynamic.js`；只用官方数据结构时，角色脚本里一行 `import '…/auto.js'` 即可）和 embedded（酒馆助手脚本 JSON）两种分发，三种用同一份构建，见 [分发与安装](docs/distributions.md)。每个包都附带对应的 `SOURCE_CODE.zip`。
 
 ## 快速开始：用官方数据结构
 

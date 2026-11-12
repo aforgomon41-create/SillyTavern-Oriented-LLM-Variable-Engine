@@ -21,6 +21,7 @@ await browserBuild({ entryPoints: ['src/host/index.ts'], bundle: true, format: '
 await browserBuild({ entryPoints: ['src/extension.ts'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/index.js', sourcemap: true });
 await browserBuild({ entryPoints: ['src/runtime-entry.ts'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/runtime.js', sourcemap: true });
 await browserBuild({ entryPoints: ['src/dynamic.ts'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/dynamic.js', sourcemap: true });
+await browserBuild({ entryPoints: ['src/auto.ts'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/auto.js', sourcemap: true });
 const panelBuild = await browserBuild({ entryPoints: ['src/debug/app.tsx'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/debug.js', minify: true, sourcemap: true, metafile: true, define: { 'process.env.NODE_ENV': '"production"' } });
 const inlinePanel = await browserBuild({ entryPoints: ['src/debug/app.tsx'], bundle: true, format: 'iife', platform: 'browser', target: 'es2022', outfile: 'dist/inline-debug.js', write: false, minify: true, define: { 'process.env.NODE_ENV': '"production"' } });
 const inlineJs = inlinePanel.outputFiles.find(file => file.path.endsWith('.js')).text;
