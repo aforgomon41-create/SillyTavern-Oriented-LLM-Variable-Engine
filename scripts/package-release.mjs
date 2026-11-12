@@ -26,7 +26,7 @@ for (const name of (await readdir('.')).filter(name => name.startsWith('SOLVE_')
 const sourcePrefix = `SOLVE-source-${version}/`;
 const sourceZip = createZip([...source].map(([name, data]) => [sourcePrefix + name, data]));
 const sourceNotice = Buffer.from(`# SOLVE ${version} 对应源码\n\n本包附带 [SOURCE_CODE.zip](SOURCE_CODE.zip)，其 SHA256 为 ${digest(sourceZip)}。解压后运行 npm ci、npm run check:portable。\n\n该归档包含本次构建的实际源码、锁文件、构建脚本、测试与文档；项目仓库为 https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine 。远程预览标签和发布状态见 release.json/交付说明，未发布时不以仓库首页代替本归档。\n\n许可：AGPL-3.0-only。保留 LICENSE、NOTICE、THIRD_PARTY_NOTICES.txt。\n`);
-const names = ['manifest.json', 'index.js', 'solve.js', 'sillytavern.js', 'runtime.js', 'dynamic.js', 'embedded.js', 'debug.html', 'debug-inline.html', 'debug.js', 'debug.css', 'rpg-example.js', 'author-examples.js', 'README.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.txt'];
+const names = ['manifest.json', 'index.js', 'solve.js', 'sillytavern.js', 'runtime.js', 'dynamic.js', 'auto.js', 'embedded.js', 'debug.html', 'debug-inline.html', 'debug.js', 'debug.css', 'rpg-example.js', 'author-examples.js', 'README.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.txt'];
 for (const name of names) runtime.set(name, await read('dist/' + name));
 for (const name of (await readdir('dist')).filter(name => name.endsWith('.map'))) runtime.set(name, await read('dist/' + name));
 const docs = new Map(); await collect('dist/docs', docs);
@@ -41,7 +41,7 @@ const embedded = new Map(['embedded.js', 'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTIC
 embedded.set('AUTHOR_EXAMPLE.js', Buffer.from(example)); embedded.set('tavern-helper-script.json', Buffer.from(JSON.stringify(script, null, 2) + '\n'));
 const channel = version.includes('-') ? 'preview' : 'release';
 const status = Buffer.from(`# SOLVE ${version}\n\n当前为${channel === 'preview' ? '预览版，真实页面边界仍有待验收项目' : '发布构建'}。安装前备份聊天；三种载体需统一版本。\n\n`);
-runtime.set('INSTALL.md', Buffer.concat([status, Buffer.from('原生：解压后将 solve 文件夹放入酒馆自定义扩展目录，manifest.json 必须直接位于 solve 下，再重载酒馆。\n动态：将 solve 文件夹全部托管到 HTTP(S)，导入其 dynamic.js，并注册作者定义。\n对应源码随包附在 SOURCE_CODE.zip；不要单独复制一个入口文件。\n') ]));
+runtime.set('INSTALL.md', Buffer.concat([status, Buffer.from('原生：解压后将 solve 文件夹放入酒馆自定义扩展目录，manifest.json 必须直接位于 solve 下，再重载酒馆。\n动态：将 solve 文件夹全部托管到 HTTP(S)，导入其 dynamic.js 并注册作者定义；只用官方数据结构时，在角色脚本里一行 import 其 auto.js 即可。\n对应源码随包附在 SOURCE_CODE.zip；不要单独复制一个入口文件。\n') ]));
 embedded.set('INSTALL.md', Buffer.concat([status, Buffer.from('需要酒馆助手。在独立角色卡脚本中导入 tavern-helper-script.json，或粘贴 embedded.js 全文并追加 AUTHOR_EXAMPLE.js。示例只含 hp；正式卡片须提供自己的作者定义。\n此方式内含引擎和调试面板；对应源码在 SOURCE_CODE.zip。\n') ]));
 const prefix = entries => [...entries].map(([name, data]) => ['solve/' + name, data]);
 const artifacts = new Map([

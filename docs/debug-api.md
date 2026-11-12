@@ -125,7 +125,7 @@ dev.3 的 IndexedDbCache 支持容量选项、getStats()、pruneSnapshots() 和 
 
 `exportDebugReport({includeState,includeText})` 返回本地可导出的对象，默认不附完整状态与正文；历史动作及 Patch 仍可能含角色变量值。界面应说明导出内容，让用户自行决定是否分享，不自动上传。
 
-调试面板已接入上述接口。`SOLVE.openDebugger()` 打开、`SOLVE.closeDebugger()` 关闭；扩展会显示右下角入口。SessionManager 状态额外包含当前 chatId，供界面隔离不同聊天的只读结果。0.9 开发版已增加 author、compileAuthorDefinition、compose、registerWorldInfo/readWorldInfo、条件指南和Facet生命周期，见 [authoring.md](authoring.md)；指南正文热更新、关键词触发和复杂查询仍待推进。世界书固定声明坏掉或原包缺失时，sessions.inspectArchive() 仍可只读检查合法 Patch 事实。
+调试面板已接入上述接口。`SOLVE.openDebugger()` 打开旧版调试工作台、`SOLVE.closeDebugger()` 关闭；页面入口在左下角魔法棒菜单（SOLVE 设置 / 调试 / 结构制作），不再显示右下角浮动按钮。SessionManager 状态额外包含当前 chatId，供界面隔离不同聊天的只读结果。0.9 开发版已增加 author、compileAuthorDefinition、compose、registerWorldInfo/readWorldInfo、条件指南和Facet生命周期，见 [authoring.md](authoring.md)；指南正文热更新、关键词触发和复杂查询仍待推进。世界书固定声明坏掉或原包缺失时，sessions.inspectArchive() 仍可只读检查合法 Patch 事实。
 
 dev.5 的 getStatus().facetHooksPending 表示保存后回调队列的未完成数量，与正常保存 busy 分开。高级集成可 await controller.runtime.settledHooks() 等待当前及连带回调结束，并通过 runtime.getHookErrors() 读取最近最多100条回调失败；控制器日志记为 FACET_HOOK_FAILED。回调内部不能等待自身队列结束。通知失败不改变已确认保存结果，期间新状态会使旧基线上的回调操作被拒绝。
 

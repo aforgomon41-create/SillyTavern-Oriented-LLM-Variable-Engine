@@ -45,7 +45,7 @@ for (const item of manifest.artifacts) {
     parent.SOLVE.detach();
   } else {
     assert.equal(JSON.parse(entries.get(root + 'manifest.json')).version, version);
-    for (const name of ['index.js', 'runtime.js', 'dynamic.js', 'debug.html', 'debug-inline.html', 'debug.js', 'debug.css', 'author-examples.js', 'CONTRIBUTING.md', 'CHANGELOG.md', 'docs/README.md', 'docs/development-plan.md', 'docs/authoring.md', 'docs/performance.md', 'docs/images/png-upload-dev3.png']) assert.ok(entries.has(root + name), name);
+    for (const name of ['index.js', 'runtime.js', 'dynamic.js', 'auto.js', 'debug.html', 'debug-inline.html', 'debug.js', 'debug.css', 'author-examples.js', 'CONTRIBUTING.md', 'CHANGELOG.md', 'docs/README.md', 'docs/development-plan.md', 'docs/authoring.md', 'docs/performance.md', 'docs/images/png-upload-dev3.png']) assert.ok(entries.has(root + name), name);
   }
   for (const [name, content] of entries) if (name.endsWith('.js')) {
     assert.equal(content.includes(Buffer.from('solve-live-acceptance')), false, 'Local HUD leaked into ' + name);

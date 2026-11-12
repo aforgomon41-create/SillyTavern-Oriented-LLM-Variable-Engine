@@ -4,7 +4,7 @@ const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 const sourceUrl = 'https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine';
 const browserBuild = async options => {
   // Stylesheets imported by the status bar are bundled as text (they are adopted into its shadow root).
-  if (!options.entryPoints.some(entry => entry.startsWith('src/debug/'))) options = { loader: { '.css': 'text' }, jsx: 'automatic', ...options, define: { 'process.env.NODE_ENV': '"production"', ...options.define } };
+  if (!options.entryPoints.some(entry => entry.startsWith('src/debug/'))) options = { loader: { '.css': 'text' }, jsx: 'automatic', ...options, define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{"MODE":"production"}', ...options.define } };
   const result = await build({ banner: { js: `/*! SOLVE ${version} | Copyright 2026 aforgomon41-create and SOLVE contributors | SPDX-License-Identifier: AGPL-3.0-only | Source: SOURCE_CODE.zip included in release packages | Project: ${sourceUrl} | See LICENSE and THIRD_PARTY_NOTICES.txt. */` }, ...options });
   if (options.sourcemap && options.outfile && options.write !== false) {
     const path = options.outfile + '.map', map = JSON.parse(await readFile(path, 'utf8'));
@@ -21,6 +21,7 @@ await browserBuild({ entryPoints: ['src/host/index.ts'], bundle: true, format: '
 await browserBuild({ entryPoints: ['src/extension.ts'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/index.js', sourcemap: true });
 await browserBuild({ entryPoints: ['src/runtime-entry.ts'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/runtime.js', sourcemap: true });
 await browserBuild({ entryPoints: ['src/dynamic.ts'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/dynamic.js', sourcemap: true });
+await browserBuild({ entryPoints: ['src/auto.ts'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/auto.js', sourcemap: true });
 const panelBuild = await browserBuild({ entryPoints: ['src/debug/app.tsx'], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: 'dist/debug.js', minify: true, sourcemap: true, metafile: true, define: { 'process.env.NODE_ENV': '"production"' } });
 const inlinePanel = await browserBuild({ entryPoints: ['src/debug/app.tsx'], bundle: true, format: 'iife', platform: 'browser', target: 'es2022', outfile: 'dist/inline-debug.js', write: false, minify: true, define: { 'process.env.NODE_ENV': '"production"' } });
 const inlineJs = inlinePanel.outputFiles.find(file => file.path.endsWith('.js')).text;

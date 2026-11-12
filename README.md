@@ -11,15 +11,15 @@
 | --- | --- |
 | ![社交页](docs/images/statusbar-desktop-social.jpg) | ![手机角色页](docs/images/statusbar-mobile-role.jpg) |
 
-当前版本 **0.9.0-preview.1**（预发布）。截图为本机酒馆实际页面，使用官方数据结构和示例数据。界面设计预览（含结构制作、新调试面板等尚未接入酒馆的部分）：[设计预览](https://aforgomon41-create.github.io/sillytavern-kami-preset/solve/preview/)。
+当前版本 **0.9.0-preview.1**（预发布）。截图为本机酒馆实际页面，使用官方数据结构和示例数据。界面设计预览（含进入聊天检测等尚未接入酒馆的部分）：[设计预览](https://aforgomon41-create.github.io/sillytavern-kami-preset/solve/preview/)。
 
 ## 安装
 
 1. 从 [Releases](https://github.com/aforgomon41-create/SillyTavern-Oriented-LLM-Variable-Engine/releases/tag/v0.9.0-preview.1) 下载 `SOLVE-native-0.9.0-preview.1.zip`。
 2. 解压到酒馆的第三方扩展目录 `public/scripts/extensions/third-party/`，得到独立的 `solve/` 文件夹，`manifest.json` 直接位于其中。
-3. 重载酒馆，右下角出现 **◈ SOLVE** 入口。
+3. 重载酒馆，左下角魔法棒菜单里出现 **SOLVE 设置**、**SOLVE 调试**、**SOLVE 结构制作** 三个入口。
 
-另有 dynamic（托管 `solve/` 目录，作者脚本导入 `dynamic.js`）和 embedded（酒馆助手脚本 JSON）两种分发，三种用同一份构建，见 [分发与安装](docs/distributions.md)。每个包都附带对应的 `SOURCE_CODE.zip`。
+另有 dynamic（托管 `solve/` 目录，作者脚本导入 `dynamic.js`；只用官方数据结构时，角色脚本里一行 `import '…/auto.js'` 即可）和 embedded（酒馆助手脚本 JSON）两种分发，三种用同一份构建，见 [分发与安装](docs/distributions.md)。每个包都附带对应的 `SOURCE_CODE.zip`。
 
 ## 快速开始：用官方数据结构
 
@@ -95,15 +95,17 @@ readonly/internal 是披露策略，不是写权限。`@` 只标记投影中的�
 - **数据结构**：`compileStructure` 把 JSON 可序列化的字段树编译成定义，显示名、剧透等级、控件和状态栏布局不进入定义指纹。格式见 [官方数据结构 §11](docs/official-structure.md)，可以从官方结构改起。
 - **作者工具与世界书**：`SOLVE.author()` 内联规则、多文件组合、世界书 `[SOLVE:…]` 条目、条件指南和 Facet，见 [作者接入](docs/authoring.md)。
 - **更新方式**：随正文输出，或独立操作模型（独立连接预设或自定义请求函数，支持超时与取消），在注册时用 `attach: { mode }` 指定。
-- **结构制作**：可视化编辑字段蓝图、模块、状态栏布局、交互、提示词、视图、开局数据和音乐，目前在 [设计预览](https://aforgomon41-create.github.io/sillytavern-kami-preset/solve/preview/) 里，尚未接入酒馆。
+- **结构制作**：可视化编辑字段蓝图、模块、状态栏布局、交互、提示词、视图、开局数据和音乐，从左下角魔法棒菜单 › SOLVE 结构制作 打开；目前从官方数据结构起步，成果下载为 .js / .json，直接写进世界书还没接通。
 
 注册后切换聊天会自动恢复；旧聊天按定义指纹寻找原版本，缺少时不会自动套用新版。`SOLVE.attach()` 可单次手动绑定，`SOLVE.detach()` 停止自动绑定。控制器方法：`processMessage(index)`、`submit(batch, {actionId, index})`、`setModule(name, enabled)`、`setSettings(patch)`、`replayMessage(index)`、`replayFrom(index)`、`dispose()`。
 
 作者函数与历史：输入 schema 的 transform 只在输入边界运行；跨字段规则用 `validateState`。时间、随机数、远程结果在调用前准备并以 authorInputs 归档，Replay 复用这些值，Restore 不执行作者函数或模型请求。函数行为变化时必须更新定义版本。
 
-## 调试工作台
+## 调试面板与结构制作
 
-点击酒馆右下角 **◈ SOLVE** 或调用 `SOLVE.openDebugger()` 打开：状态树与路径查询、操作预演与提交、历史对比与重放、上下文预览（JSON/TOON/指南/操作说明/反馈/独立操作提示词，带字数）、诊断日志与报告。查询和预演不保存聊天；报告里可能含变量值，分享前请检查。接口见 [调试 API](docs/debug-api.md)。
+左下角魔法棒菜单 › **SOLVE 调试** 打开调试面板：概览、状态、历史、操作台（预演与提交）、提示词、结构、日志；没绑定时显示原因和已注册的定义。**SOLVE 结构制作** 打开结构制作：从官方数据结构起步修改字段、模块、状态栏布局、交互、提示词、视图、开局数据和音乐，检查后下载为角色脚本（.js）或 JSON；直接写进世界书还没接通。**SOLVE 设置** 打开状态栏的设置页（当前聊天没启用 SOLVE 时会提示）。
+
+旧版调试工作台仍可用 `SOLVE.openDebugger()` 打开：状态树与路径查询、操作预演与提交、历史对比与重放、上下文预览（JSON/TOON/指南/操作说明/反馈/独立操作提示词，带字数）、诊断日志与报告。查询和预演不保存聊天；报告里可能含变量值，分享前请检查。接口见 [调试 API](docs/debug-api.md)。
 
 ## 酒馆助手变量
 
@@ -147,7 +149,7 @@ npm run test:release
 
 - 已验证 SillyTavern 1.19 单聊；原生拦截器覆盖原生生成入口，不承诺拦住酒馆助手或第三方自行联网。服务端没有比较后原子写入接口，第三方绕过队列保存仍可能竞争。
 - 进入聊天时的变量框架检测、默认数据结构、随正文输出的提示词注入、玩家可选的独立操作模型设置：只有界面，正在接入。
-- 结构制作和新调试面板只在设计预览里；酒馆里是原有的调试工作台。
+- 结构制作只能从官方数据结构起步，不能直接写进世界书；自制视图（视图页）引擎还不读取。
 - 指南正文热更新、宿主关键词触发、不同版本引擎共存仍待推进；浏览器、IndexedDB 和真实保存的大规模验收未完成。
 
 实施规范：`docs/backend-design.md`。主企划保留原文件名。
