@@ -133,6 +133,30 @@ try {
   m = await turn('我走进酒馆。');
   check('卡里写了 {{solve_SOP}}：操作说明只出现一次', count(m, SOP) === 1, `${count(m, SOP)} 处`);
   check('卡里没写的变量照常注入', count(m, DATA) === 1);
+
+  phase = 'edited';
+  // 改过一条早先带变量的回复后 SOLVE 需要重放；这时它不能拦下酒馆的生成：请求照常发出，弹提示说明这一轮不更新变量。
+  const target = await page.evaluate(() => SillyTavern.getContext().chat.findIndex(m => !m.is_user && m.extra?.solve?.headId && /<solve_operate>/u.test(m.mes)));
+  const mes = page.locator(`#chat .mes[mesid="${target}"]`);
+  await mes.scrollIntoViewIfNeeded(); await mes.hover();
+  await mes.locator('.mes_edit').first().click({ force: true });
+  const area = page.locator(`#chat .mes[mesid="${target}"] .edit_textarea`).first();
+  await area.fill((await area.inputValue()).replace('雨还在下。', '雨还在下着。'));
+  await page.locator(`#chat .mes[mesid="${target}"] .mes_edit_done`).first().click({ force: true });
+  await page.waitForTimeout(1500);
+  const dirty = await page.evaluate(() => SOLVE.controller.getStatus());
+  check('改了旧回复后 SOLVE 提示需要重放', !dirty.ready && /编辑|重放/u.test(dirty.reason), dirty.reason);
+  await page.evaluate(() => document.querySelectorAll('#toast-container .toast').forEach(t => t.remove()));
+  const before = ((await mock('/__mock/requests')).requests ?? await mock('/__mock/requests')).length;
+  await mock('/__mock/next', { content: '<content>\n巷子里很安静。\n</content>' });
+  const n = await page.evaluate(() => SillyTavern.getContext().chat.length);
+  await page.fill('#send_textarea', '我拐进小巷。'); await page.click('#send_but');
+  await page.waitForFunction(n => SillyTavern.getContext().chat.length >= n + 2, n, { timeout: 60000 }).catch(() => undefined);
+  await page.waitForTimeout(1500);
+  const after = ((await mock('/__mock/requests')).requests ?? await mock('/__mock/requests')).length;
+  check('这时点发送：请求照常到达模型', after === before + 1, `${after - before} 次`);
+  const toast = await page.evaluate(() => [...document.querySelectorAll('#toast-container .toast')].map(t => t.innerText).join(' | '));
+  check('并提示这一轮不更新变量、去哪里处理', /不会更新变量/u.test(toast) && /SOLVE 调试/u.test(toast), toast.replace(/\s+/gu, ' ').slice(0, 120));
 } catch (error) {
   check('流程未中断', false, `${phase}: ${String(error).slice(0, 400)}`);
 } finally {

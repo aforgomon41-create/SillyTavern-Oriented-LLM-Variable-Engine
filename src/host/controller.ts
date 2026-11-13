@@ -297,14 +297,50 @@ export class SillyTavernController {
       this.disposers.push(() => controllers!.delete(this));
     }
   }
-  /** A native extension manifest invokes this before sending the native generation request. */
-  intercept(chat: { mes: string }[], _contextSize: number, abort: (immediate: boolean) => void): void {
+  /**
+   * Before a story request goes out (native: the manifest's generate interceptor; script carriers: the fetch guard).
+   * SOLVE never stops the tavern's request. While it is still saving or updating, the request waits (up to 60 s);
+   * when the chat needs attention (not ready, unsaved operation, history not aligned) the request goes out anyway,
+   * this turn just is not tracked, and the player is told why.
+   */
+  async intercept(chat: { mes: string }[], _contextSize?: number, _abort?: (immediate: boolean) => void): Promise<void> {
     if (this.context().chatId !== this.chatId) return;
-    try {
-      if (!this.ready || this.runtime.pendingCount || this.pendingImportError || (this.busy && !this.options.allowRequestsDuringOperatorBusy) || this.findParent(this.context().chat.length) !== this.runtime.headId) { this.record('REQUEST_BLOCKED', '状态未就绪、存在待保存操作或正在同步，请求已阻止', 'warning'); abort(true); return; }
-    } catch { abort(true); return; }
+    await this.beforeRequest(false);
     // Player actions reach the model as one line of narration (what they did in the status bar); operations never do.
     for (const message of chat) message.mes = promptText(message.mes);
+  }
+  /** fromFetch: the fetch guard also sees the operator model's own request, which must not wait for itself. */
+  async beforeRequest(fromFetch = true): Promise<void> {
+    if (this.busy && !(fromFetch && this.operator) && !this.options.allowRequestsDuringOperatorBusy) {
+      this.record('REQUEST_WAITING', 'SOLVE 正在保存或更新变量，请求稍等后发送');
+      if (!await this.whenIdle()) this.record('REQUEST_WAITING', '等待超过 60 秒，请求照常发送', 'warning');
+    }
+    const problem = this.requestProblem();
+    if (problem) this.warnUntracked(problem);
+  }
+  /** Resolves true once nothing is running, false after maxMs. */
+  async whenIdle(maxMs = 60_000): Promise<boolean> {
+    const end = Date.now() + maxMs;
+    while (this.busy && !this.disposed && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 100));
+    return !this.busy;
+  }
+  /** Why a story request now would not be tracked (undefined: it will be). */
+  requestProblem(): string | undefined {
+    try {
+      if (!this.ready) return this.reason || 'SOLVE 状态未就绪';
+      if (this.pendingImportError) return this.pendingImportError;
+      if (this.runtime.pendingCount) return '有一次操作没有保存成功';
+      if (this.findParent(this.context().chat.length) !== this.runtime.headId) return '选中历史尚未对齐，请重放后续楼层';
+    } catch (error) { return describeError(error).message; }
+    return undefined;
+  }
+  private lastWarning?: { text: string; at: number };
+  private warnUntracked(problem: string): void {
+    this.record('REQUEST_UNTRACKED', `请求照常发送，这一轮不更新变量：${problem}`, 'warning');
+    const now = Date.now();
+    if (this.lastWarning?.text === problem && now - this.lastWarning.at < 60_000) return;
+    this.lastWarning = { text: problem, at: now };
+    try { (globalThis as any).toastr?.warning(`这一轮照常发送，但 SOLVE 不会更新变量：${problem}。可以在 魔法棒 › SOLVE 调试 › 概览 里处理。`, 'SOLVE', { timeOut: 12000 }); } catch { /* no toasts */ }
   }
   processMessage(index = this.context().chat.length - 1): Promise<Commit | undefined> {
     const candidate = this.context().chat[index];
