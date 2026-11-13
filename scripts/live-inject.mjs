@@ -133,6 +133,35 @@ try {
   m = await turn('我走进酒馆。');
   check('卡里写了 {{solve_SOP}}：操作说明只出现一次', count(m, SOP) === 1, `${count(m, SOP)} 处`);
   check('卡里没写的变量照常注入', count(m, DATA) === 1);
+
+  phase = 'edited';
+  // 改了一条带变量的回复：SOLVE 自动从这一楼重放，变量按改过的内容重算；生成照常、不弹警告。
+  const target = await page.evaluate(() => { const chat = SillyTavern.getContext().chat; for (let i = chat.length - 1; i >= 0; i--) if (!chat[i].is_user && chat[i].extra?.solve?.headId && /<solve_operate>/u.test(chat[i].mes)) return i; return -1; });
+  const mes = page.locator(`#chat .mes[mesid="${target}"]`);
+  await mes.scrollIntoViewIfNeeded(); await mes.hover();
+  await mes.locator('.mes_edit').first().click({ force: true });
+  const area = page.locator(`#chat .mes[mesid="${target}"] .edit_textarea`).first();
+  const original = await area.inputValue();
+  await area.fill(original.replace('"meta.weather":"雨"', '"meta.weather":"雪"'));
+  await page.locator(`#chat .mes[mesid="${target}"] .mes_edit_done`).first().click({ force: true });
+  const replayed = await page.waitForFunction(() => { const s = SOLVE.controller.getStatus(); return s.ready && !s.busy && SOLVE.controller.getState().data.meta.weather === '雪'; }, null, { timeout: 30000 }).then(() => true, () => false);
+  const st = await page.evaluate(() => SOLVE.controller.getStatus());
+  check('改了回复里的操作后自动重放，变量按新内容重算（雨 → 雪）', replayed, `ready=${st.ready} · ${st.reason || '无待处理'}`);
+  check('调试日志记下自动重放', await page.evaluate(() => SOLVE.controller.journal.read().some(l => l.code === 'AUTO_REPLAY')));
+  await page.waitForTimeout(800);
+  const barText = await page.evaluate(() => document.querySelector('solve-statusbar')?.shadowRoot?.textContent ?? '');
+  check('状态栏显示新的天气', barText.includes('雪'));
+  await page.evaluate(() => document.querySelectorAll('#toast-container .toast').forEach(t => t.remove()));
+  const before = ((await mock('/__mock/requests')).requests ?? await mock('/__mock/requests')).length;
+  await mock('/__mock/next', { content: '<content>\n巷子里很安静。\n</content>' });
+  const n = await page.evaluate(() => SillyTavern.getContext().chat.length);
+  await page.fill('#send_textarea', '我拐进小巷。'); await page.click('#send_but');
+  await page.waitForFunction(n => SillyTavern.getContext().chat.length >= n + 2, n, { timeout: 60000 }).catch(() => undefined);
+  await page.waitForTimeout(1500);
+  const all = (await mock('/__mock/requests')).requests ?? await mock('/__mock/requests');
+  check('再发送：请求到达模型，没有警告提示', all.length === before + 1 && !(await page.evaluate(() => document.querySelector('#toast-container .toast-warning'))), `${all.length - before} 次`);
+  const last = all.at(-1)?.body?.messages ?? [];
+  check('再发送：注入的变量是重放后的（雪）', /weather:\s*雪/u.test(last[indexOf(last, DATA)]?.content ?? ''));
 } catch (error) {
   check('流程未中断', false, `${phase}: ${String(error).slice(0, 400)}`);
 } finally {

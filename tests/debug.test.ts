@@ -65,13 +65,25 @@ test('调试预演不保存，过期预演基线不能提交，读取与订阅�
   controller.dispose();
 });
 
-test('丢失保存响应后放弃草稿会确认已保存事实，编辑正文不能被重新读取绕过', async () => {
+test('丢失保存响应后放弃草稿会确认已保存事实，编辑正文自动重放而不是被重新读取绕过', async () => {
   const { controller, ctx, addReply, setFail, emit } = await setup(); const index = addReply(); await controller.processMessage(index);
   setFail(true); await assert.rejects(controller.submit({ $inc: { '@alice.hp': -5 } }, { index })); setFail(false);
   await controller.discardPending(); assert.equal(controller.getValue('@alice.hp'), 80); assert.equal(controller.getStatus().pendingCount, 0);
   assert.ok(controller.journal.read().some(e => e.code === 'ALREADY_ARCHIVED'));
+  const before = controller.getHistory().length;
   ctx.chat[index]!.mes = '<solve_operate>{"$inc":{"@alice.hp":-50}}</solve_operate>'; await emit('edit', index);
-  await assert.rejects(controller.refresh(), /重放/u); assert.equal(controller.ready, false);
+  await controller.whenIdle();
+  assert.equal(controller.ready, true, '编辑后自动从该楼重放');
+  assert.equal(controller.getValue('@alice.hp'), 50, '按改过的操作重新计算');
+  assert.ok(controller.getHistory().length > before, '旧修订保留');
+  assert.ok(controller.journal.read().some(e => e.code === 'AUTO_REPLAY'));
+  // 原样保存（正文没变）不重放
+  const n = controller.getHistory().length; await emit('edit', index); await controller.whenIdle();
+  assert.equal(controller.getHistory().length, n); assert.equal(controller.ready, true);
+  // 改坏操作块：和模型写坏时一样，这条操作无效并记入反馈，这一楼不再改变量
+  ctx.chat[index]!.mes = '<solve_operate>{"$inc":{"@alice.hp":</solve_operate>'; await emit('edit', index); await controller.whenIdle();
+  assert.equal(controller.ready, true); assert.equal(controller.getValue('@alice.hp'), 100);
+  assert.ok(controller.runtime.getCommit()!.feedback.some(f => f.level === 'L3'));
   controller.dispose();
 });
 

@@ -89,7 +89,7 @@ test('真实overswipe保留旧正文和extra时，新回复从父状态开始并
   message.swipe_id = message.swipes!.length;
   await env.emit('swipe', 1);
   assert.equal(controller.getStatus().ready, true);
-  let blocked = false; controller.intercept([], 0, () => { blocked = true; });
+  let blocked = false; await controller.intercept([], 0, () => { blocked = true; });
   assert.equal(blocked, false);
   await env.emit('start', 'swipe', {}, false);
   message.mes = '另一回复。<solve_operate>{"$inc":{"@alice.hp":-25}}</solve_operate>';

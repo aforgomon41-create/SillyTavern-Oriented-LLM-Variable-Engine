@@ -113,9 +113,13 @@ export function registerMacros(registry: MacroRegistry, read: () => { definition
       category: 'solve', unnamedArgs: [{ name: 'selector', optional: true }],
       description: 'SOLVE 已归档状态',
       handler: (ctx: any) => {
-        const snapshot = read(); // throws clearly if state has not been restored
-        const arg = String(ctx.unnamedArgs?.[0] ?? '').trim();
+        // The operation guide does not depend on the state.
         if (name === 'solve_SOP') return sop();
+        // Not ready (history needs a replay, chat switching…): output nothing rather than stale state or a broken prompt.
+        // The request still goes out; SOLVE tells the player this turn is not tracked.
+        let snapshot: ReturnType<typeof read>;
+        try { snapshot = read(); } catch { return ''; }
+        const arg = String(ctx.unnamedArgs?.[0] ?? '').trim();
         if (name === 'solve_guide') return guide(snapshot.definition, snapshot.state, arg || undefined);
         if (name === 'solve_feedback') return snapshot.feedback.length ? JSON.stringify(snapshot.feedback) : '';
         if (name === 'solve_val') {

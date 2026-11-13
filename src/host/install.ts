@@ -154,9 +154,11 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
           return guardUnboundNativeSave(body, ctx?.getRequestHeaders?.() ?? {}, upstream.bind(scope), () => upstream.call(scope, input, init));
         })();
       }
-      if (!native && url.origin === scope.location.origin && /^\/api\/(?:backends\/(?:chat-completions|text-completions)|novelai|horde|kobold)\/generate(?:\/|$)/u.test(url.pathname)) {
-        const status = sessions?.controller?.getStatus();
-        if (status && (!status.ready || status.pendingCount || (status.busy && !status.operatorBusy))) return Promise.reject(new Error('SOLVE：变量状态未就绪，请先在调试面板处理待保存操作或重放历史'));
+      // Script carriers have no generate interceptor: the same check runs here. It never rejects the request (see intercept()).
+      const controller = sessions?.controller;
+      if (!native && controller && url.origin === scope.location.origin && /^\/api\/(?:backends\/(?:chat-completions|text-completions)|novelai|horde|kobold)\/generate(?:\/|$)/u.test(url.pathname)
+        && scope.SillyTavern?.getContext?.()?.chatId === controller.boundChatId) {
+        return controller.beforeRequest().catch(() => undefined).then(() => upstream.call(scope, input, init));
       }
       return upstream.call(scope, input, init);
     };

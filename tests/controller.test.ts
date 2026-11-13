@@ -100,14 +100,17 @@ test('切换Swipe恢复各自状态，新回复从上游开始而非重复扣血
   assert.equal((controller.runtime.getState().data.characters as any).alice.hp, 85);
   controller.dispose();
 });
-test('忙碌时原生入口阻止生成，过滤只修改发送副本', async () => {
+test('忙碌时原生入口等 SOLVE 忙完再发送，从不中止；过滤只修改发送副本', async () => {
   let release!: (text: string) => void;
   const { controller, ctx } = await setup({ mode: 'out-of-band', operatorRequest: () => new Promise(r => { release = r; }) });
   ctx.chat.push({ mes: '剧情', extra: {} }); const task = controller.processMessage(1);
   while (!release) await new Promise(r => setTimeout(r, 1));
-  let aborted = false; controller.intercept([], 1000, () => { aborted = true; }); assert.equal(aborted, true);
-  release('{"$inc":{"@alice.hp":-10}}'); await task;
-  const copy = structuredClone(ctx.chat); controller.intercept(copy, 1000, () => {});
+  let aborted = false, sent = false;
+  const waiting = controller.intercept([], 1000, () => { aborted = true; }).then(() => { sent = true; });
+  await new Promise(r => setTimeout(r, 250)); assert.equal(sent, false, '操作模型还在跑，请求应等待');
+  release('{"$inc":{"@alice.hp":-10}}'); await task; await waiting;
+  assert.equal(sent, true); assert.equal(aborted, false);
+  const copy = structuredClone(ctx.chat); await controller.intercept(copy, 1000, () => {});
   assert.equal(copy[1]!.mes, '剧情'); assert.ok(ctx.chat[1]!.mes.includes('<solve_operate>'));
   controller.dispose();
 });
@@ -132,8 +135,10 @@ test('中间楼层切Swipe后未重放的下游禁止直接接续和输出宏', 
   const next = addReply('{"$inc":{"@alice.hp":-10}}'); await controller.processMessage(next);
   message.swipe_id = 1; message.mes = message.swipes![1]!; message.extra = structuredClone(aExtra);
   await emit('swipe', index); await controller.processMessage(index);
-  assert.throws(() => macros.get('solve_json').handler({ unnamedArgs: [] }), /同一历史/u);
-  let aborted = false; controller.intercept([], 1000, () => { aborted = true; }); assert.equal(aborted, true);
+  assert.equal(macros.get('solve_json').handler({ unnamedArgs: [] }), '', '历史未对齐时宏输出空内容，不把过时的状态交给模型');
+  assert.match(macros.get('solve_SOP').handler({ unnamedArgs: [] }), /SOLVE 变量操作说明/u, '操作说明不依赖状态');
+  let aborted = false; await controller.intercept([], 1000, () => { aborted = true; }); assert.equal(aborted, false, '历史不一致时照常发送，不中止');
+  assert.ok(controller.journal.read().some(l => l.code === 'REQUEST_UNTRACKED'), '记下这一轮不更新变量');
   await controller.replayFrom(next);
   assert.equal((controller.runtime.getState().data.characters as any).alice.hp, 60);
   controller.dispose();
@@ -155,7 +160,7 @@ test('状态栏撤销只退回最新一次玩家操作，正文同步；旁白�
   await controller.submit({ $inc: { '@alice.hp': 5 } }, { actionId: 'a1', index, authorInputs: { narrate: '艾琳喝下药水' } });
   await controller.submit({ $inc: { '@alice.hp': 1 } }, { actionId: 'a2', index });
   assert.equal(hp(), start + 6);
-  const copy = structuredClone(ctx.chat); controller.intercept(copy, 1000, () => {});
+  const copy = structuredClone(ctx.chat); await controller.intercept(copy, 1000, () => {});
   assert.match(copy[index]!.mes, /（玩家在状态栏中：艾琳喝下药水）$/u);
   assert.doesNotMatch(copy[index]!.mes, /solve_/u);
   await controller.undoUser({ index });
