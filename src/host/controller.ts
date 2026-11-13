@@ -260,9 +260,22 @@ export class SillyTavernController {
         this.record('SWIPE_SELECTED', `已恢复楼层 ${index} 当前回复的变量状态`);
       } catch (error) { this.readyState = false; onError(error); }
     });
-    this.listen('MESSAGE_EDITED', (index: number) => {
-      if (this.context().chat[index]?.extra?.solve?.headId) this.markDirty('消息已编辑，请重放变更楼层及后续历史');
-      else this.record('MESSAGE_EDITED', '未归档楼层已编辑，变量历史保持原样');
+    // An edited reply is reread automatically from that floor on (the operations are in the reply text; no model request).
+    this.listen('MESSAGE_EDITED', async (index: number) => {
+      const message = this.context().chat[index], headId = message?.extra?.solve?.headId;
+      if (!headId) { this.record('MESSAGE_EDITED', '未归档楼层已编辑，变量历史保持原样'); return; }
+      try {
+        const commit = this.runtime.archive.commits[headId];
+        if (commit?.textDigest && commit.textDigest === await hash(message!.mes)) { this.record('MESSAGE_EDITED', `楼层 ${index} 正文没有变化，变量历史保持原样`); return; }
+      } catch { /* compare failed: replay to be safe */ }
+      this.markDirty(`楼层 ${index} 已编辑，正在从这一楼自动重放`);
+      try {
+        await this.replayFrom(index);
+        this.record('AUTO_REPLAY', `楼层 ${index} 已编辑，已自动从这一楼重放`);
+      } catch (error) {
+        this.reason = `楼层 ${index} 已编辑，自动重放没有完成：${describeError(error).message}。可以在调试面板的历史里修正后重放`;
+        this.notify(); onError(error);
+      }
     });
     const deleted = async () => {
       this.operator?.abort(); this.adapter.invalidate(); this.nativeHistoryChanged = true;

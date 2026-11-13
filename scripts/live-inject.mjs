@@ -135,17 +135,22 @@ try {
   check('卡里没写的变量照常注入', count(m, DATA) === 1);
 
   phase = 'edited';
-  // 改过一条早先带变量的回复后 SOLVE 需要重放；这时它不能拦下酒馆的生成：请求照常发出，弹提示说明这一轮不更新变量。
-  const target = await page.evaluate(() => SillyTavern.getContext().chat.findIndex(m => !m.is_user && m.extra?.solve?.headId && /<solve_operate>/u.test(m.mes)));
+  // 改了一条带变量的回复：SOLVE 自动从这一楼重放，变量按改过的内容重算；生成照常、不弹警告。
+  const target = await page.evaluate(() => { const chat = SillyTavern.getContext().chat; for (let i = chat.length - 1; i >= 0; i--) if (!chat[i].is_user && chat[i].extra?.solve?.headId && /<solve_operate>/u.test(chat[i].mes)) return i; return -1; });
   const mes = page.locator(`#chat .mes[mesid="${target}"]`);
   await mes.scrollIntoViewIfNeeded(); await mes.hover();
   await mes.locator('.mes_edit').first().click({ force: true });
   const area = page.locator(`#chat .mes[mesid="${target}"] .edit_textarea`).first();
-  await area.fill((await area.inputValue()).replace('雨还在下。', '雨还在下着。'));
+  const original = await area.inputValue();
+  await area.fill(original.replace('"meta.weather":"雨"', '"meta.weather":"雪"'));
   await page.locator(`#chat .mes[mesid="${target}"] .mes_edit_done`).first().click({ force: true });
-  await page.waitForTimeout(1500);
-  const dirty = await page.evaluate(() => SOLVE.controller.getStatus());
-  check('改了旧回复后 SOLVE 提示需要重放', !dirty.ready && /编辑|重放/u.test(dirty.reason), dirty.reason);
+  const replayed = await page.waitForFunction(() => { const s = SOLVE.controller.getStatus(); return s.ready && !s.busy && SOLVE.controller.getState().data.meta.weather === '雪'; }, null, { timeout: 30000 }).then(() => true, () => false);
+  const st = await page.evaluate(() => SOLVE.controller.getStatus());
+  check('改了回复里的操作后自动重放，变量按新内容重算（雨 → 雪）', replayed, `ready=${st.ready} · ${st.reason || '无待处理'}`);
+  check('调试日志记下自动重放', await page.evaluate(() => SOLVE.controller.journal.read().some(l => l.code === 'AUTO_REPLAY')));
+  await page.waitForTimeout(800);
+  const barText = await page.evaluate(() => document.querySelector('solve-statusbar')?.shadowRoot?.textContent ?? '');
+  check('状态栏显示新的天气', barText.includes('雪'));
   await page.evaluate(() => document.querySelectorAll('#toast-container .toast').forEach(t => t.remove()));
   const before = ((await mock('/__mock/requests')).requests ?? await mock('/__mock/requests')).length;
   await mock('/__mock/next', { content: '<content>\n巷子里很安静。\n</content>' });
@@ -153,10 +158,10 @@ try {
   await page.fill('#send_textarea', '我拐进小巷。'); await page.click('#send_but');
   await page.waitForFunction(n => SillyTavern.getContext().chat.length >= n + 2, n, { timeout: 60000 }).catch(() => undefined);
   await page.waitForTimeout(1500);
-  const after = ((await mock('/__mock/requests')).requests ?? await mock('/__mock/requests')).length;
-  check('这时点发送：请求照常到达模型', after === before + 1, `${after - before} 次`);
-  const toast = await page.evaluate(() => [...document.querySelectorAll('#toast-container .toast')].map(t => t.innerText).join(' | '));
-  check('并提示这一轮不更新变量、去哪里处理', /不会更新变量/u.test(toast) && /SOLVE 调试/u.test(toast), toast.replace(/\s+/gu, ' ').slice(0, 120));
+  const all = (await mock('/__mock/requests')).requests ?? await mock('/__mock/requests');
+  check('再发送：请求到达模型，没有警告提示', all.length === before + 1 && !(await page.evaluate(() => document.querySelector('#toast-container .toast-warning'))), `${all.length - before} 次`);
+  const last = all.at(-1)?.body?.messages ?? [];
+  check('再发送：注入的变量是重放后的（雪）', /weather:\s*雪/u.test(last[indexOf(last, DATA)]?.content ?? ''));
 } catch (error) {
   check('流程未中断', false, `${phase}: ${String(error).slice(0, 400)}`);
 } finally {
