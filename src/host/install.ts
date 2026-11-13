@@ -16,6 +16,8 @@ import type { BgmTrack } from '../types.js';
 
 export type Carrier = 'native' | 'dynamic' | 'embedded';
 const registryKey = '__SOLVE_RUNTIME_V1__';
+/** Where this runtime was loaded from (tells dev builds apart: the folder name carries the build). Empty in the single-file carrier. */
+const LOADED_FROM: string | undefined = (() => { try { return (import.meta as { url?: string }).url || undefined; } catch { return undefined; } })();
 export function hostWindow(): any {
   if (typeof window === 'undefined') return globalThis;
   try { if (window.parent !== window && (window.parent as any).SillyTavern?.getContext) return window.parent; } catch { /* reject below */ }
@@ -62,7 +64,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     return manager;
   };
   const sessionWatchers = new Set<() => void>();
-  let disposeInjection: (() => void) | undefined;
+  let injection: ReturnType<typeof installInjection> | undefined;
   const manager = () => {
     if (!scope.SillyTavern?.getContext) throw new Error('SOLVE需要在SillyTavern 1.19页面内运行');
     if (!sessions) {
@@ -71,7 +73,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
       sessions.subscribe(() => { for (const watcher of sessionWatchers) watcher(); });
       for (const watcher of sessionWatchers) watcher();
       // 随正文输出：生成前把操作说明、指南、变量和反馈注入写正文的模型（按设置 › 变量更新 › 提示词注入）。
-      disposeInjection ??= installInjection(scope, () => sessions?.controller);
+      injection ??= installInjection(scope, () => sessions?.controller);
     }
     return sessions;
   };
@@ -101,7 +103,9 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     detach() { sessions?.detach(); },
     get controller() { return sessions?.controller; },
     get sessions() { return manager(); },
-    distribution() { return { native, providers: [...providers].map(([id, kind]) => ({ id, kind })) }; },
+    distribution() { return { native, providers: [...providers].map(([id, kind]) => ({ id, kind })), ...(LOADED_FROM ? { source: LOADED_FROM } : {}) }; },
+    /** What the last generation got from SOLVE's prompt injection (随正文输出). */
+    injection() { return injection?.report(); },
     use(options: { kind: Exclude<Carrier, 'native'>; debugger?: DebugTarget }) {
       const owner = `card:${scope.crypto.randomUUID()}`;
       providers.set(owner, options.kind); if (options.debugger) target = options.debugger;
@@ -128,7 +132,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
         async dispose() {
           if (disposed) return; disposed = true; providers.delete(owner);
           if (sessions) await sessions.unregister(owner);
-          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; disposeInjection?.(); disposeInjection = undefined; sessions?.dispose(); sessions = undefined; for (const watcher of sessionWatchers) watcher(); closeDebugger(); }
+          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; injection?.dispose(); injection = undefined; sessions?.dispose(); sessions = undefined; for (const watcher of sessionWatchers) watcher(); closeDebugger(); }
         }
       });
     }
@@ -172,6 +176,8 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
         sessions: () => sessions,
         onSessions: (listener: () => void) => { sessionWatchers.add(listener); return () => { sessionWatchers.delete(listener); }; },
         bgm: () => sessions ? bgm : undefined,
+        injection: () => injection?.report(),
+        ...(LOADED_FROM ? { source: LOADED_FROM } : {}),
       });
     }).catch(error => { disposeStatusBar = undefined; console.warn('[SOLVE] 状态栏加载失败', error); });
   };

@@ -18,6 +18,10 @@ export interface DebugHost {
     getStatus(): any;
     inspectArchive?(commitId?: string): Promise<any>;
   };
+  /** Where SOLVE was loaded from (a dev build's folder name tells which build it is). */
+  source?: string;
+  /** What the last generation got from the prompt injection (随正文输出). */
+  injection?(): { at: number; type: string; dryRun: boolean; skipped?: string; items: { key: string; label: string; on: boolean; why?: string; where?: string; chars?: number }[] } | undefined;
   /** In-memory demo (preview): offers failure simulation and a scripted next reply. */
   demo?: { setFailure(v: boolean): void; addReply(): Promise<void> };
 }

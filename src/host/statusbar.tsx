@@ -30,7 +30,7 @@ import type { DebugHost } from '../ui/debug/shared.js';
 import { StructureBuilder, type BuilderHost } from '../ui/builder/builder.js';
 import { officialStructure } from '../official/structure.js';
 import { VERSION } from '../version.js';
-import { UPDATE_PREFS, detectCardMacros, injectTexts } from './inject.js';
+import { UPDATE_PREFS, detectCardMacros, injectTexts, type InjectionReport } from './inject.js';
 import type { InjectKey } from '../ui/statusbar/inject.js';
 
 const PREFS = 'solve.statusbar.prefs.v1';
@@ -51,7 +51,7 @@ interface ControllerLike {
 }
 interface SessionsLike { controller?: ControllerLike; subscribe(listener: () => void): () => void; getStatus?(): any; inspectArchive?(commitId?: string): Promise<any> }
 interface BgmLike { status(): BgmStatus; setEnabled(v: boolean): void; setVolume(v: number): void; addTracks(t: BgmTrack[]): void; removeTrack(id: string): void; subscribe(l: () => void): () => void }
-export interface StatusBarHost { sessions(): SessionsLike | undefined; onSessions(listener: () => void): () => void; bgm(): BgmLike | undefined }
+export interface StatusBarHost { sessions(): SessionsLike | undefined; onSessions(listener: () => void): () => void; bgm(): BgmLike | undefined; injection?(): InjectionReport | undefined; source?: string }
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const read = <T,>(scope: any, key: string, fallback: T): T => { try { return JSON.parse(scope.localStorage?.getItem(key) ?? 'null') ?? fallback; } catch { return fallback; } };
@@ -189,6 +189,8 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
   }, [scope]);
   const debugHost = React.useMemo<DebugHost>(() => ({
     version: `SOLVE ${VERSION}`,
+    ...(host.source ? { source: host.source } : {}),
+    ...(host.injection ? { injection: host.injection } : {}),
     sessions: {
       get controller() { return host.sessions()?.controller as DebugHost['sessions']['controller']; },
       subscribe: (listener: () => void) => host.onSessions(listener),

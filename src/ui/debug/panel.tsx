@@ -105,7 +105,9 @@ function Overview({ host }: { host: DebugHost }) {
     ['待保存', status.pendingCount ? <K.Badge key="p" tone="warning">{status.pendingCount}</K.Badge> : '无'],
     ['模式', status.mode === 'out-of-band' ? '独立操作模型' : '回复内操作块'],
     ['恢复来源', status.cache?.enabled ? (status.cache.source === 'archive' ? '聊天归档' : '浏览器快照') : '聊天归档（缓存关闭）'],
+    ...(host.source ? [['加载自', <code key="s" title={host.source}>{host.source.replace(/^https?:\/\/[^/]+/u, '').replace(/\/[^/]*$/u, '/')}</code>] as [string, React.ReactNode]] : []),
   ];
+  const inj = host.injection?.();
   return (
     <>
       {!status.ready || pending.length ? (
@@ -126,6 +128,14 @@ function Overview({ host }: { host: DebugHost }) {
       <section {...solve('debug-facts')}>
         {facts.map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}
       </section>
+      {status.mode !== 'out-of-band' && host.injection ? (
+        <K.Card title="提示词注入（最近一次生成）" meta={inj ? new Date(inj.at).toLocaleTimeString() + (inj.dryRun ? ' · 试运行' : '') : undefined}>
+          {!inj ? <p {...part('none')}>还没有生成过。发一条消息，或用提示词查看器试运行一次。</p>
+            : inj.skipped ? <p {...part('none')}>没有注入：{inj.skipped}</p>
+            : <ul {...solve('debug-inject')}>{inj.items.map(i => <li key={i.key}><K.Badge tone={i.on ? 'accent' : 'neutral'}>{i.on ? '已注入' : '未注入'}</K.Badge> <b>{i.label}</b> <small>{i.on ? `${i.chars} 字 · ${i.where}` : i.why}</small></li>)}</ul>}
+          <div {...part('more')}><K.Button size="sm" variant="ghost" onClick={() => go('prompt')}>看内容 ›</K.Button></div>
+        </K.Card>
+      ) : null}
       <K.Card title="最近一次变化" meta={head ? `提交 ${short(head.id)}` : undefined}>
         {head ? <>
           <Actions actions={head.actions} />
