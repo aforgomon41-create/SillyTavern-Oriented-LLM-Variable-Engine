@@ -13,7 +13,10 @@ export type SpoilerLevel = 'public' | 'spoiler' | 'hidden';
 export interface FieldNode {
   type: FieldType;
   label?: string;
+  /** Explanation for the player (status bar, structure editor). */
   desc?: string;
+  /** Explanation for the model (the 数据结构 prompt); falls back to `desc`. Presentation only, not in the fingerprint. */
+  hint?: string;
   /** object */
   fields?: Record<string, FieldNode>;
   /** record value / array element */
@@ -107,7 +110,7 @@ function problem(path: string, message: string): never { return fail('STRUCTURE_
 function build(node: FieldNode, path: string[], out: Collected, modules: Set<string>, inModule: boolean): { schema: z.ZodType; hasDefault: boolean } {
   const at = path.join('.');
   if (!node || typeof node !== 'object' || !TYPES.has(node.type)) problem(at, '未知字段类型');
-  const known = ['type','label','desc','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal','edit','actions','reveal','create'];
+  const known = ['type','label','desc','hint','fields','of','variants','entity','keys','uniqueBy','sections','values','to','onDelete','min','max','maxDelta','required','optional','nullable','default','module','list','computed','stamp','spoiler','as','readonly','internal','edit','actions','reveal','create'];
   const extra = Object.keys(node).filter(key => !known.includes(key));
   if (extra.length) problem(at, `未知属性：${extra.join(', ')}`);
   if (node.module !== undefined) {
@@ -128,6 +131,7 @@ function build(node: FieldNode, path: string[], out: Collected, modules: Set<str
   if (node.internal) out.internal.push(at);
   const meta: Record<string, Json> = { type: node.type };
   if (node.desc !== undefined) meta.desc = node.desc;
+  if (node.hint !== undefined) { if (typeof node.hint !== 'string') problem(at, 'hint 必须是文字'); meta.hint = node.hint; }
   if (node.values) meta.values = [...node.values];
   if (node.min !== undefined) meta.min = node.min;
   if (node.max !== undefined) meta.max = node.max;
@@ -135,6 +139,8 @@ function build(node: FieldNode, path: string[], out: Collected, modules: Set<str
   if (node.entity !== undefined) meta.entity = node.entity;
   if (node.keys !== undefined) meta.keys = node.keys;
   if (node.stamp) meta.stamp = true;
+  if (node.required) meta.required = true;
+  if (node.nullable) meta.nullable = true;
   if (node.sections !== undefined) {
     if (node.type !== 'object' || !Array.isArray(node.sections)) problem(at, 'sections 只能用于 object');
     const seen = new Set<string>();

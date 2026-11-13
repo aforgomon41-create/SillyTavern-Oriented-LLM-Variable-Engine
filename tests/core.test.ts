@@ -162,7 +162,7 @@ test('宏注册两个格式，读取同一状态，支持选择器', async () =>
   const { def, state } = await fixture();
   const macros = new Map<string, any>();
   registerMacros({ registerMacro: (name, opts) => { macros.set(name, opts); return opts; } }, () => ({ definition: def, state, feedback: [] }));
-  assert.equal(macros.size, 6);
+  assert.equal(macros.size, 7);
   assert.equal(JSON.parse(macros.get('solve_json').handler({ unnamedArgs: ['operator'] })).characters['@alice'].bio, undefined);
   assert.ok(macros.get('solve_toon').handler({ unnamedArgs: ['@alice.hp'] }).includes('100'));
   assert.equal(macros.get('solve_val').handler({ unnamedArgs: ['@alice.hp'] }), '100');

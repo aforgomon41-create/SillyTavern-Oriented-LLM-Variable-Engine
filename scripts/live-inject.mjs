@@ -1,5 +1,5 @@
 // 实机验收：随正文输出时的提示词注入（设置 › 变量更新 › 提示词注入）。
-// 角色卡里不写任何 SOLVE 宏，发给模型的请求里也要有操作说明、指南、当前变量；卡里写了的不重复注入；
+// 角色卡里不写任何 SOLVE 宏，发给模型的请求里也要有操作说明、数据结构、指南、当前变量；卡里写了的不重复注入；
 // 「不注入」时不注入；改位置后按新位置注入。
 //
 // 前提：本机测试酒馆（SillyTavern 1.19 + 酒馆助手）+ 假模型（卡密仓库 test/mock-llm/server.mjs，默认 8787）。
@@ -19,7 +19,7 @@ const tag = mobile ? '390' : '1440';
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok: Boolean(ok), detail }); console.log(`${ok ? '✔' : '✖'} ${name}${detail ? ' — ' + detail : ''}`); };
 const mock = async (path, body) => (await fetch(MOCK + path, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })).json();
-const SOP = 'SOLVE 变量操作说明', DATA = '当前变量（TOON）', GUIDE = '驱动力：目标、想法与规划';
+const SOP = 'SOLVE 变量操作说明', SCHEMA = '## 数据结构', DATA = '当前变量（TOON）', GUIDE = '驱动力：剧情推进后及时更新';
 
 const target = resolve(ST_ROOT, 'public/scripts/extensions/third-party/solve');
 await rm(target, { recursive: true, force: true });
@@ -85,6 +85,9 @@ try {
   let m = await turn('我走进酒馆。');
   check('卡里没写宏：请求里有操作说明', count(m, SOP) === 1, `${count(m, SOP)} 处`);
   check('卡里没写宏：请求里有指南', count(m, GUIDE) >= 1);
+  check('卡里没写宏：请求里有数据结构（字段与说明）', count(m, SCHEMA) === 1 && m.some(x => String(x.content).includes('intro（简介）: 文字 — ')), `${count(m, SCHEMA)} 处`);
+  { const all = m.map(x => String(x.content)).join('\n'), a = all.indexOf(SOP), b = all.indexOf(SCHEMA), c = all.indexOf(GUIDE);
+    check('顺序：操作说明 → 数据结构 → 指南', a >= 0 && a < b && b < c, `${a} / ${b} / ${c}`); }
   check('卡里没写宏：请求里有当前变量', count(m, DATA) === 1);
   let d = indexOf(m, DATA);
   check('变量数据在聊天记录里（深度 2，系统角色）', d > 0 && m[d].role === 'system' && said(m, '我走进酒馆。') - d === 2, `第 ${d + 1}/${m.length} 条 · ${m[d]?.role}（开场白和这一句之前）`);
@@ -97,7 +100,7 @@ try {
   phase = 'off';
   await setPrefs({ ...DEFAULT, mode: 'off' });
   m = await turn('我喝了一口酒。');
-  check('「不注入」：请求里没有操作说明和变量', count(m, SOP) === 0 && count(m, DATA) === 0);
+  check('「不注入」：请求里没有操作说明、数据结构和变量', count(m, SOP) === 0 && count(m, SCHEMA) === 0 && count(m, DATA) === 0);
 
   phase = 'move';
   await setPrefs({ ...DEFAULT, items: { ...DEFAULT.items, sop: { on: true, position: 'chat', depth: 0, role: 'user' }, guide: { ...DEFAULT.items.guide, on: false }, data: { ...DEFAULT.items.data, position: 'before' } } });
@@ -129,9 +132,10 @@ try {
 
   phase = 'card-macros';
   await setPrefs(DEFAULT);
-  await makeChar('{{solve_SOP}}\n一位在王都开酒馆的老板娘。');
+  await makeChar('{{solve_SOP}}\n{{solve_schema}}\n一位在王都开酒馆的老板娘。');
   m = await turn('我走进酒馆。');
   check('卡里写了 {{solve_SOP}}：操作说明只出现一次', count(m, SOP) === 1, `${count(m, SOP)} 处`);
+  check('卡里写了 {{solve_schema}}：宏展开出数据结构，且只出现一次', count(m, SCHEMA) === 1, `${count(m, SCHEMA)} 处`);
   check('卡里没写的变量照常注入', count(m, DATA) === 1);
 
   phase = 'edited';

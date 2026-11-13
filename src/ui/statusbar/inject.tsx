@@ -9,7 +9,7 @@ import * as React from 'react';
 import { useKit } from '../kit.js';
 import { part, solve } from './widgets.js';
 
-export type InjectKey = 'sop' | 'guide' | 'data' | 'feedback';
+export type InjectKey = 'sop' | 'schema' | 'guide' | 'data' | 'feedback';
 export type InjectPosition = 'before' | 'after' | 'chat';
 export type InjectRole = 'system' | 'user' | 'assistant';
 export interface InjectItem { on: boolean; position: InjectPosition; depth: number; role: InjectRole }
@@ -24,6 +24,7 @@ export const INJECT_DEFAULTS: InjectPrefs = {
   mode: 'auto', format: 'toon',
   items: {
     sop: { on: true, position: 'after', depth: 4, role: 'system' },
+    schema: { on: true, position: 'after', depth: 4, role: 'system' },
     guide: { on: true, position: 'after', depth: 4, role: 'system' },
     data: { on: true, position: 'chat', depth: 2, role: 'system' },
     feedback: { on: true, position: 'chat', depth: 0, role: 'system' },
@@ -31,7 +32,8 @@ export const INJECT_DEFAULTS: InjectPrefs = {
 };
 export const INJECTS: { key: InjectKey; label: string; macro: string; text: string }[] = [
   { key: 'sop', label: '操作说明', macro: '{{solve_SOP}}', text: '怎么写 <solve_operate>、每个算子的用法' },
-  { key: 'guide', label: '指南', macro: '{{solve_guide}}', text: '结构作者写给模型的规则，开启的模块和满足条件的指南' },
+  { key: 'schema', label: '数据结构', macro: '{{solve_schema}}', text: '每个字段的键名、类型和说明，只列开启的模块' },
+  { key: 'guide', label: '指南', macro: '{{solve_guide}}', text: '跨字段的规则：通用规则、开启模块的规则、满足条件的指南' },
   { key: 'data', label: '变量数据', macro: '{{solve_toon}} / {{solve_json}}', text: '当前变量，按「叙事」视图和投影规则输出' },
   { key: 'feedback', label: '上轮反馈', macro: '{{solve_feedback}}', text: '上一轮被修正或失败的操作；没有时不注入' },
 ];

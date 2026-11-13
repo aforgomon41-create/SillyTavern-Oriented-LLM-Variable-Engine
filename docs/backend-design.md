@@ -24,7 +24,7 @@
 
 ## 输出与宏
 
-`solve_toon` 与 `solve_json` 使用完全相同的 full/narrative/operator 或路径投影，均遵循模块过滤、实体 @ 标记。JSON 使用紧凑序列化。保留 solve_val、solve_SOP、solve_guide、solve_feedback。宏只读已确认归档且与当前聊天/Swipe 对齐的内存状态；未就绪（未恢复完成、历史未对齐、消息已编辑待重放）时状态类宏输出空内容（solve_SOP 不依赖状态，照常输出），不异步查询数据库。SOLVE 从不中止酒馆的生成请求：正在保存或更新时请求等待（最多 60 秒），需要处理时请求照常发出、这一轮不更新变量，并提示玩家原因（调试面板概览可处理）。
+`solve_toon` 与 `solve_json` 使用完全相同的 full/narrative/operator 或路径投影，均遵循模块过滤、实体 @ 标记。JSON 使用紧凑序列化。保留 solve_val、solve_SOP、solve_guide、solve_feedback，新增 solve_schema（由结构声明生成的数据结构说明，跟随模块开关）。宏只读已确认归档且与当前聊天/Swipe 对齐的内存状态；未就绪（未恢复完成、历史未对齐、消息已编辑待重放）时状态类宏输出空内容（solve_SOP 不依赖状态，照常输出），不异步查询数据库。SOLVE 从不中止酒馆的生成请求：正在保存或更新时请求等待（最多 60 秒），需要处理时请求照常发出、这一轮不更新变量，并提示玩家原因（调试面板概览可处理）。
 
 ## 归档与恢复
 

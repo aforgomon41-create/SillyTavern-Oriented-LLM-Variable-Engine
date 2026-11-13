@@ -25,7 +25,7 @@
 
 以下例子中的 `backend` 为 `SOLVE.controller`。
 
-操作指南可通过 `SOLVE.getGuide(tag?)`、载体入口 `lease.getGuide(tag?)` 或 `backend.getGuide(tag?)` 读取，结果与 `{{solve_guide}}` / `{{solve_guide::combat}}` 共用筛选逻辑。tag是模块名；省略时包含全局指南。支持条件表达式与纯同步条件函数，具体写法见 [authoring.md](authoring.md)。当前聊天未绑定、未就绪或所选历史未对齐时拒绝读取，条件错误包含指南来源。`getContextPreview().guide` 也展示筛选后的指南。
+操作指南可通过 `SOLVE.getGuide(tag?)`、载体入口 `lease.getGuide(tag?)` 或 `backend.getGuide(tag?)` 读取，结果与 `{{solve_guide}}` / `{{solve_guide::combat}}` 共用筛选逻辑。tag是模块名；省略时包含全局指南。支持条件表达式与纯同步条件函数，具体写法见 [authoring.md](authoring.md)。当前聊天未绑定、未就绪或所选历史未对齐时拒绝读取，条件错误包含指南来源。`getContextPreview().guide` 也展示筛选后的指南，`getContextPreview().schema` 是 `{{solve_schema}}` 的数据结构说明。
 
 | 方法 | 返回内容 |
 |---|---|

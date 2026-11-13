@@ -1,14 +1,18 @@
 /**
- * 结构制作 · 提示词（预览三）。写给模型的指南（总指南、模块指南、条件指南）、投影规则（数据里给模型看哪些）、轮次字段。
- * 右边是模型实际收到的内容：用当前聊天的数据，按草稿生成的指南和数据，带字数。
+ * 结构制作 · 提示词。字段说明（写进「数据结构」，按模块分组）、写给模型的规则（总规则、模块规则、条件指南）、
+ * 投影规则（数据里给模型看哪些）、轮次字段。
+ * 右边是模型实际收到的内容：用当前聊天的数据，按草稿生成的数据结构、指南和数据，带字数。
  */
 import * as React from 'react';
 import { arrayMove } from '@dnd-kit/sortable';
 import { useKit } from '../kit.js';
 import { guide as guideText, toToon } from '../../projection.js';
+import { schemaText } from '../../schema-text.js';
+import type { FieldNode } from '../../structure.js';
 import type { ProjectionRule } from '../../types.js';
 import type { StructureDescription } from '../../structure.js';
-import { Field, Select, TextInput, part, solve, useB } from './builder.js';
+import { Field, Select, TextInput, nameOf, part, solve, useB } from './builder.js';
+import { update, type Addr } from './draft.js';
 import { PathInput, PathsInput, SortList, Split, collections, itemBase, pathOptions, useDraftModel } from './common.js';
 
 /** Long text that commits on blur, with a character count. */
@@ -41,13 +45,14 @@ export function PromptPage() {
   const ints = pathOptions(d, []).filter(o => o.type === 'int');
   const editor = (
     <div {...solve('builder-prompt')}>
-      <p {...part('intro')}>指南告诉模型怎么写操作；投影规则决定数据里给模型看哪些，省字数。模块关闭时它的指南和数据都不进提示词。</p>
-      <K.Card title="总指南">
-        <LongText label="总指南" rows={10} value={d.guide ?? ''} placeholder="写给模型：怎么用 <solve_operate> 更新变量、各字段怎么写…" onCommit={v => set({ ...d, guide: v.trim() ? v : undefined } as StructureDescription)} />
+      <p {...part('intro')}>每个字段是什么、怎么填，写在字段说明里，SOLVE 自动整理成「数据结构」发给模型；跨好几个字段的规则写在总规则和模块规则里。投影规则决定数据里给模型看哪些，省字数。模块关闭时，它的字段、说明、规则和数据都不进提示词。</p>
+      <FieldHints />
+      <K.Card title="总规则" meta={<small>总是加入</small>}>
+        <LongText label="总规则" rows={6} value={d.guide ?? ''} placeholder="跨字段的规则，如：先建实体再引用它；实体 ID 用简短英文" onCommit={v => set({ ...d, guide: v.trim() ? v : undefined } as StructureDescription)} />
       </K.Card>
-      <K.Card title="模块指南" meta={<small>模块开启时才加入</small>}>
+      <K.Card title="模块规则" meta={<small>模块开启时才加入</small>}>
         {modules.length ? modules.map(([k, m]) => (
-          <Field key={k} label={m.label ?? k}><LongText label={`${m.label ?? k} 的指南`} rows={3} value={m.guide ?? ''} onCommit={v => set({ ...d, modules: { ...d.modules, [k]: { ...m, guide: v.trim() ? v : undefined } } })} /></Field>
+          <Field key={k} label={m.label ?? k}><LongText label={`${m.label ?? k} 的规则`} rows={3} value={m.guide ?? ''} onCommit={v => set({ ...d, modules: { ...d.modules, [k]: { ...m, guide: v.trim() ? v : undefined } } })} /></Field>
         )) : <p {...part('hint')}>还没有模块。</p>}
       </K.Card>
       <K.Card title="条件指南" meta={<small>满足条件时才加入</small>}>
@@ -124,17 +129,79 @@ function RuleCard({ rule, handle, onChange, onRemove }: { rule: ProjectionRule; 
 function PromptPreview() {
   const K = useKit();
   const { def, state, why } = useDraftModel();
-  const [tab, setTab] = React.useState<'guide' | 'data'>('guide');
-  const out = React.useMemo(() => {
+  const [tab, setTab] = React.useState<'schema' | 'guide' | 'data'>('schema');
+  const out = React.useMemo((): Record<'schema' | 'guide' | 'data', string> | { error: string } | undefined => {
     if (!def || !state) return undefined;
-    try { return { guide: guideText(def, state), data: toToon(def, state) }; } catch (e: any) { return { error: e?.message ?? String(e) }; }
+    try { return { schema: schemaText(def, state), guide: guideText(def, state), data: toToon(def, state) }; } catch (e: any) { return { error: e?.message ?? String(e) }; }
   }, [def, state]);
-  const text = out && !('error' in out) ? (tab === 'guide' ? out.guide : out.data) : '';
+  const ok = out && !('error' in out) ? out : undefined;
+  const text = ok ? ok[tab] : '';
+  const tabs = ([['schema', '数据结构'], ['guide', '规则'], ['data', '数据']] as const).map(([value, label]) => ({ value, label: `${label}${ok ? ` · ${ok[value].length} 字` : ''}` }));
   return (
     <section {...solve('builder-live')} aria-label="模型看到的内容">
       <header><b>模型看到的</b><small>{why ?? '当前聊天的数据，按草稿生成'}</small></header>
-      {K.Segmented ? <K.Segmented label="内容" value={tab} onValueChange={v => setTab(v as 'guide' | 'data')} options={[{ value: 'guide', label: `指南${out && 'guide' in out ? ` · ${out.guide!.length} 字` : ''}` }, { value: 'data', label: `数据${out && 'data' in out ? ` · ${out.data!.length} 字` : ''}` }]} /> : null}
+      {K.Segmented ? <K.Segmented label="内容" value={tab} onValueChange={v => setTab(v as typeof tab)} options={tabs} /> : null}
       {out && 'error' in out ? <p {...part('broken')}>生成出错：{out.error}</p> : <pre {...part('text')}>{text}</pre>}
     </section>
+  );
+}
+
+/** Every field the model can write, grouped by the module that owns it, with its 给模型的说明 (hint). */
+interface HintRow { addr: Addr; path: string; name: string; node: FieldNode; depth: number }
+function hintRows(d: StructureDescription): { module: string; rows: HintRow[] }[] {
+  const groups = new Map<string, HintRow[]>();
+  const walk = (node: FieldNode, addr: Addr, names: string[], module: string, parent: FieldNode | undefined) => {
+    for (const [key, child] of node.fields ? Object.entries(node.fields) : node.of ? [['*', node.of] as const] : []) {
+      const a = [...addr, key];
+      // Not the model's to write: media, engine-kept fields.
+      if (child.readonly || child.internal || a.join('.') === d.round) continue;
+      const own = Array.isArray(child.module) ? child.module.at(-1)! : child.module ?? module;
+      const name = nameOf(child, key, node);
+      const label = key === '*' ? names : [...names, name];
+      if (key !== '*') {
+        const list = groups.get(own) ?? []; groups.set(own, list);
+        list.push({ addr: a, path: a.join('.'), name: label.join(' › '), node: child, depth: a.filter(k => k !== '*').length - 1 });
+      }
+      walk(child, a, label, own, node);
+    }
+    void parent;
+  };
+  walk({ type: 'object', fields: d.fields }, [], [], '', undefined);
+  return [...groups].map(([module, rows]) => ({ module, rows }));
+}
+function FieldHints() {
+  const K = useKit(), { d, set } = useB();
+  const groups = React.useMemo(() => hintRows(d), [d]);
+  const [q, setQ] = React.useState('');
+  const [onlyEmpty, setOnlyEmpty] = React.useState(false);
+  const total = groups.reduce((n, g) => n + g.rows.length, 0), written = groups.reduce((n, g) => n + g.rows.filter(r => r.node.hint || r.node.desc).length, 0);
+  const query = q.trim().toLowerCase();
+  const show = (r: HintRow) => (!onlyEmpty || !(r.node.hint || r.node.desc)) && (!query || r.name.toLowerCase().includes(query) || r.path.toLowerCase().includes(query));
+  return (
+    <K.Card title="字段说明" meta={<small>{written} / {total} 个字段写了说明</small>}>
+      <div {...solve('builder-hints')}>
+        <div {...part('tools')}>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜索字段" aria-label="搜索字段说明" />
+          <label><input type="checkbox" checked={onlyEmpty} onChange={e => setOnlyEmpty(e.target.checked)} /> 只看没写的</label>
+        </div>
+        {groups.map(g => {
+          const rows = g.rows.filter(show);
+          if (!rows.length) return null;
+          const label = g.module ? d.modules?.[g.module]?.label ?? g.module : '通用';
+          return (
+            <section key={g.module || '-'} {...part('group')} aria-label={`${label}的字段说明`}>
+              <h5>{label}{g.module ? <small>模块关闭时这些字段和说明都不发给模型</small> : <small>总是发给模型</small>}</h5>
+              {rows.map(r => (
+                <div key={r.path} {...part('row')} style={{ '--depth': Math.min(r.depth, 4) } as React.CSSProperties}>
+                  <span {...part('name')}><b>{r.name}</b><code>{r.path.replace(/\.\*/gu, '.<ID>')}</code></span>
+                  <TextInput label={`${r.name} 给模型的说明`} value={r.node.hint ?? ''} placeholder={r.node.desc ? `用给玩家的说明：${r.node.desc}` : '不写就只给键名和类型'}
+                    onCommit={v => set(update(d, r.addr, { hint: v.trim() || undefined }))} />
+                </div>
+              ))}
+            </section>
+          );
+        })}
+      </div>
+    </K.Card>
   );
 }

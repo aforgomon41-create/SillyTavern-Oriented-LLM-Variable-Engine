@@ -432,11 +432,12 @@ function Prompt() {
   const views = ['narrative', 'operator', 'full', ...Object.keys(c.core.definition.views ?? {})];
   const [view, setView] = React.useState('narrative');
   const [format, setFormat] = React.useState<'toon' | 'json'>('toon');
-  const [sub, setSub] = React.useState<'state' | 'guide' | 'sop' | 'feedback' | 'narration' | 'operator'>('state');
+  const [sub, setSub] = React.useState<'state' | 'schema' | 'guide' | 'sop' | 'feedback' | 'narration' | 'operator'>('state');
   let preview: any; try { preview = c.getContextPreview({ view }); } catch (error) { return <p {...part('error')}>{message(error)}</p>; }
   const narrations = (c.runtime.getCommit()?.actions ?? []).filter(a => a.source === 'user').map(a => (a.authorInputs as any)?.narrate).filter(Boolean) as string[];
   const tabs: { id: typeof sub; label: string; text: string; note: string }[] = [
     { id: 'state', label: '状态', text: format === 'toon' ? preview.toon : preview.json, note: '{{solve_toon}} / {{solve_json}}：按视图筛选后的状态（披露规则、休眠模块已剔除）。' },
+    { id: 'schema', label: '数据结构', text: preview.schema ?? '', note: '{{solve_schema}}：可写字段的键名、类型和说明（结构里的 hint），只列开启的模块。没有结构声明的定义为空。' },
     { id: 'guide', label: '指南', text: preview.guide, note: '{{solve_guide}}：全局指南 + 已开启模块的指南 + 当前条件成立的提示（如清单到预警线）。' },
     { id: 'sop', label: '操作说明', text: preview.sop, note: '{{solve_SOP}}：告诉模型怎样写操作块。' },
     { id: 'feedback', label: '反馈', text: preview.feedback.length ? JSON.stringify(preview.feedback, null, 2) : '', note: '{{solve_feedback}}：上一轮操作的反馈，让模型知道哪些被调整或拒绝。' },

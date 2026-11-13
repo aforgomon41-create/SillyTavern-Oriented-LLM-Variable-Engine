@@ -3,6 +3,7 @@ import { at, assertJson, clone, covered, expand, fail, matches, pointer, segment
 import { EntityGraph } from './entities.js';
 import { dormant, isModuleEnabled } from './schema.js';
 import { selectGuides } from './guides.js';
+import { schemaText } from './schema-text.js';
 import { projectFacets } from './facets.js';
 import type { CompiledDefinition, Feedback, Json, LogicalState, View } from './types.js';
 import { applyProjectionRules, computedFor, listWarnings, migrationText, presetText } from './features.js';
@@ -70,8 +71,8 @@ export function sop(): string {
     '变量有变化时，在回复末尾输出唯一一个 <solve_operate>…</solve_operate>，里面是 JSON：一个操作对象，或按顺序执行的操作对象数组。只写本回合实际发生的变化；没有变化可以不输出。<solve_mutual_operate> 记录的是玩家在状态栏里的操作，不要自己写。',
     '',
     '### 路径',
-    '- 键名用 . 连接。实体用 @ID 开头，不管它放在哪里：@erin.condition、@erin.items.gold.count。不属于实体的数据从根写起：meta.weather。',
-    '- 数据里带 @ 的键（如 @erin）是实体 ID，真实键名不带 @。键名照抄数据里出现的，不要翻译或自造字段。',
+    '- 键名用 . 连接。已有的实体用 @ID 开头，不管它放在哪里：@erin.condition、@erin.items.gold.count。不属于实体的数据从根写起：meta.weather。新建实体写集合路径：characters.erin。',
+    '- 数据里带 @ 的键（如 @erin）是实体 ID，真实键名不带 @。字段名按「数据结构」照抄（没有数据结构时照抄数据里出现的），不要翻译或自造字段。',
     '',
     '### 算子',
     '一个操作对象里可以放多个算子，每个算子的参数里可以写多条。',
@@ -90,6 +91,7 @@ export function sop(): string {
     '',
     '### 执行规则',
     '- 数组里的操作对象按先后执行。同一个对象里的算子按固定顺序执行：$createEntity → $move → $swap → $set → $inc → $transfer → $push → $pull → $unset → $deleteEntity → $group。有先后依赖时（如先新建再修改），拆成数组里的两个对象。',
+    '- 引用（填实体 ID 的字段，如所在地点、在场角色、相关条目）指向的实体必须已经存在，或者在数组里更靠前的操作对象中新建；否则这条操作失败，依赖它的后续操作也会跟着失败。',
     '- 每条操作单独生效，一条失败不影响其他条（$group 内除外）。',
     '- 数值有上下限时超出部分截到边界；有单次变化上限时超出部分被截掉；要求整数的字段写小数会失败；某些数量归零时引擎会自动删除所属实体。',
     '- 轮次等系统字段由引擎维护，不能改；已关闭模块的字段不能读写；清单满了不能再加，先合并或删除旧条目；独一无二的东西加到新持有者名下时，引擎自动从原持有者处移除。',
@@ -98,16 +100,17 @@ export function sop(): string {
     '### 示例',
     '<solve_operate>',
     '[',
-    '  {"$set": {"meta.weather": "暴雨", "@erin.condition": "左臂流血"}, "$inc": {"@erin.rp.gauges.生命.value": -12}},',
-    '  {"$createEntity": {"characters.zealot_a": {"$from": "cult_zealot", "name": "持火把的狂信徒"}}},',
+    '  {"$createEntity": {"places.harbor": {"name": "灰港"}, "characters.zealot_a": {"$from": "cult_zealot", "name": "持火把的狂信徒"}}},',
+    '  {"$set": {"meta.location": "harbor", "meta.weather": "暴雨", "@erin.condition": "左臂流血"}, "$inc": {"@erin.rp.gauges.生命.value": -12}, "$push": {"meta.present": "zealot_a"}},',
     '  {"$group": [{"$transfer": {"@erin.items.gold.count": {"@mira.items.gold.count": 30}}}, {"$inc": {"@erin.items.healing_draught.count": 1}}]}',
     ']',
     '</solve_operate>',
+    '第一个对象新建地点和角色（cult_zealot 是模板），第二个对象才引用它们。示例里的 ID 只为说明写法，实际按「数据结构」和当前数据写。',
   ].join('\n');
 }
 export interface MacroRegistry { registerMacro(name: string, options: Record<string, unknown>): unknown; unregisterMacro?(name: string): unknown }
 export function registerMacros(registry: MacroRegistry, read: () => { definition: CompiledDefinition; state: LogicalState; feedback: Feedback[] }): () => void {
-  const names = ['solve_toon', 'solve_json', 'solve_val', 'solve_SOP', 'solve_guide', 'solve_feedback'];
+  const names = ['solve_toon', 'solve_json', 'solve_val', 'solve_SOP', 'solve_schema', 'solve_guide', 'solve_feedback'];
   for (const name of names) {
     const registered = registry.registerMacro(name, {
       category: 'solve', unnamedArgs: [{ name: 'selector', optional: true }],
@@ -120,6 +123,7 @@ export function registerMacros(registry: MacroRegistry, read: () => { definition
         let snapshot: ReturnType<typeof read>;
         try { snapshot = read(); } catch { return ''; }
         const arg = String(ctx.unnamedArgs?.[0] ?? '').trim();
+        if (name === 'solve_schema') return schemaText(snapshot.definition, snapshot.state);
         if (name === 'solve_guide') return guide(snapshot.definition, snapshot.state, arg || undefined);
         if (name === 'solve_feedback') return snapshot.feedback.length ? JSON.stringify(snapshot.feedback) : '';
         if (name === 'solve_val') {

@@ -13,6 +13,7 @@ import { DiagnosticJournal, describeError, inspectCapabilities } from '../diagno
 import { EntityGraph } from '../entities.js';
 import { at } from '../json.js';
 import { project } from '../projection.js';
+import { schemaText } from '../schema-text.js';
 import type { ProjectionOptions } from '../projection.js';
 import jsonpatch from 'fast-json-patch';
 import { isModuleEnabled } from '../schema.js';
@@ -442,7 +443,7 @@ export class SillyTavernController {
     const state = this.runtime.getState(), def = this.core.definition;
     const context = this.context().chat.slice(Math.max(0, index - 3), index + 1).map(m => stripBlocks(m.mes)).join('\n');
     const encoded = this.options.operatorFormat === 'toon' ? toToon(def, state, { view: 'operator' }) : toJson(def, state, { view: 'operator' });
-    return [sop(), guide(def, state), encoded, JSON.stringify(this.runtime.getCommit()?.feedback ?? []), context].join('\n\n');
+    return [sop(), schemaText(def, state), guide(def, state), encoded, JSON.stringify(this.runtime.getCommit()?.feedback ?? []), context].join('\n\n');
   }
   private async requestOperator(prompt: string): Promise<string> {
     if (this.operator) fail('OPERATOR_BUSY', '操作模型任务正在运行');
@@ -646,7 +647,7 @@ export class SillyTavernController {
   getProjectedState(options: ProjectionOptions = {}) { return project(this.core.definition, this.getState(), options); }
   getContextPreview(options: ProjectionOptions = {}) {
     const state = this.getState(), def = this.core.definition;
-    return { json: toJson(def, state, options), toon: toToon(def, state, options), sop: sop(), guide: guide(def, state), feedback: this.runtime.getCommit()?.feedback ?? [], operatorPrompt: this.operatorPrompt(this.lastAssistantIndex()) };
+    return { json: toJson(def, state, options), toon: toToon(def, state, options), sop: sop(), schema: schemaText(def, state), guide: guide(def, state), feedback: this.runtime.getCommit()?.feedback ?? [], operatorPrompt: this.operatorPrompt(this.lastAssistantIndex()) };
   }
   getDefinitionInfo() {
     const def = this.core.definition;

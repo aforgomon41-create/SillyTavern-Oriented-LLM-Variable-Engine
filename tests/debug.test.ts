@@ -181,7 +181,7 @@ test('快速切聊天使未完成的旧绑定作废，不写入已离开的聊�
   env.switchChat('slow'); await env.emit('chat'); const oldTask = manager.settled(); await started;
   env.switchChat('latest'); await env.emit('chat'); await manager.settled(); release(); await oldTask;
   assert.equal(manager.controller?.boundChatId, 'latest'); assert.equal(env.files.has('slow'), false);
-  assert.equal(env.handlers.get('start')?.size, 1); assert.equal(env.macros.size, 6); manager.dispose();
+  assert.equal(env.handlers.get('start')?.size, 1); assert.equal(env.macros.size, 7); manager.dispose();
 });
 
 test('支持 IndexedDB 的默认接入自动启用缓存', async () => {

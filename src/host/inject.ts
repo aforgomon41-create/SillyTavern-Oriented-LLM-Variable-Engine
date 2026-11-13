@@ -1,21 +1,22 @@
 /**
  * 随正文输出时，把 SOLVE 的提示词注入写正文的模型（设置 › 变量更新 › 提示词注入）。
- * 每次生成前按这台设备上的设置重新计算：操作说明、指南、变量数据（叙事视图）、上轮反馈，
+ * 每次生成前按这台设备上的设置重新计算：操作说明、数据结构、指南、变量数据（叙事视图）、上轮反馈，
  * 用酒馆的扩展提示词（setExtensionPrompt）放到所选位置。卡里已经写了对应宏的，自动模式下不重复注入。
  * 独立操作模型（out-of-band）、聊天未绑定或历史未对齐时清空注入。
  */
 import { guide, sop, toJson, toToon } from '../projection.js';
+import { schemaText } from '../schema-text.js';
 import { INJECT_DEFAULTS, INJECTS, injected, type InjectKey, type InjectPrefs } from '../ui/statusbar/inject.js';
 import type { SillyTavernController } from './controller.js';
 
 export const UPDATE_PREFS = 'solve.update.v1';
-// The tavern joins prompts of the same place in key order: numbered keys keep 操作说明 → 指南 → 变量 → 反馈.
+// The tavern joins prompts of the same place in key order: numbered keys keep 操作说明 → 数据结构 → 指南 → 变量 → 反馈.
 const KEY = (k: InjectKey) => `solve_inject_${INJECTS.findIndex(x => x.key === k) + 1}_${k}`;
 // SillyTavern extension_prompt_types / extension_prompt_roles
 const POSITION = { before: 2, after: 0, chat: 1 } as const;
 const ROLE = { system: 0, user: 1, assistant: 2 } as const;
 const MACROS: Record<InjectKey, RegExp> = {
-  sop: /\{\{\s*solve_SOP\b/iu, guide: /\{\{\s*solve_guide\b/iu, data: /\{\{\s*solve_(?:toon|json)\b/iu, feedback: /\{\{\s*solve_feedback\b/iu,
+  sop: /\{\{\s*solve_SOP\b/iu, schema: /\{\{\s*solve_schema\b/iu, guide: /\{\{\s*solve_guide\b/iu, data: /\{\{\s*solve_(?:toon|json)\b/iu, feedback: /\{\{\s*solve_feedback\b/iu,
 };
 
 export function readInjectPrefs(scope: any): InjectPrefs {
@@ -51,6 +52,7 @@ export function injectTexts(controller: SillyTavernController, format: InjectPre
   const data = format === 'json' ? toJson(def, state, { view: 'narrative' }) : toToon(def, state, { view: 'narrative' });
   return {
     sop: sop(),
+    schema: schemaText(def, state),
     guide: guide(def, state),
     data: data ? `当前变量（${format === 'json' ? 'JSON' : 'TOON'}）：\n${data}` : '',
     feedback: feedback.length ? `上一回合的变量操作反馈（照此改正）：\n${JSON.stringify(feedback)}` : '',

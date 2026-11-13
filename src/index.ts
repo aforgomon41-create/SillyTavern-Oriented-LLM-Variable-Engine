@@ -8,6 +8,7 @@ export { SolveRuntime } from './runtime.js';
 export { IndexedDbCache } from './cache.js';
 export type { CacheLimits, CacheStats } from './cache.js';
 export * from './projection.js';
+export { schemaText } from './schema-text.js';
 export * from './parser.js';
 export * from './diagnostics.js';
 export * from './authoring.js';

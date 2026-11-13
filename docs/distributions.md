@@ -35,7 +35,7 @@ await SOLVE.register({
 import 'https://aforgomon41-create.github.io/sillytavern-kami-preset/solve/dist/0.9.0-preview.1/auto.js';
 ```
 
-`auto.js` 加载 SOLVE，并把官方数据结构绑定到脚本运行时打开的那张卡（必须放在角色脚本里，玩家要在酒馆助手里允许这张卡的脚本）。卡的描述或世界书里写上 `{{solve_SOP}}`、`{{solve_guide}}`、`{{solve_toon}}`，模型才能看到操作说明和变量。要用自己的结构就改用上面的 `dynamic.js`。
+`auto.js` 加载 SOLVE，并把官方数据结构绑定到脚本运行时打开的那张卡（必须放在角色脚本里，玩家要在酒馆助手里允许这张卡的脚本）。卡的描述或世界书里写上 `{{solve_SOP}}`、`{{solve_schema}}`、`{{solve_guide}}`、`{{solve_toon}}`，模型才能看到操作说明、数据结构和变量（不写时 SOLVE 自动注入，见设置 › 变量更新 › 提示词注入）。要用自己的结构就改用上面的 `dynamic.js`。
 
 ## 卡内单文件
 

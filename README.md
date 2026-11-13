@@ -31,10 +31,11 @@
 await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characters: ['角色文件名.png'] });
 ```
 
-给模型看的内容（操作说明、指南、当前变量、上轮反馈）由 SOLVE 在每次生成前自动注入，不用手写。位置和开关在 ⚙ 设置 › 变量更新 › 提示词注入里调，默认：操作说明和指南放在聊天记录之前，变量放在聊天记录倒数第 2 条之前，反馈放在最后。想自己决定放在哪里，也可以在角色描述、世界书或预设里写宏，写了的那一段就不再自动注入：
+给模型看的内容（操作说明、数据结构、指南、当前变量、上轮反馈）由 SOLVE 在每次生成前自动注入，不用手写。位置和开关在 ⚙ 设置 › 变量更新 › 提示词注入里调，默认：操作说明、数据结构和指南放在聊天记录之前，变量放在聊天记录倒数第 2 条之前，反馈放在最后。想自己决定放在哪里，也可以在角色描述、世界书或预设里写宏，写了的那一段就不再自动注入：
 
 ```text
 {{solve_SOP}}
+{{solve_schema}}
 {{solve_guide}}
 当前变量：{{solve_toon}}
 ```
@@ -80,7 +81,8 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | 宏 | 内容 |
 |---|---|
 | `{{solve_SOP}}` | 怎么写 `<solve_operate>`：每个算子的用法、执行规则和示例 |
-| `{{solve_guide}}` | 结构作者写的指南：总指南、开启模块的指南、满足条件的指南，以及迁移和清单整理提示 |
+| `{{solve_schema}}` | 数据结构：开启模块里每个可写字段的键名、类型、取值范围和说明（字段的 `hint`，没有时用 `desc`）。用 Zod 直接写、没有结构声明的定义输出空 |
+| `{{solve_guide}}` | 跨字段的规则：总指南、开启模块的规则、满足条件的指南，以及迁移和清单整理提示 |
 | `{{solve_toon}}` / `{{solve_json}}` | 当前启用模块的状态（同一投影，两种格式） |
 | `{{solve_toon::narrative}}` / `{{solve_json::narrative}}` | 去除 internal 字段 |
 | `{{solve_toon::operator}}` / `{{solve_json::operator}}` | 去除 readonly 字段 |
