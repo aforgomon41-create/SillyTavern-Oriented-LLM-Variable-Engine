@@ -102,10 +102,11 @@ test('指南组合按id去重、冲突报来源，未知模块与重复id拒绝'
   const fn = () => true;
   assert.throws(() => compose(base([{ ...first, when: fn }]), { source: 'function.ts', definition: { guides: [{ ...first, when: () => true }] } }), /function.ts/u);
 });
-test('条件指南进入定义身份，函数身份绑定作者版本，来源位置不改变指纹', async () => {
+test('条件指南只影响提示词，不进入定义指纹：改条件、改文字、换来源，旧聊天照常可用', async () => {
   const a = await compile(base([rule('true')]));
-  assert.notEqual(a.fingerprint, (await compile(base([rule('false')]))).fingerprint);
-  assert.notEqual(a.fingerprint, (await compile(base([{ ...rule('true'), text: '新文字' }]))).fingerprint);
+  assert.equal(a.fingerprint, (await compile(base([rule('false')]))).fingerprint);
+  assert.equal(a.fingerprint, (await compile(base([{ ...rule('true'), text: '新文字' }]))).fingerprint);
+  assert.equal(a.fingerprint, (await compile(base())).fingerprint);
   assert.equal(a.fingerprint, (await compile(base([{ ...rule('true'), source: 'other-file' }]))).fingerprint);
   assert.notEqual((await compile(base([{ id: 'fn', text: 'fn', when: () => true }]))).fingerprint,
     (await compile({ ...base([{ id: 'fn', text: 'fn', when: () => true }]), version: '2' })).fingerprint);
@@ -122,8 +123,8 @@ test('字符串条件与JS函数经JSON快照恢复，原包缺失或换版拒�
   assert.equal((await captureDefinitionSnapshot(input, restored, ['book'])).digest, snapshot.digest);
   await assert.rejects(restoreDefinitionSnapshot({ ...input, version: '2' }, snapshot, snapshot.fingerprint), /原版本/u);
   await assert.rejects(restoreDefinitionSnapshot({ ...input, runtimeBindings: { build: 'new-build' } }, snapshot, snapshot.fingerprint), /原版本/u);
-  await assert.rejects(restoreDefinitionSnapshot({ ...input, guides: [{ ...input.guides![0]!, when: 'true' }] }, snapshot, snapshot.fingerprint), /原版本/u);
-  await assert.rejects(restoreDefinitionSnapshot(base(), snapshot, snapshot.fingerprint), /原版本/u);
+  await assert.rejects(restoreDefinitionSnapshot({ ...input, guides: [{ ...input.guides![0]!, when: 'true' }] }, snapshot, snapshot.fingerprint), /原版本|缺少原指南函数/u);
+  await assert.rejects(restoreDefinitionSnapshot(base(), snapshot, snapshot.fingerprint), /原版本|缺少原指南函数/u);
   const extra = await compileAuthorDefinition(base(), { parts: [{ source: 'extra.ts', definition: { guides: [{ id: 'extra', when: () => true, text: 'x' }] } }] });
   await assert.rejects(captureDefinitionSnapshot(base(), extra.definition, []), /基础作者包/u);
 });

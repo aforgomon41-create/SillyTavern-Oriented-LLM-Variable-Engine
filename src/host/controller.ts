@@ -21,6 +21,7 @@ import { activeVariableView, writeMessageVariableViews } from './variables.js';
 import { readToken } from './storage-tokens.js';
 import { reconcileSwipeDeletion } from './storage-pointers.js';
 import { verifyDefinitionSnapshot } from '../definition-snapshot.js';
+import { adoptArchive, checkAdopted, verifyAdoption } from '../adopt.js';
 import type { HostContext } from './sillytavern.js';
 import type { Action, Batch, Commit, Definition, Json, SettingsPatch } from '../types.js';
 import { computeAll, listLimit, nextRound } from '../features.js';
@@ -32,6 +33,8 @@ export interface AttachOptions {
   operatorRequest?: (prompt: string, signal: AbortSignal) => Promise<string>;
   operatorTimeoutMs?: number;
   allowRequestsDuringOperatorBusy?: boolean;
+  /** The chat was started under another version of this definition: take it over if every commit replays identically (src/adopt.ts). */
+  adopt?: boolean;
   cache?: IndexedDbCache | false;
   onError?: (error: unknown) => void;
 }
@@ -149,7 +152,10 @@ export class SillyTavernController {
       const root = archive.commits[head]!; root.textDigest = await hash(ctx.chat[index]!.mes);
       await this.adapter.save({ archive, commit: root, binding: initialBinding, text: ctx.chat[index]!.mes, expectedHead: null });
     } else {
-      if (archive.definitionHash !== this.core.definition.fingerprint) fail('DEFINITION_MISMATCH', '此聊天使用不同版本的作者定义');
+      if (archive.definitionHash !== this.core.definition.fingerprint) {
+        if (!this.options.adopt) fail('DEFINITION_MISMATCH', '此聊天使用不同版本的作者定义');
+        archive = await this.adopt(archive, index, initialBinding);
+      }
       if (archive.authoring) await verifyDefinitionSnapshot(archive.authoring, archive.definitionHash);
       try { head = this.findParent(ctx.chat.length, archive); }
       catch (error) {
@@ -192,6 +198,33 @@ export class SillyTavernController {
     this.record(this.readyState ? 'READY' : 'HISTORY_DIRTY', this.readyState ? '当前聊天状态已恢复' : this.reason, this.readyState ? 'info' : 'warning');
     if (this.readyState) this.catchUp();
     return this;
+  }
+  /**
+   * Take over a chat started under another version of the definition (an older official structure, or before
+   * prompt text left the fingerprint). Every commit on every branch is re-executed with the current definition;
+   * only identical results let the chat move over. The history itself is not changed, only the definition it is recorded under.
+   */
+  private async adopt(archive: import('../types.js').Archive, greeting: number, binding: import('../types.js').Binding): Promise<import('../types.js').Archive> {
+    const chat = this.context().chat;
+    const floor = new Map<string, number>();
+    chat.forEach((m, i) => { const id = m.extra?.solve?.messageId; if (id && !floor.has(id)) floor.set(id, i); });
+    const { commits } = await verifyAdoption(this.core, archive, c => floor.has(c.binding.messageId) ? `第 ${floor.get(c.binding.messageId)} 楼` : '一条已不在聊天里的历史');
+    this.assertBound();
+    const next = adoptArchive(archive, this.core.definition.fingerprint);
+    const head = next.heads[headKey(binding)];
+    const commit = head ? next.commits[head] : undefined;
+    if (!commit) fail('DEFINITION_MISMATCH', '找不到开场白的变量记录，不能换用当前结构');
+    const text = chat[greeting]!.mes;
+    if (await hash(text) !== commit.textDigest) fail('DEFINITION_MISMATCH', '开场白改过，和变量记录对不上，不能换用当前结构');
+    await checkAdopted(next, head!);
+    await this.adapter.save({ archive: next, commit, binding, text, expectedHead: head! });
+    this.assertBound();
+    const loaded = await this.adapter.load();
+    if (!loaded || loaded.definitionHash !== this.core.definition.fingerprint) fail('SAVE_VERIFY_FAILED', '换用当前结构后回读的聊天不对');
+    const def = this.core.definition;
+    this.record('ADOPTED', `这个聊天由另一版结构开局，已换用 ${def.id}@${def.version} 继续：${commits} 条变量记录在当前结构下逐条重算，结果与存档一致`, 'info');
+    try { (globalThis as any).toastr?.info(`这个聊天是用旧版结构开的，已换用当前版本继续。${commits} 条变量记录逐条重算过，结果完全一致。`, 'SOLVE', { timeOut: 8000 }); } catch { /* no toasts */ }
+    return loaded;
   }
   /** The latest reply carries a complete operation block that was never processed (e.g. SOLVE was off or failed then). */
   private unprocessedReply(): number | undefined {

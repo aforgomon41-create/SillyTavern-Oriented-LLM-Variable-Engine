@@ -99,7 +99,7 @@ readonly/internal 是披露策略，不是写权限。`@` 只标记投影中的�
 - **更新方式**：随正文输出，或独立操作模型（独立连接预设或自定义请求函数，支持超时与取消），在注册时用 `attach: { mode }` 指定。
 - **结构制作**：可视化编辑字段蓝图、模块、状态栏布局、交互、提示词、视图、开局数据和音乐，从左下角魔法棒菜单 › SOLVE 结构制作 打开；目前从官方数据结构起步，成果下载为 .js / .json，直接写进世界书还没接通。
 
-注册后切换聊天会自动恢复；旧聊天按定义指纹寻找原版本，缺少时不会自动套用新版。`SOLVE.attach()` 可单次手动绑定，`SOLVE.detach()` 停止自动绑定。控制器方法：`processMessage(index)`、`submit(batch, {actionId, index})`、`setModule(name, enabled)`、`setSettings(patch)`、`replayMessage(index)`、`replayFrom(index)`、`dispose()`。
+注册后切换聊天会自动恢复；旧聊天按定义指纹寻找原版本；缺少时，只有新版把整段历史逐条重算结果完全一致才接管，否则不套用新版。指纹只包含影响执行结果的规则，模块指南、显示名、条件指南等提示词文字不进入指纹。`SOLVE.attach()` 可单次手动绑定，`SOLVE.detach()` 停止自动绑定。控制器方法：`processMessage(index)`、`submit(batch, {actionId, index})`、`setModule(name, enabled)`、`setSettings(patch)`、`replayMessage(index)`、`replayFrom(index)`、`dispose()`。
 
 作者函数与历史：输入 schema 的 transform 只在输入边界运行；跨字段规则用 `validateState`。时间、随机数、远程结果在调用前准备并以 authorInputs 归档，Replay 复用这些值，Restore 不执行作者函数或模型请求。函数行为变化时必须更新定义版本。
 

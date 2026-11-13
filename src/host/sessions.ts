@@ -20,6 +20,7 @@ interface WorldRegistration extends Registration { selection: WorldInfoSelection
 /** Only explicitly registered character bindings initialize new chats. Archived chats resolve by fingerprint. */
 export class SolveSessionManager {
   private registrations = new Map<string, Registration>();
+  private adoptRefused = new Map<string, string>();
   private worldRegistrations = new Map<string, WorldRegistration>();
   private active?: SillyTavernController;
   private activeRegistration?: Registration;
@@ -97,8 +98,18 @@ export class SolveSessionManager {
       if (ctx.groupId != null || !ctx.chatId) { this.detachActive(); this.phase = 'unbound'; this.reason = ctx.groupId != null ? '不支持群聊' : '尚未打开单角色聊天'; this.notify(); return Promise.resolve(); }
       const fingerprint = ctx.chatMetadata.solve?.definitionHash;
       const avatar = (ctx.characters as Record<string, any>)[String(ctx.characterId)]?.avatar;
+      let adopt = false;
       if (fingerprint) {
         registration = [...this.registrations.values()].filter(r => r.definition.fingerprint === fingerprint).sort((a, b) => b.priority - a.priority)[0];
+        if (!registration && !ctx.chatMetadata.solve?.authoring) {
+          // Started under another version (e.g. an older official structure): the definition bound to this character
+          // may take it over, but only if the whole history replays identically under it (checked in the controller).
+          const candidates = [...this.registrations.values()].filter(r => r.characters.includes(avatar)).sort((a, b) => b.priority - a.priority);
+          const top = candidates.filter(r => r.priority === candidates[0]?.priority);
+          const refused = top[0] && this.adoptRefused.get(`${ctx.chatId}|${fingerprint}|${top[0].definition.fingerprint}`);
+          if (refused) { this.detachActive(); this.phase = 'error'; this.reason = refused; this.notify(); return Promise.resolve(); }
+          if (top.length && new Set(top.map(r => r.definition.fingerprint)).size === 1) { registration = top[0]; adopt = true; }
+        }
         if (!registration && ctx.chatMetadata.solve?.authoring) {
           const candidates = [...this.worldRegistrations.values()].filter(r => r.definition.fingerprint === ctx.chatMetadata.solve.authoring.baseHash);
           const scoped = candidates.filter(r => r.characters.includes(avatar));
@@ -130,10 +141,10 @@ export class SolveSessionManager {
       }
       if (!reload && this.active?.boundChatId === ctx.chatId && this.activeRegistration === registration
         || this.loadingChatId === ctx.chatId && this.loadingRegistration === registration) return this.task;
+      return this.switchTo(registration, undefined, adopt);
     } catch (error) { this.setError(error); return Promise.resolve(); }
-    return this.switchTo(registration);
   }
-  private switchTo(input: Registration | ((context: () => HostContext, signal: AbortSignal) => Promise<Registration>), worldRegistration?: WorldRegistration): Promise<void> {
+  private switchTo(input: Registration | ((context: () => HostContext, signal: AbortSignal) => Promise<Registration>), worldRegistration?: WorldRegistration, adopt = false): Promise<void> {
     this.detachActive(); const epoch = this.epoch;
     const chatId = this.context().chatId;
     this.loadingChatId = chatId; this.loadingWorldRegistration = worldRegistration;
@@ -150,11 +161,22 @@ export class SolveSessionManager {
       try {
         const registration = typeof input === 'function' ? await input(scopedContext, abort.signal) : input;
         scopedContext();
-        controller = await attachSillyTavern(registration.definition, scopedContext, registration.attach, this.fetcher);
+        controller = await attachSillyTavern(registration.definition, scopedContext, adopt ? { ...registration.attach, adopt } : registration.attach, this.fetcher);
         if (epoch !== this.epoch) { controller.dispose(); return; }
         this.active = controller; this.activeRegistration = registration; this.activeWorldRegistration = worldRegistration; this.disposeController = controller.subscribe(() => this.notify());
+        if (adopt) this.journal.add('info', 'ADOPTED', `聊天 ${chatId} 由另一版结构开局，历史在 ${registration.definition.id}@${registration.definition.version} 下逐条重算一致，已换用它继续`);
         this.phase = 'ready'; this.reason = ''; this.journal.add('info', 'SESSION_ATTACHED', `聊天 ${chatId} 已绑定 ${registration.definition.id}@${registration.definition.version}`); this.notify();
-      } catch (error) { controller?.dispose(); if (epoch === this.epoch) this.setError(error); }
+      } catch (error) {
+        controller?.dispose();
+        // A refused takeover is not retried on every chat event (it replays the whole history).
+        if (adopt && typeof input !== 'function' && describeError(error).code === 'DEFINITION_MISMATCH') {
+          const archived = this.context().chatMetadata.solve?.definitionHash;
+          this.adoptRefused.set(`${chatId}|${archived}|${input.definition.fingerprint}`, `这个聊天是用另一版结构开的，不能换用当前结构继续：${describeError(error).message}`);
+          if (epoch === this.epoch) { this.detachActive(); this.phase = 'error'; this.reason = this.adoptRefused.get(`${chatId}|${archived}|${input.definition.fingerprint}`)!; this.journal.add('error', 'ADOPT_REFUSED', this.reason); this.notify(); }
+          return;
+        }
+        if (epoch === this.epoch) this.setError(error);
+      }
       finally { if (epoch === this.epoch) { this.loadingChatId = undefined; this.loadingWorldRegistration = undefined; this.loadingRegistration = undefined; this.loadingAbort = undefined; } }
     })();
     this.task = task; return task;

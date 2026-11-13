@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { extractRawBlocks } from '../src/parser.js';
 
 import { hostEnvironment, setup } from './host-fixture.js';
+import { fixture } from './fixture.js';
 import { attachSillyTavern } from '../src/host/controller.js';
 import { SolveSessionManager } from '../src/host/sessions.js';
 
@@ -190,4 +191,58 @@ test('打开聊天时，最后一条带操作块却从没处理过的回复会�
     env.saveNative(); env.switchChat(env.ctx.chatId); await env.emit('chat'); await manager.settled(); await manager.controller!.whenIdle();
     assert.equal(manager.controller!.getValue('@alice.hp'), 85);
   } finally { manager.dispose(); }
+});
+
+test('旧版定义开的聊天：当前版本把历史逐条重算一致就接管，不一致就拒绝且不改文件', async () => {
+  const env = await hostEnvironment();
+  const first = new SolveSessionManager(() => env.ctx, env.fetcher);
+  try {
+    await first.register(env.def, { characters: ['test.png'], attach: { cache: false } }); await first.settled();
+    env.ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+    await env.emit('start', 'normal', {}, false); env.addReply('{"$inc":{"@alice.hp":-15}}'); await env.emit('end'); await first.controller!.whenIdle();
+    assert.equal(first.controller!.getValue('@alice.hp'), 85);
+  } finally { first.dispose(); }
+  const oldHash = env.ctx.chatMetadata.solve.definitionHash; env.saveNative();
+
+  // 换了规则（生命单次变化不超过 10）：第 2 楼重算结果不同，拒绝接管，聊天文件不动。
+  const stricter = (await fixture({ version: '3', numeric: { 'characters.*.hp': { maxDelta: 10 } } })).def;
+  const refused = new SolveSessionManager(() => env.ctx, env.fetcher);
+  try {
+    await refused.register(stricter, { characters: ['test.png'], attach: { cache: false } });
+    env.switchChat(env.ctx.chatId); await env.emit('chat'); await refused.settled();
+    assert.equal(refused.controller, undefined);
+    assert.match(refused.getStatus().reason, /另一版结构.*第 \d+ 楼|另一版结构.*不同|另一版结构.*出错/u);
+    assert.equal(env.ctx.chatMetadata.solve.definitionHash, oldHash, '拒绝时不改聊天');
+    // 同一聊天再触发事件不重复重算
+    await env.emit('chat'); await refused.settled();
+    assert.ok(refused.journal.read().filter(l => l.code === 'ADOPT_REFUSED').length === 1);
+  } finally { refused.dispose(); }
+
+  // 规则相同、只是版本号变了：逐条重算一致，接管，之后照常可用。
+  const next = (await fixture({ version: '2' })).def;
+  assert.notEqual(next.fingerprint, oldHash);
+  const second = new SolveSessionManager(() => env.ctx, env.fetcher);
+  try {
+    await second.register(next, { characters: ['test.png'], attach: { cache: false } });
+    env.switchChat(env.ctx.chatId); await env.emit('chat'); await second.settled();
+    const c = second.controller!;
+    assert.ok(c, second.getStatus().reason);
+    assert.equal(c.getValue('@alice.hp'), 85);
+    assert.equal(env.ctx.chatMetadata.solve.definitionHash, next.fingerprint, '聊天改记到新版名下');
+    assert.ok(second.journal.read().some(l => l.code === 'ADOPTED'));
+    env.ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+    await env.emit('start', 'normal', {}, false); env.addReply('{"$inc":{"@alice.hp":-5}}'); await env.emit('end'); await c.whenIdle();
+    assert.equal(c.getValue('@alice.hp'), 80);
+    // 重新打开：直接按新指纹绑定，不再重算
+    env.saveNative(); env.switchChat(env.ctx.chatId); await env.emit('chat'); await second.settled();
+    assert.equal(second.journal.read().filter(l => l.code === 'ADOPTED').length, 1, '只接管一次');
+    assert.equal(second.controller!.getValue('@alice.hp'), 80);
+  } finally { second.dispose(); }
+});
+
+test('模块指南、显示名、条件指南只影响提示词，改了不换定义指纹', async () => {
+  const { def } = await fixture();
+  const edited = (await fixture({ modules: { combat: { paths: ['characters.*.combat'], enabled: true, guide: '改过的战斗指南', label: '战斗' } }, guides: [{ id: 'g', text: '新指南' }] })).def;
+  assert.equal(edited.fingerprint, def.fingerprint);
+  assert.notEqual((await fixture({ modules: { combat: { paths: ['characters.*.combat'], enabled: false, guide: '战斗指南' } } })).def.fingerprint, def.fingerprint, '模块默认开关仍属于规则');
 });

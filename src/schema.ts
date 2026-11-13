@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { assertJson, at, canonical, clone, covered, fail, hash, matches, pointer, safeKey } from './json.js';
-import type { CompiledDefinition, Definition, ExecutionContext, Feedback, Json, LogicalState, NumericRule } from './types.js';
-import { compileGuideRules, describeGuideRules } from './guides.js';
+import type { CompiledDefinition, Definition, ExecutionContext, Feedback, Json, LogicalState, ModuleSpec, NumericRule } from './types.js';
+import { compileGuideRules } from './guides.js';
 import { hasInline, isAuthorPrepared } from './inline.js';
 import { compileAuthorDefinition } from './authoring.js';
 import { copyFacets, describeFacetHooks } from './facets.js';
@@ -119,7 +119,12 @@ export async function compilePrepared(definition: Definition): Promise<CompiledD
     // Only present when used, so fingerprints of existing definitions are unchanged.
     ...(engineRules ? { engineRules } : {}) };
   const outputShape = definition.outputSchema ? schemaDescription(definition.outputSchema) : null;
-  const fingerprint = await hash({ ...metadata, outputShape, ...(guides.length ? { guides: describeGuideRules(guides) } : {}), ...(facetRuntime.length ? { facetRuntime } : {}) });
+  // The fingerprint pins what decides execution results, so a chat replays the same way forever.
+  // Text written for the model (module guides and labels, guides) only shapes prompts: editing it keeps old chats usable.
+  const ruleModules = Object.fromEntries(Object.entries(metadata.modules).map(([name, m]) => {
+    const { guide: _guide, label: _label, ...rule } = m as ModuleSpec; return [name, rule];
+  }));
+  const fingerprint = await hash({ ...metadata, modules: ruleModules, outputShape, ...(facetRuntime.length ? { facetRuntime } : {}) });
   const storedSchema = definition.outputSchema ?? storedProjection(definition.schema);
   const fixed = clone(metadata);
   const freeze = (value: any): void => { if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); } };
