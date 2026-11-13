@@ -30,7 +30,8 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 }, ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
 const errors = [];
 let phase = 'start';
-page.on('pageerror', e => errors.push(`[${phase}] ` + String(e).slice(0, 300)));
+// 酒馆助手的提示词查看器拿到提示词后会停止那次伪造的生成，酒馆自己抛出 AbortError（没有 SOLVE 时也一样），不算 SOLVE 的报错。
+page.on('pageerror', e => { if (/AbortError/u.test(String(e)) && /JS-Slash-Runner/u.test(String(e.stack))) return; errors.push(`[${phase}] ` + String(e).slice(0, 300)); });
 page.on('console', m => { if (m.type() === 'error' && /SOLVE|solve/u.test(m.text())) errors.push(`[${phase}] console: ` + m.text().slice(0, 300)); });
 const avatars = [];
 
@@ -105,6 +106,26 @@ try {
   check('改位置：操作说明紧跟在玩家最后一句后面（深度 0，用户角色）', s === said(m, '我付了钱。') + 1 && m[s]?.role === 'user', `第 ${s + 1}/${m.length} 条 · ${m[s]?.role}`);
   check('关掉的指南不再注入', count(m, GUIDE) === 0);
   check('改位置：变量数据放到最前面（系统提示之前）', indexOf(m, DATA) === 0 && m[0].role === 'system', `第 ${indexOf(m, DATA) + 1} 条`);
+
+  phase = 'viewer';
+  // 酒馆助手的「提示词查看器」：它伪造一次请求拿到实际发送的提示词，SOLVE 的内容也要在里面。
+  await setPrefs(DEFAULT);
+  await page.evaluate(() => { const ctx = SillyTavern.getContext(); window.__solveReady = []; ctx.eventSource.makeLast(ctx.eventTypes.CHAT_COMPLETION_PROMPT_READY, d => { window.__solveReady.push(d.chat.map(m => String(m.content))); }); });
+  await page.click('#extensionsMenuButton');
+  const viewer = page.locator('#extensionsMenu .list-group-item').filter({ hasText: '提示词查看器' }).first();
+  if (await viewer.count()) {
+    await viewer.click();
+    await page.waitForFunction(() => window.__solveReady.length > 0, null, { timeout: 30000 });
+    const got = await page.evaluate(() => window.__solveReady.at(-1));
+    const at = got.findIndex(c => c.includes(SOP));
+    check('提示词查看器拿到的请求里有 SOLVE 的内容', at >= 0 && got.some(c => c.includes('当前变量（TOON）')));
+    check('合并后的那条以操作说明开头', at >= 0 && got[at].trimStart().startsWith('## SOLVE 变量操作说明'));
+    const report = await page.evaluate(() => SOLVE.injection());
+    check('SOLVE.injection() 记下了这次注入', report && !report.skipped && report.items.filter(i => i.on).length >= 3, report ? report.items.map(i => `${i.label}:${i.on ? '注入' : i.why}`).join(' ') : '无');
+    await page.keyboard.press('Escape').catch(() => undefined);
+  } else check('魔法棒里有酒馆助手的提示词查看器', false);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.SOLVE && window.SillyTavern?.getContext()?.onlineStatus !== 'no_connection', null, { timeout: 120000 });
 
   phase = 'card-macros';
   await setPrefs(DEFAULT);

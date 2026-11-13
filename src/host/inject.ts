@@ -9,7 +9,8 @@ import { INJECT_DEFAULTS, INJECTS, injected, type InjectKey, type InjectPrefs } 
 import type { SillyTavernController } from './controller.js';
 
 export const UPDATE_PREFS = 'solve.update.v1';
-const KEY = (k: InjectKey) => `solve_inject_${k}`;
+// The tavern joins prompts of the same place in key order: numbered keys keep 操作说明 → 指南 → 变量 → 反馈.
+const KEY = (k: InjectKey) => `solve_inject_${INJECTS.findIndex(x => x.key === k) + 1}_${k}`;
 // SillyTavern extension_prompt_types / extension_prompt_roles
 const POSITION = { before: 2, after: 0, chat: 1 } as const;
 const ROLE = { system: 0, user: 1, assistant: 2 } as const;
@@ -56,6 +57,16 @@ export function injectTexts(controller: SillyTavernController, format: InjectPre
   };
 }
 
+/** What the last generation got (debug panel, SOLVE.injection(), console). */
+export interface InjectionReport {
+  at: number; type: string; dryRun: boolean;
+  /** Why nothing was injected (whole turn). */
+  skipped?: string;
+  items: { key: InjectKey; label: string; on: boolean; why?: string; where?: string; chars?: number }[];
+}
+const PLACE = { before: '最前面', after: '聊天记录之前', chat: '聊天记录中' } as const;
+const ROLE_LABEL = { system: '系统', user: '用户', assistant: 'AI' } as const;
+
 /**
  * Listens for generations and keeps the extension prompts in sync. Returns a disposer.
  *
@@ -63,39 +74,53 @@ export function injectTexts(controller: SillyTavernController, format: InjectPre
  * preset disables it (the Kami preset does). So there: 「after」 goes in at the top of the chat history (in-chat,
  * depth = history length), 「before」 is put first in the finished request. Text Completion keeps the native positions.
  */
-export function installInjection(scope: any, controller: () => SillyTavernController | undefined): () => void {
-  let ctx: any; try { ctx = scope.SillyTavern?.getContext?.(); } catch { return () => undefined; }
+export function installInjection(scope: any, controller: () => SillyTavernController | undefined): { dispose(): void; report(): InjectionReport | undefined } {
+  let ctx: any; try { ctx = scope.SillyTavern?.getContext?.(); } catch { return { dispose: () => undefined, report: () => undefined }; }
   const source = ctx?.eventSource, event = ctx?.eventTypes?.GENERATION_AFTER_COMMANDS, ready = ctx?.eventTypes?.CHAT_COMPLETION_PROMPT_READY;
-  if (!source || !event || typeof ctx.setExtensionPrompt !== 'function') return () => undefined;
+  let last: InjectionReport | undefined;
+  if (!source || !event || typeof ctx.setExtensionPrompt !== 'function') return { dispose: () => undefined, report: () => last };
   const host = () => scope.SillyTavern.getContext();
   const set = (k: InjectKey, text: string, position: number, depth: number, role: number) => {
     try { host().setExtensionPrompt(KEY(k), text, position, depth, false, role); } catch { /* host changed */ }
   };
   let first: { role: string; content: string }[] = [];
   const clear = () => { first = []; for (const x of INJECTS) set(x.key, '', POSITION.after, 0, ROLE.system); };
-  const apply = async (type?: string) => {
+  const skip = (type: string, dryRun: boolean, why: string) => {
+    clear();
+    last = { at: Date.now(), type, dryRun, skipped: why, items: INJECTS.map(x => ({ key: x.key, label: x.label, on: false, why })) };
+    console.info(`[SOLVE] 本轮没有注入提示词：${why}`);
+  };
+  const apply = async (type = 'normal', _options?: unknown, dryRun = false) => {
     const c = controller();
     let status: any; try { status = c?.getStatus(); } catch { status = undefined; }
+    if (!c) return skip(type, dryRun, '当前聊天没有启用 SOLVE');
+    if (!status?.ready) return skip(type, dryRun, `SOLVE 状态未就绪：${status?.reason || '正在加载'}`);
+    if ((status.mode ?? 'in-band') !== 'in-band') return skip(type, dryRun, '这张卡用独立操作模型，正文模型不需要操作说明');
     // Quiet prompts (other extensions, the operator model) and impersonation do not write the story.
-    if (!c || !status?.ready || (status.mode ?? 'in-band') !== 'in-band' || type === 'quiet' || type === 'impersonate') { clear(); return; }
+    if (type === 'quiet' || type === 'impersonate') return skip(type, dryRun, type === 'quiet' ? '后台静默请求' : '代写');
     const prefs = readInjectPrefs(scope);
-    if (prefs.mode === 'off') { clear(); return; }
+    if (prefs.mode === 'off') return skip(type, dryRun, '设置里选了「不注入」');
     const macros = prefs.mode === 'auto' ? await detectCardMacros(scope) : [];
     let texts: Record<InjectKey, string>;
-    try { texts = injectTexts(c, prefs.format); } catch { clear(); return; }
+    try { texts = injectTexts(c, prefs.format); } catch (error) { return skip(type, dryRun, `读取变量失败：${error instanceof Error ? error.message : String(error)}`); }
     const chatCompletion = host().mainApi === 'openai';
     const top = (host().chat?.length ?? 0) + 1;
     first = [];
+    const items: InjectionReport['items'] = [];
     for (const x of INJECTS) {
-      const item = prefs.items[x.key], on = injected(prefs, x.key, macros).on && !!texts[x.key];
+      const item = prefs.items[x.key], st = injected(prefs, x.key, macros), on = st.on && !!texts[x.key];
+      const where = item.position === 'chat' ? `${PLACE.chat} · 深度 ${item.depth} · ${ROLE_LABEL[item.role]}` : PLACE[item.position];
+      items.push({ key: x.key, label: x.label, on, ...(on ? { where, chars: texts[x.key].length } : { why: st.why ?? '现在是空的' }) });
       if (!on) { set(x.key, '', POSITION.after, 0, ROLE.system); continue; }
       if (chatCompletion && item.position === 'before') { set(x.key, '', POSITION.after, 0, ROLE.system); first.push({ role: 'system', content: texts[x.key] }); continue; }
       if (chatCompletion && item.position === 'after') { set(x.key, texts[x.key], POSITION.chat, top, ROLE.system); continue; }
       set(x.key, texts[x.key], POSITION[item.position], item.depth, ROLE[item.role]);
     }
+    last = { at: Date.now(), type, dryRun, items };
+    console.info('[SOLVE] 本轮注入：' + items.map(i => i.on ? `${i.label} ${i.chars} 字 @${i.where}` : `${i.label}（${i.why}）`).join('；'));
   };
   const onReady = (data: { chat?: { role: string; content: string }[] }) => { if (first.length && Array.isArray(data?.chat)) data.chat.unshift(...first.map(m => ({ ...m }))); };
   source.on(event, apply);
   if (ready) source.on(ready, onReady);
-  return () => { source.removeListener(event, apply); if (ready) source.removeListener(ready, onReady); clear(); };
+  return { dispose: () => { source.removeListener(event, apply); if (ready) source.removeListener(ready, onReady); clear(); }, report: () => last };
 }
