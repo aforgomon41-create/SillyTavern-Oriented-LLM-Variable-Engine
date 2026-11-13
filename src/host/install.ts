@@ -11,6 +11,7 @@ import type { DebugTarget } from '../debug/launcher.js';
 import { engineRequest, nativeSaveBody } from './fetch-origin.js';
 import { guardUnboundNativeSave } from './native-save.js';
 import { BgmPlayer } from './bgm.js';
+import { installInjection } from './inject.js';
 import type { BgmTrack } from '../types.js';
 
 export type Carrier = 'native' | 'dynamic' | 'embedded';
@@ -61,6 +62,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     return manager;
   };
   const sessionWatchers = new Set<() => void>();
+  let disposeInjection: (() => void) | undefined;
   const manager = () => {
     if (!scope.SillyTavern?.getContext) throw new Error('SOLVE需要在SillyTavern 1.19页面内运行');
     if (!sessions) {
@@ -68,6 +70,8 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
       // The status bar follows the session manager once it exists (binding changes are announced through it).
       sessions.subscribe(() => { for (const watcher of sessionWatchers) watcher(); });
       for (const watcher of sessionWatchers) watcher();
+      // 随正文输出：生成前把操作说明、指南、变量和反馈注入写正文的模型（按设置 › 变量更新 › 提示词注入）。
+      disposeInjection ??= installInjection(scope, () => sessions?.controller);
     }
     return sessions;
   };
@@ -124,7 +128,7 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
         async dispose() {
           if (disposed) return; disposed = true; providers.delete(owner);
           if (sessions) await sessions.unregister(owner);
-          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; sessions?.dispose(); sessions = undefined; for (const watcher of sessionWatchers) watcher(); closeDebugger(); }
+          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; disposeInjection?.(); disposeInjection = undefined; sessions?.dispose(); sessions = undefined; for (const watcher of sessionWatchers) watcher(); closeDebugger(); }
         }
       });
     }

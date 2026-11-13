@@ -1,9 +1,9 @@
 /**
  * 设置 · 变量更新 · 提示词注入（预览）。随正文输出时，主模型要知道怎么写操作、现在的变量是什么。
  * 卡片自己写了 {{solve_SOP}} 等宏就不用管；没写（比如卡没有自带变量、用的是默认数据结构）时，由 SOLVE 注入。
- * 每段提示词可以单独开关，选位置（系统提示之前 / 角色设定之后 / 聊天记录中某个深度）和角色。
- * 对应酒馆的扩展提示词（setExtensionPrompt：BEFORE_PROMPT / IN_PROMPT / IN_CHAT + 深度 + 角色）。
- * 这一版只有界面，还没有真正注入。
+ * 每段提示词可以单独开关，选位置（最前面 / 聊天记录之前 / 聊天记录中某个深度）和角色。
+ * 对应酒馆的扩展提示词（setExtensionPrompt）；对话补全模式下不依赖预设的 Main Prompt，见 src/host/inject.ts。
+ * 酒馆里由 src/host/inject.ts 在每次生成前按这些设置注入（独立操作模型时不注入）。
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
@@ -36,7 +36,7 @@ export const INJECTS: { key: InjectKey; label: string; macro: string; text: stri
   { key: 'feedback', label: '上轮反馈', macro: '{{solve_feedback}}', text: '上一轮被修正或失败的操作；没有时不注入' },
 ];
 const POSITIONS: { value: InjectPosition; label: string }[] = [
-  { value: 'before', label: '系统提示之前' }, { value: 'after', label: '角色设定之后' }, { value: 'chat', label: '聊天记录中' },
+  { value: 'before', label: '最前面（系统提示之前）' }, { value: 'after', label: '聊天记录之前（角色设定之后）' }, { value: 'chat', label: '聊天记录中（按深度）' },
 ];
 const ROLES: { value: InjectRole; label: string }[] = [{ value: 'system', label: '系统' }, { value: 'user', label: '用户' }, { value: 'assistant', label: 'AI' }];
 

@@ -30,9 +30,11 @@ import type { DebugHost } from '../ui/debug/shared.js';
 import { StructureBuilder, type BuilderHost } from '../ui/builder/builder.js';
 import { officialStructure } from '../official/structure.js';
 import { VERSION } from '../version.js';
+import { UPDATE_PREFS, detectCardMacros, injectTexts } from './inject.js';
+import type { InjectKey } from '../ui/statusbar/inject.js';
 
 const PREFS = 'solve.statusbar.prefs.v1';
-const UPDATE = 'solve.update.v1';
+const UPDATE = UPDATE_PREFS;
 export const GATE = 'solve.gate.v1';
 const LAYERS = '@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;';
 interface ControllerLike {
@@ -256,6 +258,9 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
   // Who writes the operations (this browser). Read by the settings page; the controller does not use it yet.
   const [updatePrefs, setUpdatePrefs] = React.useState<UpdatePrefs>(() => ({ ...UPDATE_DEFAULTS, ...read<Partial<UpdatePrefs>>(scope, UPDATE, {}) }));
   React.useEffect(() => { write(scope, UPDATE, updatePrefs); }, [updatePrefs]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Macros the card already writes (auto injection skips them); rechecked when the card changes.
+  const [cardMacros, setCardMacros] = React.useState<InjectKey[] | undefined>();
+  React.useEffect(() => { let live = true; void detectCardMacros(scope).then(m => { if (live) setCardMacros(m); }); return () => { live = false; }; }, [def.fingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
   let ctx: any; try { ctx = scope.SillyTavern?.getContext?.(); } catch { ctx = undefined; }
   const savedProfiles = (ctx?.extensionSettings?.connectionManager?.profiles ?? []) as { id: string; name: string; model?: string }[];
   const update: UpdateHost = {
@@ -263,10 +268,8 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
     cardMode: (status as { mode?: 'in-band' | 'out-of-band' }).mode ?? 'in-band',
     ...(savedProfiles.length ? { profiles: savedProfiles.map(x => ({ id: x.id, name: x.name, ...(x.model ? { detail: x.model } : {}) })) } : {}),
     ...((controller as { getContextPreview?: () => { operatorPrompt?: string } }).getContextPreview ? { prompt: () => (controller as any).getContextPreview().operatorPrompt ?? '' } : {}),
-    ...((controller as { getContextPreview?: unknown }).getContextPreview ? { injectTexts: () => {
-      const v = (controller as any).getContextPreview({ view: 'narrative' }) as { sop: string; guide: string; toon: string; json: string; feedback: unknown[] };
-      return { sop: v.sop, guide: v.guide, data: updatePrefs.inject?.format === 'json' ? v.json : v.toon, feedback: v.feedback.length ? JSON.stringify(v.feedback) : '' };
-    } } : {}),
+    ...((controller as { runtime?: unknown }).runtime ? { injectTexts: () => { try { return injectTexts(controller as never, updatePrefs.inject?.format ?? 'toon'); } catch { return {}; } } } : {}),
+    ...(cardMacros ? { cardMacros } : {}),
     ...extras.update,
   };
   // Default structure and the chat-entry checks (this browser). Read by the settings page; chat entry does not use it yet.

@@ -1,0 +1,125 @@
+// 实机验收：随正文输出时的提示词注入（设置 › 变量更新 › 提示词注入）。
+// 角色卡里不写任何 SOLVE 宏，发给模型的请求里也要有操作说明、指南、当前变量；卡里写了的不重复注入；
+// 「不注入」时不注入；改位置后按新位置注入。
+//
+// 前提：本机测试酒馆（SillyTavern 1.19 + 酒馆助手）+ 假模型（卡密仓库 test/mock-llm/server.mjs，默认 8787）。
+// 用法：npm run build && node scripts/live-inject.mjs [--mobile]
+// 会把 dist 复制成酒馆的 third-party/solve 扩展，创建随机命名的测试角色，结束时删除。
+import { createRequire } from 'node:module';
+import { cp, rm, mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
+const require = createRequire(process.env.PLAYWRIGHT_PKG || '/workspace/tools/package.json');
+const { chromium } = require('playwright');
+const ST_URL = process.env.ST_URL || 'http://127.0.0.1:8000/';
+const ST_ROOT = process.env.ST_ROOT || '/workspace/st-test/SillyTavern';
+const MOCK = process.env.MOCK_URL || 'http://127.0.0.1:8787';
+const mobile = process.argv.includes('--mobile');
+const tag = mobile ? '390' : '1440';
+const results = [];
+const check = (name, ok, detail = '') => { results.push({ name, ok: Boolean(ok), detail }); console.log(`${ok ? '✔' : '✖'} ${name}${detail ? ' — ' + detail : ''}`); };
+const mock = async (path, body) => (await fetch(MOCK + path, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })).json();
+const SOP = 'SOLVE 变量操作说明', DATA = '当前变量（TOON）', GUIDE = '驱动力：目标、想法与规划';
+
+const target = resolve(ST_ROOT, 'public/scripts/extensions/third-party/solve');
+await rm(target, { recursive: true, force: true });
+await mkdir(target, { recursive: true });
+await cp(resolve('dist'), target, { recursive: true });
+
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 }, ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
+const errors = [];
+let phase = 'start';
+page.on('pageerror', e => errors.push(`[${phase}] ` + String(e).slice(0, 300)));
+page.on('console', m => { if (m.type() === 'error' && /SOLVE|solve/u.test(m.text())) errors.push(`[${phase}] console: ` + m.text().slice(0, 300)); });
+const avatars = [];
+
+async function makeChar(description) {
+  const avatar = await page.evaluate(async description => {
+    const ctx = SillyTavern.getContext(), headers = { ...ctx.getRequestHeaders() };
+    delete headers['Content-Type'];
+    const form = new FormData(), name = 'SOLVE注入验收_' + Math.random().toString(36).slice(2, 8);
+    for (const [key, value] of Object.entries({ ch_name: name, first_mes: '夜雨中的王都。', description, personality: '', scenario: '', mes_example: '', talkativeness: '0.5', fav: 'false', tags: '' })) form.append(key, value);
+    const response = await fetch('/api/characters/create', { method: 'POST', headers, body: form });
+    return (await response.text()).trim();
+  }, description);
+  avatars.push(avatar);
+  await page.evaluate(async a => {
+    const ctx = SillyTavern.getContext();
+    await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characters: [a] });
+    await ctx.getCharacters();
+    await ctx.selectCharacterById(ctx.characters.findIndex(c => c.avatar === a));
+  }, avatar);
+  await page.waitForFunction(a => { const c = SillyTavern.getContext(); return c.characters[c.characterId]?.avatar === a && SOLVE.controller?.getStatus()?.ready; }, avatar, { timeout: 90000 });
+}
+/** One turn; returns the messages the model received. */
+async function turn(text) {
+  await mock('/__mock/next', { content: '<content>\n雨还在下。\n</content>\n<solve_operate>\n' + JSON.stringify([{ $set: { 'meta.weather': '雨' } }]) + '\n</solve_operate>' });
+  const head = await page.evaluate(() => SOLVE.controller.getStatus().headId);
+  await page.fill('#send_textarea', text); await page.click('#send_but');
+  await page.waitForFunction(h => { const s = SOLVE.controller.getStatus(); return s.ready && !s.busy && s.headId !== h; }, head, { timeout: 90000 });
+  const req = await mock('/__mock/requests');
+  return (req.requests ?? req).at(-1)?.body?.messages ?? [];
+}
+const count = (messages, needle) => messages.reduce((n, m) => n + String(m.content).split(needle).length - 1, 0);
+const indexOf = (messages, needle) => messages.findIndex(m => String(m.content).includes(needle));
+/** The player's message in the chat history (presets may repeat it later inside their own wrappers). */
+const said = (messages, text) => messages.findIndex(m => m.role === 'user' && String(m.content).trim() === text);
+const setPrefs = inject => page.evaluate(inject => {
+  const p = JSON.parse(localStorage.getItem('solve.update.v1') || '{}');
+  localStorage.setItem('solve.update.v1', JSON.stringify({ ...p, inject }));
+}, inject);
+const DEFAULT = { mode: 'auto', format: 'toon', items: { sop: { on: true, position: 'after', depth: 4, role: 'system' }, guide: { on: true, position: 'after', depth: 4, role: 'system' }, data: { on: true, position: 'chat', depth: 2, role: 'system' }, feedback: { on: true, position: 'chat', depth: 0, role: 'system' } } };
+
+try {
+  phase = 'navigation';
+  await mock('/__mock/reset', {});
+  await page.goto(ST_URL, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#send_textarea', { timeout: 90000 });
+  await page.waitForFunction(() => window.SOLVE && window.SillyTavern?.getContext()?.onlineStatus !== 'no_connection', null, { timeout: 120000 });
+  await page.evaluate(() => localStorage.removeItem('solve.update.v1'));
+
+  phase = 'no-macros';
+  await makeChar('一位在王都开酒馆的老板娘。');
+  let m = await turn('我走进酒馆。');
+  check('卡里没写宏：请求里有操作说明', count(m, SOP) === 1, `${count(m, SOP)} 处`);
+  check('卡里没写宏：请求里有指南', count(m, GUIDE) >= 1);
+  check('卡里没写宏：请求里有当前变量', count(m, DATA) === 1);
+  let d = indexOf(m, DATA);
+  check('变量数据在聊天记录里（深度 2，系统角色）', d > 0 && m[d].role === 'system' && said(m, '我走进酒馆。') - d === 2, `第 ${d + 1}/${m.length} 条 · ${m[d]?.role}（开场白和这一句之前）`);
+  check('操作说明在聊天记录之前', indexOf(m, SOP) >= 0 && indexOf(m, SOP) < indexOf(m, '我走进酒馆'));
+  m = await turn('我坐下。');
+  d = indexOf(m, DATA);
+  check('第二轮的变量是新状态（天气=雨）', /weather:\s*雨/u.test(m[d]?.content ?? ''));
+  check('第二轮：变量在最后两条聊天消息之前（深度 2）', said(m, '我坐下。') - d === 2, `第 ${d + 1} 条，玩家这句在第 ${said(m, '我坐下。') + 1} 条`);
+
+  phase = 'off';
+  await setPrefs({ ...DEFAULT, mode: 'off' });
+  m = await turn('我喝了一口酒。');
+  check('「不注入」：请求里没有操作说明和变量', count(m, SOP) === 0 && count(m, DATA) === 0);
+
+  phase = 'move';
+  await setPrefs({ ...DEFAULT, items: { ...DEFAULT.items, sop: { on: true, position: 'chat', depth: 0, role: 'user' }, guide: { ...DEFAULT.items.guide, on: false }, data: { ...DEFAULT.items.data, position: 'before' } } });
+  m = await turn('我付了钱。');
+  const s = indexOf(m, SOP);
+  check('改位置：操作说明紧跟在玩家最后一句后面（深度 0，用户角色）', s === said(m, '我付了钱。') + 1 && m[s]?.role === 'user', `第 ${s + 1}/${m.length} 条 · ${m[s]?.role}`);
+  check('关掉的指南不再注入', count(m, GUIDE) === 0);
+  check('改位置：变量数据放到最前面（系统提示之前）', indexOf(m, DATA) === 0 && m[0].role === 'system', `第 ${indexOf(m, DATA) + 1} 条`);
+
+  phase = 'card-macros';
+  await setPrefs(DEFAULT);
+  await makeChar('{{solve_SOP}}\n一位在王都开酒馆的老板娘。');
+  m = await turn('我走进酒馆。');
+  check('卡里写了 {{solve_SOP}}：操作说明只出现一次', count(m, SOP) === 1, `${count(m, SOP)} 处`);
+  check('卡里没写的变量照常注入', count(m, DATA) === 1);
+} catch (error) {
+  check('流程未中断', false, `${phase}: ${String(error).slice(0, 400)}`);
+} finally {
+  check('页面无 SOLVE 相关报错', !errors.length, errors.slice(0, 5).join(' | '));
+  await page.evaluate(() => localStorage.removeItem('solve.update.v1')).catch(() => undefined);
+  for (const a of avatars) await page.evaluate(async a => { const ctx = SillyTavern.getContext(); await fetch('/api/characters/delete', { method: 'POST', headers: ctx.getRequestHeaders(), body: JSON.stringify({ avatar_url: a, delete_chats: true }) }); }, a).catch(() => undefined);
+  await browser.close();
+  const failed = results.filter(r => !r.ok);
+  console.log(`\n${results.length - failed.length}/${results.length} 通过（${tag}）`);
+  process.exitCode = failed.length ? 1 : 0;
+}
