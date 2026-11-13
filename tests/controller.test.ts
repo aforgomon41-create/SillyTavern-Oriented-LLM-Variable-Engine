@@ -173,3 +173,21 @@ test('状态栏撤销只退回最新一次玩家操作，正文同步；旁白�
   assert.equal(hp(), start + 2);
   controller.dispose();
 });
+
+test('打开聊天时，最后一条带操作块却从没处理过的回复会自动补处理', async () => {
+  const env = await hostEnvironment(), manager = new SolveSessionManager(() => env.ctx, env.fetcher);
+  try {
+    await manager.register(env.def, { characters: ['test.png'], attach: { cache: false } });
+    // SOLVE 关着（或当时失败）时来了一条带操作的回复：没有 headId
+    env.ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+    env.addReply('{"$inc":{"@alice.hp":-15}}'); env.saveNative();
+    env.switchChat(env.ctx.chatId); await env.emit('chat'); await manager.settled();
+    const c = manager.controller!; await c.whenIdle();
+    assert.equal(c.getValue('@alice.hp'), 85, '补处理了这条回复的操作');
+    assert.ok(env.ctx.chat.at(-1)!.extra?.solve?.headId, '回复有了 headId');
+    assert.ok(c.journal.read().some(l => l.code === 'CATCH_UP'));
+    // 再打开一次不会重复处理
+    env.saveNative(); env.switchChat(env.ctx.chatId); await env.emit('chat'); await manager.settled(); await manager.controller!.whenIdle();
+    assert.equal(manager.controller!.getValue('@alice.hp'), 85);
+  } finally { manager.dispose(); }
+});

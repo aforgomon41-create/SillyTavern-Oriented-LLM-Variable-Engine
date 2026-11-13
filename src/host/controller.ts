@@ -189,7 +189,31 @@ export class SillyTavernController {
     this.installEvents();
     for (const capability of inspectCapabilities(ctx, this.hostVersion).filter(c => !c.available)) this.record('CAPABILITY_MISSING', `${capability.label}：${capability.detail}`, 'warning');
     this.record(this.readyState ? 'READY' : 'HISTORY_DIRTY', this.readyState ? '当前聊天状态已恢复' : this.reason, this.readyState ? 'info' : 'warning');
+    if (this.readyState) this.catchUp();
     return this;
+  }
+  /** The latest reply carries a complete operation block that was never processed (e.g. SOLVE was off or failed then). */
+  private unprocessedReply(): number | undefined {
+    const chat = this.context().chat;
+    for (let i = chat.length - 1; i > 0; i--) {
+      const m = chat[i]!;
+      if (m.is_user || m.is_system) continue;
+      return !m.extra?.solve?.headId && /<solve_operate>[\s\S]*?<\/solve_operate>/u.test(m.mes ?? '') ? i : undefined;
+    }
+    return undefined;
+  }
+  /** On opening a chat: process a latest reply whose operations never were. */
+  private catchUp(): void {
+    const index = this.unprocessedReply();
+    if (index === undefined) return;
+    this.record('CATCH_UP', `楼层 ${index} 的回复带有变量操作但还没处理过，现在补上`);
+    void this.processMessage(index).then(commit => {
+      if (commit) this.record('CATCH_UP', `楼层 ${index} 的变量操作已补处理`);
+    }, error => this.tellUnprocessed(index, describeError(error).message));
+  }
+  private tellUnprocessed(index: number, why: string): void {
+    this.record('REPLY_UNPROCESSED', `楼层 ${index} 回复里的变量操作没有处理：${why}`, 'warning');
+    try { (globalThis as any).toastr?.warning(`SOLVE 没有处理第 ${index} 楼回复里的变量操作：${why}。可以在 魔法棒 › SOLVE 调试 › 日志 里查看。`, 'SOLVE', { timeOut: 15000 }); } catch { /* no toasts */ }
   }
   private findParent(beforeIndex: number, archive?: import('../types.js').Archive): string {
     const links = archive ? new Map(Object.values(archive.commits).map(commit => [commit.id, commit.parentId])) : this.runtime.historyLinks();
@@ -246,7 +270,15 @@ export class SillyTavernController {
           this.assertBound(); await this.context().saveChat?.();
         }
         if (epoch === this.generationEpoch && !this.disposed) await this.processMessage();
-      } catch (error) { if (!this.disposed) onError(error); }
+        const left = this.disposed ? undefined : this.unprocessedReply();
+        if (left !== undefined && left === this.context().chat.length - 1) this.tellUnprocessed(left, '原因未知，见调试日志');
+      } catch (error) {
+        if (!this.disposed) {
+          onError(error);
+          const left = this.unprocessedReply();
+          if (left !== undefined) this.tellUnprocessed(left, describeError(error).message);
+        }
+      }
       finally { if (epoch === this.generationEpoch) { this.finalizingGeneration = false; this.notify(); } }
     });
     this.listen('MESSAGE_SWIPED', async (index: number) => {
@@ -358,11 +390,14 @@ export class SillyTavernController {
   processMessage(index = this.context().chat.length - 1): Promise<Commit | undefined> {
     const candidate = this.context().chat[index];
     if (candidate?.is_user || candidate?.is_system) return Promise.resolve(undefined);
-    const binding = this.adapter.binding(index), text = this.context().chat[index]?.mes;
+    const binding = this.adapter.binding(index);
+    let text = this.context().chat[index]?.mes;
     return this.enqueue(async () => {
       this.assertReady(); if (this.pendingImportError) fail('PENDING_CONFLICT', this.pendingImportError); this.adapter.assertCurrent(binding);
       const message = this.context().chat[index];
-      if (!message || message.is_user || message.is_system || message.mes !== text) return undefined;
+      if (!message || message.is_user || message.is_system) return undefined;
+      // Another extension may rewrite the reply right after it arrives (formatting, tables…): process what is there now.
+      if (message.mes !== text) { this.record('REPLY_CHANGED', `楼层 ${index} 的回复在处理前被改动，按最新正文处理`); text = message.mes; }
       const raw = extractRawBlocks(text!);
       const archive = this.runtime.archive;
       const existingId = message.extra?.solve?.headId, existing = existingId ? archive.commits[existingId] : undefined;
