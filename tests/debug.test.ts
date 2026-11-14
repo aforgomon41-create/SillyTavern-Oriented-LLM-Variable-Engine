@@ -87,10 +87,10 @@ test('丢失保存响应后放弃草稿会确认已保存事实，编辑正文�
   controller.dispose();
 });
 
-test('缺少原作者定义时仍可只读检查 Patch 归档，不能用新版写入', async () => {
+test('缺少原作者定义、新版规则又不同时，仍可只读检查 Patch 归档，不能用新版写入', async () => {
   const env = await setup(); const index = env.addReply(); await env.controller.processMessage(index); env.controller.dispose();
   const manager = new SolveSessionManager(() => env.ctx, env.fetcher);
-  await manager.register({ ...env.def, version: 'new-version' }, { characters: ['test.png'] });
+  await manager.register({ ...env.def, version: 'new-version', numeric: { 'characters.*.hp': { maxDelta: 10 } } }, { characters: ['test.png'] });
   assert.equal(manager.controller, undefined);
   const inspection = await manager.inspectArchive(); assert.equal(inspection.readonly, true); assert.equal((inspection.state!.data.characters as any).alice.hp, 85);
   manager.dispose();
@@ -181,7 +181,7 @@ test('快速切聊天使未完成的旧绑定作废，不写入已离开的聊�
   env.switchChat('slow'); await env.emit('chat'); const oldTask = manager.settled(); await started;
   env.switchChat('latest'); await env.emit('chat'); await manager.settled(); release(); await oldTask;
   assert.equal(manager.controller?.boundChatId, 'latest'); assert.equal(env.files.has('slow'), false);
-  assert.equal(env.handlers.get('start')?.size, 1); assert.equal(env.macros.size, 6); manager.dispose();
+  assert.equal(env.handlers.get('start')?.size, 1); assert.equal(env.macros.size, 7); manager.dispose();
 });
 
 test('支持 IndexedDB 的默认接入自动启用缓存', async () => {

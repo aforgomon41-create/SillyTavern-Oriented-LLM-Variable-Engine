@@ -344,7 +344,7 @@ SOLVE 引擎本来就有两种现成实体，由世界书 `[SOLVE:PREFABS]` / `[
 await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characters: ['角色文件名.png'] });
 ```
 
-角色描述或预设里放 `{{solve_SOP}}`、`{{solve_guide}}`、`{{solve_json}}`：迁移指令和清单整理提示由 `{{solve_guide}}` 输出，计算字段与声明式投影体现在 `{{solve_json}}` / `{{solve_toon}}` 里。
+角色描述或预设里放 `{{solve_SOP}}`、`{{solve_schema}}`、`{{solve_guide}}`、`{{solve_json}}`（不写时 SOLVE 自动注入）：字段的含义由 `{{solve_schema}}` 按字段的 `hint` 输出，迁移指令和清单整理提示由 `{{solve_guide}}` 输出，计算字段与声明式投影体现在 `{{solve_json}}` / `{{solve_toon}}` 里。
 
 ### 11.3 结构描述格式
 
@@ -367,7 +367,8 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | `computed` | `[{label, formula}]`，内置公式 `wodTranscend`、`dndModifier` |
 | `stamp` | 数组元素为 `{round, text}`，引擎自动填写轮次；模型可以直接写字符串 |
 | `sections` | 对象子字段的展示分组 `[{ label, keys }]`（只影响前端，不进入指纹）。官方结构：WOD 分 身体 / 心智 / 社交，DND 分 身体 / 心智 |
-| `label` `desc` `spoiler` `as` | 显示名、说明、剧透等级、控件覆写（只影响前端，不进入定义指纹）。剧透等级按路径取最深一层的声明：剧透字典里的某个字段可以声明 `public`（如好感度），`hidden` 不能被下层解除 |
+| `hint` | 给模型的说明：写进 `{{solve_schema}}`（数据结构），跟在字段后面；没写时用 `desc`。字段所属模块关闭时连同字段一起不输出。跨字段的规则写在模块的 `guide` 或结构的 `guide` 里。不进入定义指纹 |
+| `label` `desc` `spoiler` `as` | 显示名、给玩家的说明、剧透等级、控件覆写（只影响前端，不进入定义指纹）。剧透等级按路径取最深一层的声明：剧透字典里的某个字段可以声明 `public`（如好感度），`hidden` 不能被下层解除 |
 | `create` | 值为对象的字典：状态栏在列表上方给出「新增」表单 `{ label, fields, set?, narrate? }`——`fields` 是表单里填的字段，`set` 是每条固定写入的值（如 `source: '玩家'`），新条目自动取 ID。见 §11.6 |
 | `reveal` | 带剧透等级的字典：满足这个条件的条目照样公开（官方结构：别人身上 `equipped: true` 的物品看得见）。条件写法同交互的 `when` |
 | `readonly` `internal` | 沿用 SOLVE 原有的提示词可见性 |

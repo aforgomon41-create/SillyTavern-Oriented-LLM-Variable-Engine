@@ -111,6 +111,7 @@ try {
   const e = st.data.characters.erin;
   check('示例操作原样执行，没有失败', !feedback.some(f => f.level === 'L3'), JSON.stringify(feedback).slice(0, 300));
   check('$set / $inc 生效', st.data.meta.weather === '暴雨' && e.condition === '左臂流血' && e.rp.gauges['生命'].value === 60, `weather=${st.data.meta.weather} hp=${e.rp.gauges['生命'].value}`);
+  check('示例里先建后引用：地点、在场名单就位', st.data.places?.harbor?.name === '灰港' && st.data.meta.location === 'harbor' && st.data.meta.present.includes('zealot_a'), `location=${st.data.meta.location}`);
   check('$createEntity + $from 建出独立实体', st.data.characters.zealot_a?.name === '持火把的狂信徒' && st.data.characters.zealot_a?.role === '一次性敌人');
   check('$group 内 $transfer 守恒、$inc 生效', e.items.gold.count === 110 && st.data.characters.mira.items.gold.count === 30 && e.items.healing_draught.count === 3, `gold ${e.items.gold.count}/${st.data.characters.mira.items.gold.count}`);
   await page.screenshot({ path: '/workspace/scratch/bp/live-sop.png' });

@@ -245,7 +245,8 @@ export function Inspector({ addr, onBack, backLabel = '‹ 字段树' }: { addr:
               onCommit={v => { set(rename(d, addr, v)); select([...parentAddr, v], !!onBack); note(`键名改为 ${v}`); }} />
           </Field>
         ) : null}
-        <Field label="说明" hint="写给模型和作者看的补充（可选）"><TextInput label="说明" value={node.desc ?? ''} multiline onCommit={v => patch({ desc: v.trim() || undefined })} /></Field>
+        <Field label="给模型的说明" hint="写进提示词的「数据结构」，跟在这个字段后面：填什么、怎么填（可选）"><TextInput label="给模型的说明" value={node.hint ?? ''} multiline placeholder={node.desc ? `不写就用给玩家的说明：${node.desc}` : '如：此刻的身体与精神状况，一句话'} onCommit={v => patch({ hint: v.trim() || undefined })} /></Field>
+        <Field label="给玩家的说明" hint="状态栏、调试面板里显示（可选）"><TextInput label="给玩家的说明" value={node.desc ?? ''} multiline onCommit={v => patch({ desc: v.trim() || undefined })} /></Field>
         <Field label="类型">
           <Select label="类型" value={node.type} options={TYPES.map(t => [t.type, t.label])} onChange={v => {
             const { next, dropped } = retype(d, addr, v as FieldType); set(next);
@@ -515,7 +516,7 @@ export function ModuleEditor({ name, onDeleted }: { name: string; onDeleted?: ()
                 <Field label="上级模块" hint="上级关闭时它也不生效"><Select label="上级模块" value={m.parent ?? ''} options={[['', '无'], ...Object.keys(modules).filter(n => n !== name).map(n => [n, modules[n]!.label ?? n] as [string, string])]} onChange={v => patch(name, { parent: v || undefined })} /></Field>
                 <Field label="互斥组"><Select label="互斥组" value={m.exclusive ?? ''} options={groupOptions} onChange={v => patch(name, { exclusive: v || undefined })} /></Field>
                 <Field label="新聊天默认开启" hint={m.exclusive ? '同一互斥组只能有一个默认开启' : undefined}><K.Switch checked={m.enabled !== false} aria-label="默认开启" onCheckedChange={v => patch(name, { enabled: v ? undefined : false })} /></Field>
-                <Field label="模块指南" hint="开启时写进给模型的指南"><TextInput label="模块指南" value={m.guide ?? ''} multiline onCommit={v => patch(name, { guide: v.trim() || undefined })} /></Field>
+                <Field label="模块规则" hint="开启时发给模型；只写跨字段的规则，字段各自的含义写在字段的「给模型的说明」里"><TextInput label="模块规则" value={m.guide ?? ''} multiline onCommit={v => patch(name, { guide: v.trim() || undefined })} /></Field>
                 <div {...part('actions')}>
                   <K.Button size="sm" variant="danger" disabled={!!counts[name] || Object.values(modules).some(x => x.parent === name)}
                     onClick={() => { const { [name]: _, ...rest } = modules; setModules(rest); onDeleted?.(); note(`已删除模块「${m.label ?? name}」`); }}>删除模块</K.Button>

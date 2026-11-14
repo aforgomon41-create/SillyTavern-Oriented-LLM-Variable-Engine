@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, SolveCore, compileStructure, officialStructure, project, guide, toJson, applyAction, computeAll, selectBgm, nextRound, migrationText } from '../src/index.js';
+import { compile, SolveCore, compileStructure, officialStructure, project, guide, toJson, applyAction, computeAll, selectBgm, nextRound, migrationText, schemaText } from '../src/index.js';
 import { exampleData, exampleState, exampleStructure } from '../examples/official/example.js';
 import type { Action, LogicalState } from '../src/types.js';
 
@@ -222,7 +222,7 @@ test('能力按等级写效果：键为等级数字，示例的盾击有 5 级',
   const bash = data(state).abilities.shield_bash;
   assert.deepEqual(Object.keys(bash.levels), ['1', '2', '3', '4', '5']);
   assert.equal(def.display?.as?.['abilities.*.levels'], 'levels');
-  assert.match(guide(def, state), /levels 里写每一级的效果/u);
+  assert.match(schemaText(def, state), /levels（等级效果）.*键是等级数字/u);
 });
 
 test('一次性敌人是角色定位的最低一级', async () => {
@@ -397,7 +397,34 @@ test('操作说明：每个算子都有用法，自带的示例在官方结构�
   assert.equal(d.characters.erin.rp.gauges['生命'].value, 60);
   assert.equal(d.characters.zealot_a.name, '持火把的狂信徒');
   assert.equal(d.characters.zealot_a.role, '一次性敌人', '$from 带入模板字段');
+  assert.equal(d.places.harbor.name, '灰港');
+  assert.equal(d.meta.location, 'harbor', '引用排在新建之后');
+  assert.ok(d.meta.present.includes('zealot_a'));
   assert.equal(d.characters.erin.items.gold.count, 110);
   assert.equal(d.characters.mira.items.gold.count, 30);
   assert.equal(d.characters.erin.items.healing_draught.count, 3);
+});
+
+test('数据结构：列出可写字段与说明，跟随模块开关，说明不进指纹', async () => {
+  const def = await compile(compileStructure(officialStructure));
+  const state = await new SolveCore(def).initialize();
+  const text = schemaText(def, state);
+  assert.match(text, /^## 数据结构/u);
+  assert.match(text, /characters（角色）\.<ID>/u);
+  assert.match(text, /intro（简介）: 文字 — 一两句/u, 'hint 写在字段后');
+  assert.match(text, /name（姓名）: 文字（必填）/u);
+  assert.match(text, /location（地点）: 地点ID 或 null/u);
+  assert.match(text, /affection（好感度）: 整数（-100～100，每次变化不超过 ±10）/u);
+  assert.doesNotMatch(text, /thumb|image|bgm|round（轮次）/u, '模型不能写的字段不列');
+  assert.doesNotMatch(text, /buildings|factions|wod（WOD）|nsfw/u, '关闭的模块不列');
+  assert.match(text, /related（相关）: \[角色\/地点\/物品ID, …\]/u, '关闭模块的实体类型不作为引用目标');
+  const noDrive = structuredClone(state) as LogicalState; noDrive.engineState.activeModules.drive = false;
+  assert.doesNotMatch(schemaText(def, noDrive), /drive（驱动力）/u);
+  // hint is presentation only: the fingerprint does not move.
+  const plain = structuredClone(officialStructure) as any; delete plain.fields.characters.of.fields.intro.hint;
+  assert.equal((await compile(compileStructure(plain))).fingerprint, def.fingerprint);
+  // desc stands in when there is no hint.
+  const tiny = await compile(compileStructure({ id: 't', version: '1', fields: { hp: { type: 'int', label: '生命', desc: '当前生命', min: 0 } } }));
+  assert.equal(schemaText(tiny, await new SolveCore(tiny).initialize()).split('\n').at(-1), 'hp（生命）: 整数（≥0） — 当前生命');
+  assert.throws(() => compileStructure({ id: 't', version: '1', fields: { hp: { type: 'int', hint: 3 as any } } }), /hint 必须是文字/u);
 });
