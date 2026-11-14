@@ -70,7 +70,7 @@ test('另一客户端提交后，过期页面重新检查不能以旧正文覆�
   const second = await attachSillyTavern(env.def, () => secondContext, { cache: false }, env.fetcher);
   await first.submit({ $inc: { '@alice.hp': -1 } }, { actionId: 'first-client' });
   const saved = structuredClone(env.files.get(env.ctx.chatId)!);
-  await assert.rejects(second.submit({ $inc: { '@alice.hp': -2 } }, { actionId: 'second-client' }), /其他实例/u);
+  await assert.rejects(second.submit({ $inc: { '@alice.hp': -2 } }, { actionId: 'second-client' }), /别处更新/u);
   await second.discardPending();
   await assert.rejects(second.refresh(), /重新加载聊天|过期/u);
   assert.equal(second.ready, false);

@@ -133,10 +133,20 @@ export function archiveFromChat(header: Record<string, any>, messages: HostMessa
   for (const [key, value] of Object.entries(base.heads)) if (archive.commits[value] && owners.has(key)) archive.heads[key] = value;
   return archive;
 }
+/** Why writing `next` would lose something in `disk` (a record it lacks or holds differently, another opening or structure); undefined when nothing is lost. */
+function covers(next: Archive | undefined, disk: Archive | undefined): string | undefined {
+  if (!disk) return undefined;
+  if (!next || next.sessionId !== disk.sessionId || next.definitionHash !== disk.definitionHash
+    || Object.entries(disk.geneses).some(([gid, g]) => canonical(next.geneses[gid] ?? null) !== canonical(g))) return '聊天的开局或结构不同';
+  const foreign = Object.entries(disk.commits).filter(([cid, c]) => canonical(next.commits[cid] ?? null) !== canonical(c)).length;
+  return foreign ? `有 ${foreign} 条变量记录这里没有` : undefined;
+}
 export class SillyTavern119Adapter implements ArchiveAdapter {
   private generation = id('generation');
   private baseline?: string | null;
   private nativeBaseline?: string | null;
+  /** Told when a save went ahead although the disk had changed since the last known state (nothing on disk was lost). */
+  onNotice?: (code: string, message: string) => void;
   constructor(private context: () => HostContext, private fetcher: typeof fetch = fetch,
     private lock: <T>(name: string, fn: () => Promise<T>) => Promise<T> = async (_name, fn) => fn(), readonly performance = new PerformanceTrace(),
     private history = new VerifiedHistory({}, performance)) {}
@@ -218,8 +228,13 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
       const remote = await this.readFile();
       const archive = remote ? archiveFromChat(remote[0].chat_metadata ?? {}, remote.slice(1) as HostMessage[]) : undefined;
       const remoteHash = archive ? await hash(archive) : null;
-      if (this.nativeBaseline === undefined || remoteHash !== this.nativeBaseline && incomingHash !== remoteHash)
-        fail('REMOTE_HEAD_CHANGED', '磁盘上的SOLVE历史已被其他标签页更新，原生保存已阻止，请重新加载聊天');
+      if (this.nativeBaseline === undefined) fail('REMOTE_HEAD_CHANGED', '聊天还没有载入 SOLVE 历史，原生保存已阻止，请重新加载聊天');
+      if (remoteHash !== this.nativeBaseline && incomingHash !== remoteHash) {
+        // Same rule as SOLVE saves: fine when every record on disk is also in what the tavern is saving.
+        const conflict = covers(incoming, archive);
+        if (conflict) fail('REMOTE_HEAD_CHANGED', `磁盘上的 SOLVE 历史已被别处更新（${conflict}），酒馆的这次保存已阻止，以免覆盖它们。可能是另一个标签页或设备开着同一个聊天；关掉其他的，刷新页面后继续`);
+        this.onNotice?.('REMOTE_REBASED', '磁盘上的 SOLVE 历史和上次记下的不同，但其中每条记录酒馆这次保存的内容里都有，照常保存');
+      }
       if (remoteHash !== null && incomingHash === null) fail('ARCHIVE_INVALID', '原生保存缺少SOLVE历史，拒绝覆盖');
       if (archive && Object.keys(archive.commits).length && !Object.keys(incoming?.commits ?? {}).length)
         fail('ARCHIVE_OWNERSHIP', '原生重新创建开场消息将丢失全部SOLVE历史，已阻止保存；请重载聊天，或另开新聊天修改开场');
@@ -318,7 +333,15 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
       const alreadySaved = remoteHash === draftHash;
       await assertDefinitionSnapshotUnchanged(remoteArchive, draft.archive);
       if (this.baseline === undefined) this.baseline = remoteHash;
-      if (remoteHash !== this.baseline && !alreadySaved) fail('REMOTE_HEAD_CHANGED', '磁盘上的SOLVE历史已被其他实例更新，请重新加载');
+      if (remoteHash !== this.baseline && !alreadySaved) {
+        // The disk moved since our last known state. Writing is still safe when every record on disk is also in this
+        // draft, unchanged (e.g. our own earlier attempt whose verification failed, or a native save of the same history):
+        // nothing on disk is lost. Records the draft does not have mean someone else wrote: refuse and say what differs.
+        const conflict = covers(draft.archive, remoteArchive);
+        if (conflict) fail('REMOTE_HEAD_CHANGED', `磁盘上的 SOLVE 历史已被别处更新（${conflict}），为了不覆盖它们，这次没有保存。可能是另一个标签页或设备开着同一个聊天；关掉其他的，刷新页面后重试`);
+        const missing = Object.keys(draft.archive.commits).filter(cid => !remoteArchive?.commits[cid]).length;
+        this.onNotice?.('REMOTE_REBASED', `磁盘上的 SOLVE 历史和上次记下的不同，但其中每条记录这次都有、内容一致（磁盘上少 ${missing} 条），照常保存`);
+      }
       const state = await measure(this.performance, 'adapter.restore', () => VerifiedHistory.recover(this.history, draft.archive, draft.commit.id));
       if (await hash(draft.text) !== draft.commit.textDigest) fail('SAVE_TEXT_MISMATCH', '候选正文与提交摘要不对应，拒绝保存');
       const chat = measureSync(this.performance, 'adapter.pack', () => this.pack(draft.archive, draft.binding, draft.text, state, draft.commit.id));
