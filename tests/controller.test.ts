@@ -261,3 +261,50 @@ test('磁盘历史变了但每条记录这里都有（如自己上次写了一�
   assert.ok(controller.journal.read().some(l => l.code === 'REMOTE_REBASED'));
   controller.dispose();
 });
+
+test('过时的待保存草稿：重试时按当前聊天重建并从正文重新处理；删除或新回复到达时自动处理，不再卡住', async () => {
+  // 1. 草稿做完后，回复正文被改了：重试不再报错，按新正文处理
+  {
+    const env = await setup(); const { controller, ctx, addReply, setFailBefore } = env;
+    const first = addReply(); await controller.processMessage(first);
+    ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+    const second = addReply('{"$inc":{"@alice.hp":-5}}');
+    setFailBefore(true); await assert.rejects(controller.processMessage(second)); setFailBefore(false);
+    assert.equal(controller.getStatus().pendingCount, 1);
+    ctx.chat[second]!.mes = '受伤。<solve_operate>{"$inc":{"@alice.hp":-7}}</solve_operate>';
+    await controller.retryPending(); await controller.whenIdle();
+    assert.equal(controller.getStatus().pendingCount, 0);
+    assert.equal(controller.getValue('@alice.hp'), 78, '按改过的正文重新处理');
+    assert.ok(controller.journal.read().some(l => l.code === 'PENDING_REBUILT'));
+    controller.dispose();
+  }
+  // 2. 草稿所属的回复被删掉（重新生成）：自动放弃草稿，历史照常可用
+  {
+    const env = await setup(); const { controller, ctx, addReply, setFailBefore, emit } = env;
+    const first = addReply(); await controller.processMessage(first);
+    ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+    const second = addReply('{"$inc":{"@alice.hp":-5}}');
+    setFailBefore(true); await assert.rejects(controller.processMessage(second)); setFailBefore(false);
+    ctx.chat.splice(second, 1); await emit('delete', second); await controller.whenIdle();
+    assert.equal(controller.getStatus().pendingCount, 0);
+    assert.equal(controller.ready, true);
+    assert.equal(controller.getValue('@alice.hp'), 85);
+    // 之后的新回复照常处理
+    await emit('start', 'normal', {}, false); addReply('{"$inc":{"@alice.hp":-10}}'); await emit('end'); await controller.whenIdle();
+    assert.equal(controller.getValue('@alice.hp'), 75);
+    controller.dispose();
+  }
+  // 3. 还有草稿时来了新回复：先重做草稿那一楼，再处理新回复
+  {
+    const env = await setup(); const { controller, ctx, addReply, setFailBefore, emit } = env;
+    const first = addReply(); await controller.processMessage(first);
+    ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+    const second = addReply('{"$inc":{"@alice.hp":-5}}');
+    setFailBefore(true); await assert.rejects(controller.processMessage(second)); setFailBefore(false);
+    ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+    await emit('start', 'normal', {}, false); addReply('{"$inc":{"@alice.hp":-10}}'); await emit('end'); await controller.whenIdle();
+    assert.equal(controller.getStatus().pendingCount, 0);
+    assert.equal(controller.getValue('@alice.hp'), 70, '两楼都处理了');
+    controller.dispose();
+  }
+});
