@@ -148,7 +148,7 @@ const character: FieldNode = {
               might: fu('力量'), dex: fu('敏捷'), insight: fu('洞察'), will: fu('意志') } },
           },
         },
-        special: { type: 'record', label: '特殊属性', module: 'rp_attributes', hint: '世界观特有的属性（如 魔力、灵根），键是属性名', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
+        special: { type: 'record', label: '特殊属性', module: 'rp_attributes', hint: '世界观特有的属性（如 魔力、灵根），键是属性名；和 attributes 并列，直接写在 rp 下（rp.special），不要放进 attributes', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
         // Abilities live once in the root `abilities`; a character only references them (with its own level).
         abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities', actions: ABILITY_ACTIONS, spoiler: 'spoiler',
           of: { type: 'object', fields: {

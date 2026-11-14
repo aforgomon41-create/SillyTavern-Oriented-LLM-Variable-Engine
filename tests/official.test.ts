@@ -428,3 +428,23 @@ test('数据结构：列出可写字段与说明，跟随模块开关，说明�
   assert.equal(schemaText(tiny, await new SolveCore(tiny).initialize()).split('\n').at(-1), 'hp（生命）: 整数（≥0） — 当前生命');
   assert.throws(() => compileStructure({ id: 't', version: '1', fields: { hp: { type: 'int', hint: 3 as any } } }), /hint 必须是文字/u);
 });
+
+test('同一个 $createEntity 里新建的实体可以互相引用；写坏的那个单独拒绝', async () => {
+  const def = await compile(compileStructure(officialStructure)), core = new SolveCore(def), state = await core.initialize();
+  const town = { name: '铃见町', kind: '区域', parent: null, links: ['shrine'], desc: '小镇' };
+  const shrine = { name: '社务所', kind: '地点', parent: 'town', links: ['town'], desc: '老木屋' };
+  const yana = (extra: object) => ({ name: '阳菜', role: '主要配角', relations: { kami: { affection: 5 } }, rp: { attributes: { dnd: { str: 9 }, ...extra } } });
+  const kami = { name: '卡密', role: '用户角色', relations: { yana: { affection: 0 } } };
+  const lore = { title: '唤日祭', kind: '伏笔', content: '铃绳断了', related: ['shrine', 'yana'] };
+  const ok = await applyAction(core, model([{ $createEntity: { 'places.town': town, 'places.shrine': shrine, 'characters.kami': kami, 'characters.yana': yana({}), 'lore.fest': lore } },
+    { $set: { 'meta.location': 'shrine', 'meta.present': ['kami', 'yana'] } }]), state);
+  assert.deepEqual(ok.feedback.filter(f => f.level === 'L3'), []);
+  const d = ok.state.data as any;
+  assert.deepEqual([d.places.town.links, d.places.shrine.parent, d.meta.location, d.meta.present], [['shrine'], 'town', 'shrine', ['kami', 'yana']]);
+  // yana 写坏（special 放进了 attributes）：只拒绝 yana 和引用她的条目，其余照常建出
+  const bad = await applyAction(core, model([{ $createEntity: { 'places.town': town, 'places.shrine': shrine, 'characters.kami': kami, 'characters.yana': yana({ special: {} }), 'lore.fest': lore } }]), state);
+  const rejected = bad.feedback.filter(f => f.level === 'L3').map(f => `${f.code} ${f.path}`);
+  assert.deepEqual(rejected, ['DANGLING_REFERENCE /characters/kami/relations/yana', 'SCHEMA_PATH /characters/yana/rp/attributes/special', 'DANGLING_REFERENCE /lore/fest/related/1']);
+  const b = bad.state.data as any;
+  assert.deepEqual([Object.keys(b.places), Object.keys(b.characters), Object.keys(b.lore)], [['town', 'shrine'], [], []]);
+});

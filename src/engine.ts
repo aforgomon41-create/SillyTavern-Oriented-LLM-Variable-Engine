@@ -88,7 +88,8 @@ class Runner {
   applied = 0;
   count = 0;
   constructor(private def: CompiledDefinition, public state: LogicalState, private context: ExecutionContext) {}
-  private graph(state = this.state): EntityGraph { return new EntityGraph(this.def, state); }
+  private partial = false;
+  private graph(state = this.state): EntityGraph { return new EntityGraph(this.def, state, this.partial); }
   private issue(error: unknown): void {
     const e = error instanceof SolveError ? error : new SolveError('AUTHOR_OR_EXECUTION_ERROR', error instanceof Error ? error.message : String(error));
     this.feedback.push({ level: 'L3', code: e.code, message: e.message, ...(e.path ? { path: e.path } : {}), statement: this.count });
@@ -130,7 +131,14 @@ class Runner {
           try { a = pointer(g.resolve(sets[i]!.path)); b = pointer(g.resolve(sets[j]!.path)); } catch { continue; }
           if (a === b || a.startsWith(b + '/') || b.startsWith(a + '/')) { conflicts.add(sets[i]!); conflicts.add(sets[j]!); }
         }
-        for (const s of plan) {
+        // Entities created by one object may reference each other (a district and the house inside it).
+        const creates = plan.filter(s => s.op === '$createEntity' && !conflicts.has(s));
+        let rest = plan;
+        if (creates.length > 1) {
+          const together = await this.createTogether(creates, strict);
+          if (together) { rest = plan.filter(s => !creates.includes(s)); if (!together.ok) { success = false; if (strict) return false; } }
+        }
+        for (const s of rest) {
           if (++this.count > MAX_STATEMENTS) fail('STATEMENT_LIMIT', '一次执行最多 2000 条操作');
           if (conflicts.has(s)) { this.issue(new SolveError('CONFLICTING_PATHS', '同一 $set 中父子路径冲突', s.path)); success = false; if (strict) return false; continue; }
           const next = clone(this.state), notes: Feedback[] = [], aliases = { ...this.aliases };
@@ -167,6 +175,51 @@ class Runner {
       } catch (error) { this.issue(error); success = false; if (strict) return false; }
     }
     return success;
+  }
+  /**
+   * Applies every $createEntity of one object before checking references, so they may point at each other.
+   * A statement that fails, or that the final check blames (by error path), is dropped and the rest retried.
+   * Returns undefined when a failure cannot be pinned on one statement; the caller then runs them one by one.
+   */
+  private async createTogether(list: Statement[], strict: boolean): Promise<{ ok: boolean } | undefined> {
+    const base = this.count;
+    if (base + list.length > MAX_STATEMENTS) return undefined;
+    const errors = new Map<Statement, unknown>();
+    for (;;) {
+      const live = list.filter(s => !errors.has(s));
+      if (!live.length) break;
+      const next = clone(this.state), notes: Feedback[] = [], aliases = { ...this.aliases }, owned: [string, Statement][] = [];
+      let failed = false;
+      this.partial = true;
+      try {
+        for (const s of live) {
+          try { owned.push([pointer((await this.statement(s, next, strict, notes, aliases))!), s]); }
+          catch (error) { errors.set(s, error); failed = true; break; }
+        }
+      } finally { this.partial = false; }
+      if (failed) continue;
+      try {
+        const beforeGraph = this.graph(this.state), afterGraph = this.graph(next);
+        for (const [entityId, old] of beforeGraph.entities) {
+          const current = afterGraph.entities.get(entityId);
+          if (current && current.type !== old.type) fail('ENTITY_TYPE', '结构搬移不能改变已有实体类型');
+        }
+        this.destroyZero(next, this.state);
+        moveUniqueHolds(this.def, next, this.state, notes);
+        assertListCaps(this.def, this.state, next);
+        await validateStored(this.def, next, this.context, strict); this.graph(next);
+      } catch (error) {
+        const where = error instanceof SolveError ? error.path : undefined;
+        const culprit = where ? owned.find(([p]) => where === p || where.startsWith(p + '/'))?.[1] : undefined;
+        if (!culprit) return undefined;
+        errors.set(culprit, error); continue;
+      }
+      this.state = next; this.aliases = aliases; this.feedback.push(...notes); this.applied += live.length;
+      break;
+    }
+    list.forEach((s, i) => { if (errors.has(s)) { this.count = base + i + 1; this.issue(errors.get(s)); } });
+    this.count = base + list.length;
+    return { ok: !errors.size };
   }
   private writable(state: LogicalState, parts: string[]): void {
     if (this.context.source === 'model' && isRoundPath(this.def, parts)) fail('SYSTEM_FIELD', '轮次由引擎维护，模型不能修改', pointer(parts));
@@ -216,7 +269,8 @@ class Runner {
       write(state.data, parts, parsed);
     }
   }
-  private async statement(s: Statement, state: LogicalState, strict: boolean, notes: Feedback[], aliases: Record<string, string>): Promise<void> {
+  /** Runs one statement; a $createEntity returns where the new entity lives. */
+  private async statement(s: Statement, state: LogicalState, strict: boolean, notes: Feedback[], aliases: Record<string, string>): Promise<string[] | void> {
     const graph = this.graph(state);
     if (s.op === '$createEntity') {
       const marker = s.path.lastIndexOf('.@');
@@ -249,7 +303,7 @@ class Runner {
       const parsed = await parseInput(this.def, state, parts, stampValue(this.def, state, parts, value), strict, notes);
       write(state.data, parts, parsed);
       if (prefab) state.engineState.prefabLifecycle[entityId] = 'active';
-      return;
+      return parts;
     }
     if (s.op === '$move' && s.path.startsWith('@') && !graph.entities.has(s.path.slice(1)) && this.def.prefabs?.[s.path.slice(1)]) {
       await this.statement({ op: '$createEntity', path: `${String(s.value)}.${s.path}`, value: {} }, state, strict, notes, aliases);
