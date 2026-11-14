@@ -246,3 +246,18 @@ test('模块指南、显示名、条件指南只影响提示词，改了不换�
   assert.equal(edited.fingerprint, def.fingerprint);
   assert.notEqual((await fixture({ modules: { combat: { paths: ['characters.*.combat'], enabled: false, guide: '战斗指南' } } })).def.fingerprint, def.fingerprint, '模块默认开关仍属于规则');
 });
+
+test('磁盘历史变了但每条记录这里都有（如自己上次写了一半）：照常保存并记下；有别处的新记录才拒绝', async () => {
+  const env = await setup(); const { controller, ctx, addReply, files } = env;
+  const first = addReply(); await controller.processMessage(first);
+  const snapshot = structuredClone(files.get(ctx.chatId));
+  ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+  const second = addReply('{"$inc":{"@alice.hp":-5}}'); await controller.processMessage(second);
+  // 磁盘退回到较早的版本（只少了记录，没有别处的新记录）
+  files.set(ctx.chatId, snapshot!);
+  ctx.chat.push({ mes: '用户', is_user: true, extra: {} } as any);
+  const third = addReply('{"$inc":{"@alice.hp":-5}}'); await controller.processMessage(third);
+  assert.equal(controller.getValue('@alice.hp'), 75);
+  assert.ok(controller.journal.read().some(l => l.code === 'REMOTE_REBASED'));
+  controller.dispose();
+});

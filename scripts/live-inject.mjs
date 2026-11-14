@@ -19,7 +19,7 @@ const tag = mobile ? '390' : '1440';
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok: Boolean(ok), detail }); console.log(`${ok ? '✔' : '✖'} ${name}${detail ? ' — ' + detail : ''}`); };
 const mock = async (path, body) => (await fetch(MOCK + path, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })).json();
-const SOP = 'SOLVE 变量操作说明', SCHEMA = '## 数据结构', DATA = '## 当前变量（TOON）', GUIDE = '驱动力：剧情推进后及时更新';
+const SOP = 'SOLVE 变量操作说明', SCHEMA = '## 数据结构', DATA = '## 当前变量（TOON）', GUIDE = '## 变量规则';
 
 const target = resolve(ST_ROOT, 'public/scripts/extensions/third-party/solve');
 await rm(target, { recursive: true, force: true });

@@ -56,7 +56,7 @@ test('服务端已保存但响应丢失，重试回读确认，不重复执行',
 test('其他实例修改归档后不覆盖磁盘', async () => {
   const { runtime, binding, getFile, setFile } = await hostFixture();
   const changed = getFile(); changed[0].chat_metadata.solve.sessionId = 'other-session'; setFile(changed);
-  await assert.rejects(runtime.submit({ actionId: 'model', kind: 'operations', source: 'model', operations: { $inc: { '@alice.hp': -10 } } }, binding, '正文'), /其他实例/u);
+  await assert.rejects(runtime.submit({ actionId: 'model', kind: 'operations', source: 'model', operations: { $inc: { '@alice.hp': -10 } } }, binding, '正文'), /别处更新/u);
 });
 test('新Swipe继承旧extra时分配独立身份，不把旧指针当新历史', async () => {
   const { runtime, ctx, adapter, binding } = await hostFixture();

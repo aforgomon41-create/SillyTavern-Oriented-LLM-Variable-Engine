@@ -37,7 +37,7 @@ for (const format of ['json', 'gzip', 'request']) test(`旧标签页原生保存
   const text = body(secondContext), options: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text };
   if (format === 'gzip') { options.headers = { ...options.headers, 'Content-Encoding': 'gzip' }; options.body = new Blob([gzipSync(text)]); }
   const input = format === 'request' ? new Request('http://localhost:11451/api/chats/save', options) : '/api/chats/save';
-  await assert.rejects(two.scope.fetch(input, format === 'request' ? undefined : options), /其他标签页.*原生保存已阻止/u);
+  await assert.rejects(two.scope.fetch(input, format === 'request' ? undefined : options), /别处更新.*酒馆的这次保存已阻止/u);
   assert.equal(await hash(env.files.get(env.ctx.chatId)), before);
   assert.equal(one.api.controller!.getValue('@alice.hp'), 99);
   assert.equal(two.api.controller!.ready, false);
@@ -67,7 +67,7 @@ for (const strip of [false, true]) test(`旧页切换/解绑后的延迟原生�
   await one.api.controller!.submit({ $inc: { '@alice.hp': -1 } });
   const before = await hash(env.files.get(env.ctx.chatId)); two.api.detach();
   if (strip) { delete payload.chat[0].chat_metadata.solve; for (const message of payload.chat.slice(1)) { delete message.extra?.solve; delete message.variables; } }
-  await assert.rejects(two.scope.fetch('/api/chats/save', { method: 'POST', body: JSON.stringify(payload) }), /原生保存已阻止/u);
+  await assert.rejects(two.scope.fetch('/api/chats/save', { method: 'POST', body: JSON.stringify(payload) }), /保存已阻止/u);
   assert.equal(await hash(env.files.get(env.ctx.chatId)), before); one.api.detach();
 });
 
@@ -86,10 +86,10 @@ test('旧页重读归档失败不能推进原生保存基线并重新覆盖新�
   const { env, one, two, secondContext, body } = await fixture();
   await one.api.controller!.submit({ $inc: { '@alice.hp': -1 } });
   const before = await hash(env.files.get(env.ctx.chatId));
-  await assert.rejects(two.api.controller!.submit({ $inc: { '@alice.hp': -2 } }), /其他实例/u);
+  await assert.rejects(two.api.controller!.submit({ $inc: { '@alice.hp': -2 } }), /别处更新/u);
   await two.api.controller!.discardPending();
   await assert.rejects(two.api.controller!.refresh(), /过期|重新加载/u);
   secondContext.chat.push({ is_user: true, mes: '失败重读后的原生保存', extra: {} });
-  await assert.rejects(two.scope.fetch('/api/chats/save', { method: 'POST', body: body(secondContext) }), /原生保存已阻止/u);
+  await assert.rejects(two.scope.fetch('/api/chats/save', { method: 'POST', body: body(secondContext) }), /保存已阻止/u);
   assert.equal(await hash(env.files.get(env.ctx.chatId)), before); one.api.detach(); two.api.detach();
 });

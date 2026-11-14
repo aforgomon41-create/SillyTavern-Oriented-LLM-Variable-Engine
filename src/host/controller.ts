@@ -71,6 +71,7 @@ export class SillyTavernController {
   constructor(public readonly core: SolveCore, private context: () => HostContext, public readonly options: AttachOptions = {}, fetcher: typeof fetch = fetch) {
     this.chatId = context().chatId;
     this.adapter = new SillyTavern119Adapter(context, fetcher, browserWriteLock, this.performance, this.history);
+    this.adapter.onNotice = (code, message) => this.record(code, message, 'warning');
     if (options.cache) this.cache = options.cache;
     else if (options.cache !== false && typeof indexedDB !== 'undefined') { this.cache = new IndexedDbCache(); this.ownsCache = true; }
   }
