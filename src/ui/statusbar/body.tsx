@@ -10,7 +10,8 @@ import { Abilities, Inventory } from './inventory.js';
 import { Checklist, part, solve } from './widgets.js';
 import { EditableText, TickList, editFor, useInteract } from './interact.js';
 
-export interface PageSpec { label: string; paths: string[]; as?: string }
+/** `groups` (quest log only): sibling text fields shown as one entry, e.g. 远期目标 + 近期目标 under 目标. */
+export interface PageSpec { label: string; paths: string[]; as?: string; groups?: { label: string; paths: string[] }[] }
 const rel = (s: string): Path => s.split('.');
 export function resolveUser(m: StatusModel, base: Path, r: string): Path | undefined {
   const out = [...base, ...rel(r).map(k => k === '$user' ? m.userId ?? '' : k)];
@@ -40,7 +41,8 @@ export function Pages({ base, pages, label, compact = false, page: controlled, o
         </div>
       ) : null}
       <div {...part('page')} data-page={current.as ?? 'default'}>
-        {current.as === 'quests' ? <QuestLog paths={current.paths.map(r => resolveUser(m, base, r)).filter(p => visible(m, p)) as Path[]} />
+        {current.as === 'quests' ? <QuestLog paths={current.paths.map(r => resolveUser(m, base, r)).filter(p => visible(m, p)) as Path[]}
+          groups={(current.groups ?? []).map(g => ({ label: g.label, paths: g.paths.map(r => resolveUser(m, base, r)).filter(p => visible(m, p)) as Path[] }))} />
           : <PageBody base={base} paths={current.paths} as={current.as} />}
       </div>
     </div>
@@ -87,7 +89,7 @@ function Part({ path, as }: { path: Path; as?: string }) {
 }
 
 /** Quest log: objective groups as quest entries, a sentence as the inner voice, checklists as steps. */
-function QuestLog({ paths }: { paths: Path[] }) {
+function QuestLog({ paths, groups = [] }: { paths: Path[]; groups?: { label: string; paths: Path[] }[] }) {
   const m = useModel(), live = useInteract();
   // Editable lines stay visible while empty, so the player can fill them in.
   const open = (p: Path, v: unknown) => !isEmpty(v) || (!!live && !!editFor(m, p));
@@ -111,7 +113,21 @@ function QuestLog({ paths }: { paths: Path[] }) {
       rows.push(<figure key={p.join('.')} {...solve('inner-voice')}><figcaption>{m.label(p)}</figcaption><Guard path={p}><EditableText path={p}>{isEmpty(v) ? <span {...solve('none')}>未填写</span> : <blockquote>{v}</blockquote>}</EditableText></Guard></figure>);
     } else rows.push(<Field key={p.join('.')} path={p} />);
   };
-  paths.forEach(walk);
+  const key = (p: Path) => p.join('.');
+  const grouped = new Map<string, { label: string; paths: Path[] }>();
+  for (const g of groups) for (const p of g.paths) grouped.set(key(p), g);
+  const done = new Set<object>();
+  for (const p of paths) {
+    const g = grouped.get(key(p));
+    if (!g) { walk(p); continue; }
+    if (done.has(g)) continue;
+    done.add(g);
+    const shown = g.paths.filter(q => open(q, m.value(q)));
+    if (!shown.length) continue;
+    rows.push(<section key={'group:' + g.label} {...solve('quests')}><h5 {...part('title')}>{g.label}</h5>
+      <ul>{shown.map((q, i) => <li key={key(q)} data-tier={i}><span {...part('tier')}>{m.label(q)}</span>
+        <span {...part('text')}><Guard path={q}><EditableText path={q}>{isEmpty(m.value(q)) ? <span {...solve('none')}>未填写</span> : m.value(q) as string}</EditableText></Guard></span></li>)}</ul></section>);
+  }
   return <div {...solve('quest-log')}>{rows}</div>;
 }
 function Guard({ path, children }: { path: Path; children: React.ReactNode }) {

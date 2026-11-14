@@ -128,8 +128,17 @@ try {
   for (const tab of ['社交', '地图', '设定']) { await goTab(tab); await shot('tab-' + tab); }
   await goTab('角色');
 
-  phase = 'interact';
+  phase = 'flat';
   const pages = $('[data-solve="sheet"] [role="tab"], [data-solve="pages"] button');
+  // 拍扁后的字段：任务页把远期 / 近期目标合成一项「目标」，属性页显示 attributes_*。
+  await pages.filter({ hasText: '任务' }).first().click(); await settle(); await shot('page-任务');
+  const quest = (await $('[data-solve="quest-log"]').first().innerText()).replace(/\s+/g, ' ');
+  check('任务页：远期 / 近期目标合成一项「目标」', /目标 远期目标 洗清罪名.*近期目标 找到当晚的目击者/u.test(quest), quest.slice(0, 80));
+  await pages.filter({ hasText: '属性' }).first().click(); await settle(); await shot('page-属性');
+  const attrs = (await $('[data-solve="pages"] [data-k-part="page"], [data-solve="pages"] [data-solve-part="page"]').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+  check('属性页：显示当前属性体系和特殊属性', /力量/u.test(attrs) && /契约之力/u.test(attrs), attrs.slice(0, 80));
+
+  phase = 'interact';
   await pages.filter({ hasText: '背包' }).first().click(); await settle();
   await $('[data-solve="slot"]').filter({ hasText: '治疗药剂' }).first().click(); await settle();
   const before = (await state()).data.characters.erin.items.healing_draught?.count;

@@ -87,7 +87,7 @@ export function sop(): string {
     '- $unset "路径" 或 ["路径", …]：删除字段；指向实体时等于删除该实体。',
     '- $deleteEntity "@ID" 或 ["@ID", …]：删除实体，连同它下面的实体。',
     '- $group [操作对象, …]：按顺序执行，全部成功才生效，有一条失败就整组撤回；组内越界或超过单次变化上限直接失败，不再自动修正。用于必须一起成立的变化（如交易的付钱和交货）。可嵌套，最多 8 层。',
-    '- 取值：任何算子的值都可以写 {"$valueOf": "路径"}，读取这条操作开始前该路径的值；可加 "$mul": 系数。如把生命回满：{"$set": {"@lena.rp.gauges.生命.value": {"$valueOf": "@lena.rp.gauges.生命.max"}}}。',
+    '- 取值：任何算子的值都可以写 {"$valueOf": "路径"}，读取这条操作开始前该路径的值；可加 "$mul": 系数。如把生命回满：{"$set": {"@lena.gauges.生命.value": {"$valueOf": "@lena.gauges.生命.max"}}}。',
     '',
     '### 执行规则',
     '- 数组里的操作对象按先后执行。同一个对象里的算子按固定顺序执行：$createEntity → $move → $swap → $set → $inc → $transfer → $push → $pull → $unset → $deleteEntity → $group。有先后依赖时（如先新建再修改），拆成数组里的两个对象。',

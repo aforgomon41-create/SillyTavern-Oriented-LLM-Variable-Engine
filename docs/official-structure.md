@@ -49,15 +49,17 @@
 | `intro` | 简介 | 文字 | 背景与人设概括 |
 | `tags` | 身份 | 文字数组 | 清单上限，见 6.4 |
 | `appearance` | 外貌 | 文字 | |
-| `condition` | 当前状态 | 文字 | 叙事性描述，例如「疲惫，左臂受伤」。数值类状态放在 `rp.gauges` |
+| `condition` | 当前状态 | 文字 | 叙事性描述，例如「疲惫，左臂受伤」。数值类状态放在 `gauges` |
 
 ## 4. 角色模块（挂在 `characters.<charId>` 下）
 
-### 4.1 驱动力 `drive`
+模块只是开关，不是层级：各模块的字段都直接写在角色上（`@erin.shortGoal`、`@erin.attributes_dnd.str`、`@erin.gauges.生命.value`），没有 `drive`、`rp` 这样的分组对象。最深的写法是「集合 / 字典键 / 字段」，例如 `@erin.relations.mira.affection`。
+
+### 4.1 驱动力（模块 `drive`）
 
 | 键 | 名称 | 类型 | 剧透 |
 | --- | --- | --- | --- |
-| `goals.long` / `goals.short` | 远期 / 近期目标 | 文字 | NPC 默认剧透 |
+| `longGoal` / `shortGoal` | 远期 / 近期目标 | 文字 | NPC 默认剧透；状态栏的任务页把两条合成一项「目标」 |
 | `thoughts` | 想法 | 文字 | NPC 默认剧透 |
 | `plan` | 规划 | `[{ text, done }]`，清单上限 | NPC 默认剧透 |
 
@@ -75,18 +77,18 @@
 | `promises` | 约定 | 文字数组，清单上限 | |
 | `keyEvents` | 关键事件 | `[{ round, text }]`，清单上限 | `round` 由引擎自动填写（6.6） |
 
-### 4.3 角色扮演 `rp`
+### 4.3 角色扮演（模块 `rp` 及其子模块）
 
 | 键 | 名称 | 类型 | 子模块 |
 | --- | --- | --- | --- |
 | `rank` | 位阶 | 文字 | 由操作 LLM 依世界观推断 |
-| `attributes` | 属性 | 见 4.4，四种体系互斥 | 属性 |
+| `attributes_dnd` / `attributes_wod` / `attributes_fate` / `attributes_fu` | 属性 | 见 4.4，四种体系互斥，同一时间只有开启的那一个 | 属性 |
 | `special` | 特殊属性 | 字典 `名称 → 文字、数字或 { value, max }` | 属性 |
 | `abilities` | 能力 | 引用字典 `能力 ID → { level?, progress? }` | 能力。能力本体在根节点 `abilities`（见 5.4），这里只写本人的等级与熟练度（0～100，锻炼和实战让它增长，满 100 等级加一并归零）；多人共有同一能力时引用同一个 ID |
 | `gauges` / `gaugesText` | 量表 | 字典 `名称 → { value, max }`（数值）或 `名称 → 一句描述`（描述） | 状态；两种写法由互斥组「量表与熟练度」决定 |
 | `effects` | 效果 | 字典 `名称 → { desc, source?, until? }` | 状态 |
 
-- 量表的名称与数量由模型依世界观和剧情决定（生命、体力、法力、理智……）。**互斥组「量表与熟练度」**（`scales`）二选一：「数值」（`scale_num`，默认）写 `rp.gauges.<名称> = { value, max }`、能力熟练度写 `progress`（0～100），状态栏画成进度条；「描述」（`scale_text`）写 `rp.gaugesText.<名称> = 一句话`（如「伤口在渗血，勉强能走」）、熟练度写 `progressText`，更贴剧情。玩家随时切换，和属性体系一样，引擎把原来的数据附在一次性的迁移指令里交给模型换算。
+- 量表的名称与数量由模型依世界观和剧情决定（生命、体力、法力、理智……）。**互斥组「量表与熟练度」**（`scales`）二选一：「数值」（`scale_num`，默认）写 `gauges.<名称> = { value, max }`、能力熟练度写 `progress`（0～100），状态栏画成进度条；「描述」（`scale_text`）写 `gaugesText.<名称> = 一句话`（如「伤口在渗血，勉强能走」）、熟练度写 `progressText`，更贴剧情。玩家随时切换，和属性体系一样，引擎把原来的数据附在一次性的迁移指令里交给模型换算。
 - `effects` 不计剩余回合。`until` 是可选的文字条件（例如「直到天亮」），模型判断剧情上结束后移除。
 
 ### 4.4 属性体系（互斥组 `attributes`）
@@ -95,10 +97,10 @@
 
 | 体系 | 键 | 值 | 状态栏 |
 | --- | --- | --- | --- |
-| `dnd` | `str dex con int wis cha` | 整数 0～30 或空缺；调整值 ⌊(值−10)/2⌋ 由引擎计算 | 数字 + 调整值小标 |
-| `wod` | 生理 `str dex sta`，心智 `int wits res`，互动 `pre man com` | 整数 ≥0，无上限，或空缺；**超凡** = 值≥1 时 ⌊(值−1)/5⌋，由引擎计算，模型可见、不可写 | 数字 + 超凡徽章 + 5 格进度（距下一点超凡） |
-| `fate` | `physique athletics melee shoot notice empathy rapport deceive provoke contacts investigate lore crafts burglary stealth drive resources will` | 阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX 或空缺 | 阶梯 |
-| `fu` | `might dex insight will` | 弱/普通/优秀/卓越 或空缺（对应原规则 d6/d8/d10/d12，只在提示框显示） | 四格阶梯 |
+| `attributes_dnd` | `str dex con int wis cha` | 整数 0～30 或空缺；调整值 ⌊(值−10)/2⌋ 由引擎计算 | 数字 + 调整值小标 |
+| `attributes_wod` | 生理 `str dex sta`，心智 `int wits res`，互动 `pre man com` | 整数 ≥0，无上限，或空缺；**超凡** = 值≥1 时 ⌊(值−1)/5⌋，由引擎计算，模型可见、不可写 | 数字 + 超凡徽章 + 5 格进度（距下一点超凡） |
+| `attributes_fate` | `physique athletics melee shoot notice empathy rapport deceive provoke contacts investigate lore crafts burglary stealth drive resources will` | 阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX 或空缺 | 阶梯 |
+| `attributes_fu` | `might dex insight will` | 弱/普通/优秀/卓越 或空缺（对应原规则 d6/d8/d10/d12，只在提示框显示） | 四格阶梯 |
 
 WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，因此只显示数字，不用圆点。超凡示例：5→0，6→1，10→1，11→2。
 
@@ -172,7 +174,7 @@ WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，�
 | `intro` | 概括 | 文字 | |
 | `base` | 根据地 | 引用 → `places` | |
 | `territory` | 势力范围 | 引用数组 → `places` | |
-| `goals.long` / `goals.short` | 目标 | 文字 | 默认剧透 |
+| `longGoal` / `shortGoal` | 远期 / 近期目标 | 文字 | 默认剧透 |
 | `plan` | 规划 | 文字数组，清单上限 | 默认剧透 |
 | `reputation.<charId>` | 声望 | `{ value −100～100, title, keyEvents[{round,text}] }` | `value` 单次变化上限 ±10 |
 | `diplomacy.<factionId>` | 外交 | `{ stance, moves }` | stance：盟友/敌对/冷淡中立/臣服依附；`moves` 默认剧透 |
@@ -245,7 +247,7 @@ SOLVE 引擎本来就有两种现成实体，由世界书 `[SOLVE:PREFABS]` / `[
 | --- | ---: | ---: |
 | `tags`、`kinks`、`latentKinks` | 10 | 8 |
 | `relations.*.labels` | 6 | 5 |
-| `relations.*.promises`、`drive.plan`、`factions.*.plan` | 8 | 6 |
+| `relations.*.promises`、角色的 `plan`、`factions.*.plan` | 8 | 6 |
 | `relations.*.keyEvents`、`reputation.*.keyEvents` | 12 | 9 |
 
 ## 8. 渲染标准与前端分工
@@ -282,13 +284,11 @@ SOLVE 引擎本来就有两种现成实体，由世界书 `[SOLVE:PREFABS]` / `[
     "erin": {
       "name": "艾琳", "role": "用户角色", "age": "二十出头", "intro": "被逐出骑士团的见习骑士",
       "tags": ["见习骑士", "流亡者"], "appearance": "银发，旧皮甲", "condition": "疲惫，左臂擦伤",
-      "rp": {
-        "rank": "铜阶",
-        "attributes": { "wod": { "str": 11, "dex": 6, "sta": null, "int": 3, "wits": 4, "res": 5, "pre": 2, "man": 2, "com": 3 } },
-        "abilities": { "night_vision": {}, "shield_bash": { "level": 2, "progress": 60 } },
-        "gauges": { "生命": { "value": 72, "max": 100 } },
-        "effects": { "淋湿": { "desc": "敏捷检定略受影响", "until": "烤干衣物" } }
-      },
+      "rank": "铜阶",
+      "attributes_wod": { "str": 11, "dex": 6, "sta": null, "int": 3, "wits": 4, "res": 5, "pre": 2, "man": 2, "com": 3 },
+      "abilities": { "night_vision": {}, "shield_bash": { "level": 2, "progress": 60 } },
+      "gauges": { "生命": { "value": 72, "max": 100 } },
+      "effects": { "淋湿": { "desc": "敏捷检定略受影响", "until": "烤干衣物" } },
       "items": { "sword": { "count": 1, "equipped": true }, "gold": { "count": 140, "stored": { "royal_bank": 500 } } },
       "relations": { "mira": { "affection": 35, "labels": ["旅伴"], "impression": "话多但可靠",
         "promises": [], "keyEvents": [{ "round": 12, "text": "在沼泽救下米拉" }] } }

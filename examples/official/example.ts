@@ -26,22 +26,20 @@ export const exampleData: Record<string, Json> = {
       name: '艾琳', alias: '银发', ...pics('erin'), role: '用户角色', age: '二十出头',
       intro: '被逐出银枝骑士团的见习骑士，背着一桩不属于自己的罪名，正在王都暗中调查真相。',
       tags: ['见习骑士', '流亡者', '契约者'], appearance: '银色短发，旧皮甲上有被刮掉的骑士团纹章。', condition: '疲惫，左臂擦伤',
-      drive: { goals: { long: '洗清罪名，重回骑士团', short: '找到当晚的目击者' }, thoughts: '米拉知道的比她说的多。',
-        plan: [{ text: '打听目击者下落', done: true }, { text: '潜入下城区仓库', done: false }] },
+      longGoal: '洗清罪名，重回骑士团', shortGoal: '找到当晚的目击者', thoughts: '米拉知道的比她说的多。',
+      plan: [{ text: '打听目击者下落', done: true }, { text: '潜入下城区仓库', done: false }],
       relations: {
         mira: { affection: 35, labels: ['旅伴'], impression: '话多但可靠', promises: ['替她保守身世的秘密'],
           keyEvents: [{ round: 12, text: '在雾沼救下米拉' }, { round: 30, text: '米拉替她挡下追兵' }] },
         cassius: { affection: -20, labels: ['前上司'], impression: '冷酷，但似乎有所隐瞒', promises: [],
           keyEvents: [{ round: 3, text: '被卡修斯亲手剥夺骑士资格' }] },
       },
-      rp: {
-        rank: '铜阶',
-        attributes: { wod: { str: 23, dex: 6, sta: 8, int: 3, wits: 4, res: 5, pre: 2, man: 2, com: 3 }, dnd: { str: 22, dex: 13, con: 15, int: 10, wis: 12, cha: 9 }, fate: { physique: 'C+', athletics: 'D+', melee: 'B+', shoot: 'E', notice: 'D', empathy: 'E+', rapport: 'E', deceive: 'F+', provoke: 'D', contacts: 'E', investigate: 'D+', lore: 'E+', crafts: 'E', burglary: 'E', stealth: 'D', drive: 'E+', resources: 'F+', will: 'C' }, fu: { might: '卓越', dex: '普通', insight: '普通', will: '优秀' } },
-        special: { 契约之力: '残响' },
-        abilities: { night_vision: {}, indomitable: {}, shield_bash: { level: 2, progress: 60 }, echo_slash: { level: 1, progress: 15 } },
-        gauges: { 生命: { value: 72, max: 100 }, 体力: { value: 30, max: 50 }, 理智: { value: 88, max: 100 }, 饱腹: { value: 15, max: 100 } },
-        effects: { 淋湿: { desc: '敏捷检定略受影响', until: '烤干衣物' }, 契约低语: { desc: '偶尔听见契约者的声音', source: '契约' } },
-      },
+      rank: '铜阶',
+      attributes_wod: { str: 23, dex: 6, sta: 8, int: 3, wits: 4, res: 5, pre: 2, man: 2, com: 3 }, attributes_dnd: { str: 22, dex: 13, con: 15, int: 10, wis: 12, cha: 9 }, attributes_fate: { physique: 'C+', athletics: 'D+', melee: 'B+', shoot: 'E', notice: 'D', empathy: 'E+', rapport: 'E', deceive: 'F+', provoke: 'D', contacts: 'E', investigate: 'D+', lore: 'E+', crafts: 'E', burglary: 'E', stealth: 'D', drive: 'E+', resources: 'F+', will: 'C' }, attributes_fu: { might: '卓越', dex: '普通', insight: '普通', will: '优秀' },
+      special: { 契约之力: '残响' },
+      abilities: { night_vision: {}, indomitable: {}, shield_bash: { level: 2, progress: 60 }, echo_slash: { level: 1, progress: 15 } },
+      gauges: { 生命: { value: 72, max: 100 }, 体力: { value: 30, max: 50 }, 理智: { value: 88, max: 100 }, 饱腹: { value: 15, max: 100 } },
+      effects: { 淋湿: { desc: '敏捷检定略受影响', until: '烤干衣物' }, 契约低语: { desc: '偶尔听见契约者的声音', source: '契约' } },
       items: {
         iron_sword: { count: 1, equipped: true }, round_shield: { count: 1, equipped: true },
         healing_draught: { count: 2, equipped: false }, sealed_letter: { count: 1, equipped: false }, grey_mare: { count: 1, equipped: false },
@@ -54,39 +52,35 @@ export const exampleData: Record<string, Json> = {
     mira: {
       name: '米拉', ...pics('mira'), role: '核心角色', age: '看不出', intro: '游走各地的吟游诗人，对王都的传闻无所不知。',
       tags: ['吟游诗人', '情报贩子'], appearance: '绿色斗篷，背着一把旧鲁特琴。', condition: '微醺',
-      drive: { goals: { long: '找回失落的家族乐谱', short: '让艾琳欠她一个人情' }, thoughts: '如果艾琳知道我是灰烬教团的逃亡者……', plan: [] },
+      longGoal: '找回失落的家族乐谱', shortGoal: '让艾琳欠她一个人情', thoughts: '如果艾琳知道我是灰烬教团的逃亡者……', plan: [],
       relations: {
         erin: { affection: 48, labels: ['旅伴', '在意的人'], impression: '固执的笨蛋', promises: [], keyEvents: [{ round: 12, text: '被艾琳从雾沼救出' }] },
         cassius: { affection: -35, labels: ['旧怨'], impression: '骑士团的走狗', promises: [], keyEvents: [] },
       },
-      rp: {
-        rank: '铁阶',
-        attributes: { wod: { str: 2, dex: 5, sta: 2, int: 4, wits: 6, res: 3, pre: 7, man: 6, com: 4 }, dnd: { str: 8, dex: 16, con: 10, int: 13, wis: 14, cha: 17 }, fate: { physique: 'E', athletics: 'D+', melee: 'E+', shoot: 'D', notice: 'C+', empathy: 'C', rapport: 'B', deceive: 'B+', provoke: 'D', contacts: 'A', investigate: 'C', lore: 'C+', crafts: 'D', burglary: 'C', stealth: 'C+', drive: 'D', resources: 'E', will: 'D+' }, fu: { might: '弱', dex: '优秀', insight: '卓越', will: '普通' } },
-        special: { 情报网: 60 }, abilities: { perfect_pitch: {}, lullaby: { level: 3 }, night_vision: {} },
-        gauges: { 生命: { value: 45, max: 60 } }, effects: {},
-      },
+      rank: '铁阶',
+      attributes_wod: { str: 2, dex: 5, sta: 2, int: 4, wits: 6, res: 3, pre: 7, man: 6, com: 4 }, attributes_dnd: { str: 8, dex: 16, con: 10, int: 13, wis: 14, cha: 17 }, attributes_fate: { physique: 'E', athletics: 'D+', melee: 'E+', shoot: 'D', notice: 'C+', empathy: 'C', rapport: 'B', deceive: 'B+', provoke: 'D', contacts: 'A', investigate: 'C', lore: 'C+', crafts: 'D', burglary: 'C', stealth: 'C+', drive: 'D', resources: 'E', will: 'D+' }, attributes_fu: { might: '弱', dex: '优秀', insight: '卓越', will: '普通' },
+      special: { 情报网: 60 }, abilities: { perfect_pitch: {}, lullaby: { level: 3 }, night_vision: {} },
+      gauges: { 生命: { value: 45, max: 60 } }, effects: {},
       items: { lute: { count: 1, equipped: true }, healing_draught: { count: 1, equipped: false }, silver: { count: 12 } },
     },
     ash: {
       name: '灰烬', ...pics('ash'), role: '次要配角', age: '死去多年', intro: '徘徊在酒馆地窖的亡灵骑士，只记得自己的誓言。',
       tags: ['亡灵', '旧骑士'], appearance: '锈蚀的板甲里只有一团幽蓝的火。', condition: '沉默地守在门边',
-      drive: { goals: { long: '完成生前的誓言', short: '守住地窖的门' }, thoughts: '……', plan: [] },
+      longGoal: '完成生前的誓言', shortGoal: '守住地窖的门', thoughts: '……', plan: [],
       relations: { mira: { affection: 20, labels: ['听众'], impression: '她的歌让火焰安静', promises: [], keyEvents: [] } },
-      rp: {
-        rank: '银阶',
-        attributes: { wod: { str: 11, dex: 3, sta: null, int: 2, wits: 3, res: 9, pre: 1, man: null, com: 6 }, dnd: { str: 20, dex: 9, con: null, int: 8, wis: 12, cha: null }, fate: { physique: 'B', athletics: 'E', melee: 'B+', shoot: null, notice: 'D+', empathy: null, rapport: 'F', deceive: null, provoke: 'C', contacts: null, investigate: 'E', lore: 'D+', crafts: null, burglary: null, stealth: 'E', drive: null, resources: null, will: 'A' }, fu: { might: '卓越', dex: '弱', insight: '普通', will: '卓越' } },
-        special: { 幽火: '燃烧中' }, abilities: { undying: {}, night_vision: {} },
-        gauges: { 魂火: { value: 64, max: 100 } }, effects: {},
-      },
+      rank: '银阶',
+      attributes_wod: { str: 11, dex: 3, sta: null, int: 2, wits: 3, res: 9, pre: 1, man: null, com: 6 }, attributes_dnd: { str: 20, dex: 9, con: null, int: 8, wis: 12, cha: null }, attributes_fate: { physique: 'B', athletics: 'E', melee: 'B+', shoot: null, notice: 'D+', empathy: null, rapport: 'F', deceive: null, provoke: 'C', contacts: null, investigate: 'E', lore: 'D+', crafts: null, burglary: null, stealth: 'E', drive: null, resources: null, will: 'A' }, attributes_fu: { might: '卓越', dex: '弱', insight: '普通', will: '卓越' },
+      special: { 幽火: '燃烧中' }, abilities: { undying: {}, night_vision: {} },
+      gauges: { 魂火: { value: 64, max: 100 } }, effects: {},
       items: {},
     },
     cassius: {
       name: '卡修斯', ...pics('cassius'), role: '主要配角', age: '四十余岁', intro: '银枝骑士团团长，亲手将艾琳逐出骑士团。',
       tags: ['骑士团长'], appearance: '高大，左眼有一道旧伤。', condition: '在王城值守',
-      drive: { goals: { long: '保住骑士团的名誉', short: '找到伪造火漆的人' }, thoughts: '那孩子不会做这种事。', plan: [] },
+      longGoal: '保住骑士团的名誉', shortGoal: '找到伪造火漆的人', thoughts: '那孩子不会做这种事。', plan: [],
       relations: { erin: { affection: 10, labels: ['前部下'], impression: '太过天真', promises: [], keyEvents: [] } },
-      rp: { rank: '金阶', attributes: { wod: { str: 9, dex: 7, sta: 8, int: 5, wits: 6, res: 8, pre: 6, man: 4, com: 7 }, dnd: { str: 18, dex: 15, con: 17, int: 14, wis: 15, cha: 16 }, fate: { physique: 'B', athletics: 'B', melee: 'A', shoot: 'C', notice: 'B', empathy: 'D', rapport: 'C+', deceive: 'B', provoke: 'B+', contacts: 'A', investigate: 'C+', lore: 'C', crafts: 'E', burglary: 'E+', stealth: 'D', drive: 'C', resources: 'A+', will: 'A' }, fu: { might: '优秀', dex: '优秀', insight: '优秀', will: '卓越' } },
-        special: {}, abilities: { shield_bash: { level: 4 } }, gauges: { 生命: { value: 140, max: 140 } }, effects: {} },
+      rank: '金阶', attributes_wod: { str: 9, dex: 7, sta: 8, int: 5, wits: 6, res: 8, pre: 6, man: 4, com: 7 }, attributes_dnd: { str: 18, dex: 15, con: 17, int: 14, wis: 15, cha: 16 }, attributes_fate: { physique: 'B', athletics: 'B', melee: 'A', shoot: 'C', notice: 'B', empathy: 'D', rapport: 'C+', deceive: 'B', provoke: 'B+', contacts: 'A', investigate: 'C+', lore: 'C', crafts: 'E', burglary: 'E+', stealth: 'D', drive: 'C', resources: 'A+', will: 'A' }, attributes_fu: { might: '优秀', dex: '优秀', insight: '优秀', will: '卓越' },
+      special: {}, abilities: { shield_bash: { level: 4 } }, gauges: { 生命: { value: 140, max: 140 } }, effects: {},
       items: { gold: { count: 900 } },
     },
   },
@@ -141,13 +135,13 @@ export const exampleData: Record<string, Json> = {
   factions: {
     silver_branch: {
       name: '银枝骑士团', tier: '核心大派', leader: 'cassius', intro: '守护王都的骑士团，以荣誉自居。', base: 'palace', territory: ['capital'],
-      goals: { long: '维持王国秩序', short: '平息伪造火漆的丑闻' }, plan: ['加强王城巡逻'],
+      longGoal: '维持王国秩序', shortGoal: '平息伪造火漆的丑闻', plan: ['加强王城巡逻'],
       reputation: { erin: { value: -30, title: '被逐者', keyEvents: [{ round: 3, text: '艾琳被逐出骑士团' }] } },
       diplomacy: { ash_cult: { stance: '敌对', moves: '秘密追查教团据点' } },
     },
     ash_cult: {
       name: '灰烬教团', alias: '余烬', tier: '隐秘结社', leader: null, intro: '崇拜灰烬与亡者的地下教团。', base: 'warehouse', territory: ['lower_town'],
-      goals: { long: '唤醒沉睡的灰烬之王', short: '找回逃亡的米拉' }, plan: ['在下城区散布谣言'],
+      longGoal: '唤醒沉睡的灰烬之王', shortGoal: '找回逃亡的米拉', plan: ['在下城区散布谣言'],
       reputation: {}, diplomacy: { silver_branch: { stance: '敌对', moves: '伪造骑士团火漆嫁祸' } },
     },
   },
@@ -164,23 +158,23 @@ export const examplePresets: { prefabs: Record<string, { type: string; data: Rec
     grave_hound: { type: 'character', data: {
       name: '墓园猎犬', ...pics('grave_hound'), role: '一次性敌人', age: '不详', tags: ['亡灵', '野兽'],
       intro: '在王都旧墓园游荡的腐朽猎犬，闻到活人的气味就会扑上来。', appearance: '皮毛脱落，肋骨间燃着暗绿色的火。', condition: '在墓园深处游荡',
-      rp: { rank: '铁阶', attributes: { wod: { str: 5, dex: 6, sta: null, int: 1, wits: 4, res: 3, pre: 0, man: 0, com: 2 } },
-        abilities: { night_vision: {}, undying: {} }, gauges: { 生命: { value: 30, max: 30 } } } } },
+      rank: '铁阶', attributes_wod: { str: 5, dex: 6, sta: null, int: 1, wits: 4, res: 3, pre: 0, man: 0, com: 2 },
+      abilities: { night_vision: {}, undying: {} }, gauges: { 生命: { value: 30, max: 30 } } } },
     ember_bishop: { type: 'character', data: {
       name: '余烬主教', ...pics('ember_bishop'), role: '主要配角', age: '看不出年纪', tags: ['灰烬教团', '神职'],
       intro: '灰烬教团的主教，总在别人替他做完脏活之后才出现。', appearance: '灰袍下露出一截烧焦的手指，声音温和得过分。', condition: '藏身于码头仓库',
-      drive: { goals: { long: '唤醒沉睡的灰烬之王', short: '找回逃亡的米拉' }, thoughts: '骑士团替我们做了一半的事。' },
-      rp: { rank: '金阶', attributes: { wod: { str: 3, dex: 4, sta: 5, int: 9, wits: 7, res: 8, pre: 7, man: 9, com: 6 } },
-        special: { 信徒: '下城区约有三十人' }, abilities: { undying: {}, echo_slash: { level: 3 } } } } },
+      longGoal: '唤醒沉睡的灰烬之王', shortGoal: '找回逃亡的米拉', thoughts: '骑士团替我们做了一半的事。',
+      rank: '金阶', attributes_wod: { str: 3, dex: 4, sta: 5, int: 9, wits: 7, res: 8, pre: 7, man: 9, com: 6 },
+      special: { 信徒: '下城区约有三十人' }, abilities: { undying: {}, echo_slash: { level: 3 } } } },
     rat_king: { type: 'character', data: {
       name: '下水道鼠王', ...pics('rat_king'), role: '一次性敌人', tags: ['野兽', '群体'], intro: '几十只尾巴缠在一起的老鼠，像一个会思考的东西。',
-      appearance: '一团湿漉漉的、蠕动的灰毛。', rp: { abilities: { night_vision: {} }, gauges: { 群体: { value: 20, max: 60 } } } } },
+      appearance: '一团湿漉漉的、蠕动的灰毛。', abilities: { night_vision: {} }, gauges: { 群体: { value: 20, max: 60 } } } },
   },
   templates: {
     cult_zealot: { type: 'character', data: {
       name: '教团狂信徒', ...pics('cult_zealot'), role: '一次性敌人', origin: 'cult_zealot', tags: ['灰烬教团'],
       intro: '被主教的布道点燃的下城区居民，为教团做跑腿和打手。', appearance: '灰色头巾，袖口有烧灼的痕迹。',
-      rp: { rank: '铁阶', attributes: { wod: { str: 3, dex: 3, sta: 3, int: 2, wits: 2, res: 4, pre: 2, man: 2, com: 2 } }, gauges: { 生命: { value: 20, max: 20 } } } } },
+      rank: '铁阶', attributes_wod: { str: 3, dex: 3, sta: 3, int: 2, wits: 2, res: 4, pre: 2, man: 2, com: 2 }, gauges: { 生命: { value: 20, max: 20 } } } },
   },
 };
 
@@ -214,11 +208,11 @@ export const exampleStructure: StructureDescription = { ...officialStructure, ..
 export async function exampleTextScales(core: SolveCore, state: LogicalState): Promise<LogicalState> {
   const switched = await core.setModule('scale_text', true, state, { source: 'user' });
   const result = await core.execute({ $set: {
-    'characters.erin.rp.gaugesText': { 生命: '左臂擦伤，还能挥剑', 体力: '赶了一天路，有些发软', 理智: '清醒，只是偶尔听见低语', 饱腹: '一天没吃东西，肚子在叫' },
-    'characters.erin.rp.abilities.shield_bash.progressText': '已经能在实战里稳定撞开对手，离撞倒还差一点火候',
-    'characters.erin.rp.abilities.echo_slash.progressText': '刚刚摸到门道，回声时有时无',
-    'characters.mira.rp.gaugesText': { 生命: '毫发无伤' },
-    'characters.ash.rp.gaugesText': { 魂火: '幽蓝的火比平时暗了一些' },
+    'characters.erin.gaugesText': { 生命: '左臂擦伤，还能挥剑', 体力: '赶了一天路，有些发软', 理智: '清醒，只是偶尔听见低语', 饱腹: '一天没吃东西，肚子在叫' },
+    'characters.erin.abilities.shield_bash.progressText': '已经能在实战里稳定撞开对手，离撞倒还差一点火候',
+    'characters.erin.abilities.echo_slash.progressText': '刚刚摸到门道，回声时有时无',
+    'characters.mira.gaugesText': { 生命: '毫发无伤' },
+    'characters.ash.gaugesText': { 魂火: '幽蓝的火比平时暗了一些' },
   } } as never, switched.state, { source: 'user' });
   if (result.feedback.some(f => f.level === 'L3')) throw new Error('示例描述模式失败：' + JSON.stringify(result.feedback));
   return result.state;

@@ -94,10 +94,10 @@ try {
   // Turn 1: set up the two characters the SOP example talks about.
   await send('我走进酒馆。', op([
     { $set: { 'items.gold': { name: '金币', type: '货币' }, 'items.healing_draught': { name: '治疗药剂', type: '消耗' }, 'characters.erin': { name: '艾琳', role: '用户角色' }, 'characters.mira': { name: '米拉', role: '核心角色' } } },
-    { $set: { '@erin.items.gold': { count: 140 }, '@erin.items.healing_draught': { count: 2 }, '@erin.rp.gauges.生命': { value: 72, max: 100 }, 'meta.weather': '雨' } },
+    { $set: { '@erin.items.gold': { count: 140 }, '@erin.items.healing_draught': { count: 2 }, '@erin.gauges.生命': { value: 72, max: 100 }, 'meta.weather': '雨' } },
   ]));
   let st = await state();
-  check('开局数据就位', st.data.characters.erin.items.gold.count === 140 && st.data.characters.erin.rp.gauges['生命'].value === 72, JSON.stringify(st.data.characters.erin.items));
+  check('开局数据就位', st.data.characters.erin.items.gold.count === 140 && st.data.characters.erin.gauges['生命'].value === 72, JSON.stringify(st.data.characters.erin.items));
   // The prompt the model received in turn 1 carries the full SOP.
   const prompt = await lastRequestText();
   const ops = ['$createEntity', '$move', '$swap', '$set', '$inc', '$transfer', '$push', '$pull', '$unset', '$deleteEntity', '$group'];

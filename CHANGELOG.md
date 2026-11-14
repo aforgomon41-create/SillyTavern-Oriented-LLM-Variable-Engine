@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- **官方结构拍扁层级。**角色下面不再有 `drive`、`rp`、`rp.attributes` 这些只用来分组的对象，字段直接写在角色上：`longGoal` / `shortGoal`（原 `drive.goals.long/short`）、`thoughts`、`plan`、`rank`、`attributes_dnd` / `attributes_wod` / `attributes_fate` / `attributes_fu`（原 `rp.attributes.dnd` 等，互斥组照旧，同一时间只出现开启的那一套）、`special`、`abilities`、`gauges` / `gaugesText`、`effects`。势力的目标同样改为 `longGoal` / `shortGoal`。模块开关不变（模块挂在字段上，不靠分组对象）；`relations`、`items`、量表的 `{value, max}`、`meta.time`、`nsfw` 保留层级。模型写的路径变短（`@erin.attributes_dnd.str`、`@erin.gauges.生命.value`、`@erin.shortGoal`），数据结构、变量规则、操作说明随之更新；状态栏任务页把远期 / 近期目标合成一项「目标」（布局页新增 `groups`）。**定义指纹改变，旧版官方结构开局的聊天不迁移，需要重新开局。**
 - **一次新建的实体可以互相引用。**同一个 $createEntity 里新建的实体（例如区域的 links 指向其中的地点、地点的 parent 指回区域）此前逐条检查，前一条引用后一条就被判「引用目标不存在」，再连锁拒绝所有引用它们的条目和后面的 $set。现在这些新建先一起写入、再统一检查；写错的那条单独拒绝（连同引用它的），其余照常建出。操作说明补上这一条。官方结构「特殊属性」的说明写明它和 attributes 并列（rp.special），模型此前会把它放进 attributes 导致整个角色被拒。
 - **「重试保存：部分历史找不到可归档的消息/Swipe」不再卡死。**一次保存失败后留下的待保存操作，在之后切换 Swipe、重新生成或删楼后已经对不上聊天，此前重试永远失败、而且挡住之后每一轮的变量更新。现在随正文输出模式下发现草稿过时就丢掉它、按磁盘上的历史重建，再按这条回复现在的正文重新处理（日志 PENDING_REBUILT）；待保存的草稿不再让下一轮请求弹「不会更新变量」。切换 Swipe 时同步助手变量失败只记警告，不再让 SOLVE 停在未就绪（只有磁盘被别处改过等真正的冲突才停）；切到一个还没处理过的 Swipe 会自动补处理。
 - **页面上已有另一份 SOLVE 时提示。**同一版本号的不同构建会共用页面上先加载的那份运行时；动态导入发现页面上已经在跑另一处加载的 SOLVE（别的脚本里的旧链接、原生扩展）时，弹出常驻提示写明两边的地址，请玩家停用旧的导入后刷新，不再悄悄沿用旧版。

@@ -20,7 +20,7 @@ export interface SheetItem {
   effects?: string; currency?: string;
   /** With `currency` pointing at holdings (`items`): the item type counted as money; amounts are what the character carries. */
   currencyType?: string;
-  pages: { label: string; paths: string[]; as?: string }[];
+  pages: { label: string; paths: string[]; as?: string; groups?: { label: string; paths: string[] }[] }[];
 }
 const rel = (s: string): Path => s.split('.');
 
