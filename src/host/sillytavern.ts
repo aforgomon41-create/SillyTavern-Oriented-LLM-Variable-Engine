@@ -134,11 +134,13 @@ export function archiveFromChat(header: Record<string, any>, messages: HostMessa
   return archive;
 }
 /** Why writing `next` would lose something in `disk` (a record it lacks or holds differently, another opening or structure); undefined when nothing is lost. */
-function covers(next: Archive | undefined, disk: Archive | undefined): string | undefined {
+function covers(next: Archive | undefined, disk: Archive | undefined, ours: ReadonlySet<string> = new Set()): string | undefined {
   if (!disk) return undefined;
   if (!next || next.sessionId !== disk.sessionId || next.definitionHash !== disk.definitionHash
     || Object.entries(disk.geneses).some(([gid, g]) => canonical(next.geneses[gid] ?? null) !== canonical(g))) return '聊天的开局或结构不同';
-  const foreign = Object.entries(disk.commits).filter(([cid, c]) => canonical(next.commits[cid] ?? null) !== canonical(c)).length;
+  // A record this page itself wrote in an earlier, half-finished attempt is superseded, not someone else's.
+  const foreign = Object.entries(disk.commits).filter(([cid, c]) => canonical(next.commits[cid] ?? null) !== canonical(c)
+    && !(ours.has(cid) && !next.commits[cid])).length;
   return foreign ? `有 ${foreign} 条变量记录这里没有` : undefined;
 }
 export class SillyTavern119Adapter implements ArchiveAdapter {
@@ -147,6 +149,8 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
   private nativeBaseline?: string | null;
   /** Told when a save went ahead although the disk had changed since the last known state (nothing on disk was lost). */
   onNotice?: (code: string, message: string) => void;
+  /** Commits this page has sent to disk (even if the save was not confirmed). */
+  private written = new Set<string>();
   constructor(private context: () => HostContext, private fetcher: typeof fetch = fetch,
     private lock: <T>(name: string, fn: () => Promise<T>) => Promise<T> = async (_name, fn) => fn(), readonly performance = new PerformanceTrace(),
     private history = new VerifiedHistory({}, performance)) {}
@@ -337,7 +341,7 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
         // The disk moved since our last known state. Writing is still safe when every record on disk is also in this
         // draft, unchanged (e.g. our own earlier attempt whose verification failed, or a native save of the same history):
         // nothing on disk is lost. Records the draft does not have mean someone else wrote: refuse and say what differs.
-        const conflict = covers(draft.archive, remoteArchive);
+        const conflict = covers(draft.archive, remoteArchive, this.written);
         if (conflict) fail('REMOTE_HEAD_CHANGED', `磁盘上的 SOLVE 历史已被别处更新（${conflict}），为了不覆盖它们，这次没有保存。可能是另一个标签页或设备开着同一个聊天；关掉其他的，刷新页面后重试`);
         const missing = Object.keys(draft.archive.commits).filter(cid => !remoteArchive?.commits[cid]).length;
         this.onNotice?.('REMOTE_REBASED', `磁盘上的 SOLVE 历史和上次记下的不同，但其中每条记录这次都有、内容一致（磁盘上少 ${missing} 条），照常保存`);
@@ -351,6 +355,7 @@ export class SillyTavern119Adapter implements ArchiveAdapter {
         && remote[0].chat_metadata?.tainted === true;
       this.assertCurrent(draft.binding);
       if (!alreadySaved || !viewsMatch) {
+        for (const cid of Object.keys(draft.archive.commits)) this.written.add(cid);
         const result = await measure(this.performance, 'adapter.write', () => this.post('/api/chats/save', { ...this.address(), chat, force: false }));
         if (result?.ok !== true) fail('HOST_SAVE_FAILED', '酒馆没有确认保存');
       }

@@ -105,7 +105,7 @@ test('控制器草稿跨刷新重试复用候选，放弃同步清理本地缓�
   controller.dispose(); setFailBefore(false);
   const fresh = await attachSillyTavern(def, () => ctx, { cache }, fetcher);
   assert.equal(fresh.getStatus().pendingCount, 1);
-  const saved = await fresh.retryPending(); assert.equal(saved.id, candidate); assert.equal(fresh.getValue('@alice.hp'), 80);
+  const saved = await fresh.retryPending(); assert.equal(saved!.id, candidate); assert.equal(fresh.getValue('@alice.hp'), 80);
   setFailBefore(true); await assert.rejects(fresh.submit({ $inc: { '@alice.hp': -7 } }, { index }));
   setFailBefore(false); await fresh.discardPending(); assert.equal(fresh.getStatus().pendingCount, 0);
   assert.deepEqual((await cache.loadPending(fresh.runtime.sessionId)) ?? [], []);
@@ -192,12 +192,13 @@ test('支持 IndexedDB 的默认接入自动启用缓存', async () => {
   } finally { if (old) Object.defineProperty(globalThis, 'indexedDB', old); else delete (globalThis as any).indexedDB; }
 });
 
-test('删除事件保留待保存草稿，处理草稿后才能恢复和继续', async () => {
-  const { controller, ctx, addReply, emit, setFailBefore, saveNative } = await setup(); const index = addReply(); await controller.processMessage(index);
+test('删除事件遇到正文模式的待保存草稿：放弃草稿、按剩下的聊天重建，不再卡住', async () => {
+  const { controller, ctx, addReply, emit, setFailBefore } = await setup(); const index = addReply(); await controller.processMessage(index);
   setFailBefore(true); await assert.rejects(controller.submit({ $inc: { '@alice.hp': -5 } }, { index })); setFailBefore(false);
-  ctx.chat.pop(); await emit('delete', ctx.chat.length); saveNative();
-  assert.equal(controller.getStatus().pendingCount, 1); assert.equal(controller.ready, false);
-  await controller.discardPending(); await controller.refresh(); assert.equal(controller.getValue('@alice.hp'), 100); controller.dispose();
+  ctx.chat.pop(); await emit('delete', ctx.chat.length); await controller.whenIdle();
+  assert.equal(controller.getStatus().pendingCount, 0); assert.equal(controller.ready, true);
+  assert.equal(controller.getValue('@alice.hp'), 100, '回复删掉了，它的变量也不在了');
+  assert.ok(controller.journal.read().some(l => l.code === 'PENDING_REBUILT')); controller.dispose();
 });
 
 test('多楼重放中途失败会阻止继续写入混合历史，修复后可接续重放', async () => {
@@ -218,6 +219,6 @@ test('重放保存失败的候选跨刷新重试不重新执行作者校验', as
   env.setFailBefore(true); await assert.rejects(controller.replayMessage(index)); const candidate = controller.getPending()[0]!;
   assert.equal(candidate.prepared, true); const before = calls; controller.dispose(); env.setFailBefore(false);
   const fresh = await attachSillyTavern(env.def, () => env.ctx, { cache }, env.fetcher);
-  const result = await fresh.retryPending(); assert.equal(result.id, candidate.commit.id); assert.equal(calls, before); assert.equal(fresh.getValue('@alice.hp'), 70);
+  const result = await fresh.retryPending(); assert.equal(result!.id, candidate.commit.id); assert.equal(calls, before); assert.equal(fresh.getValue('@alice.hp'), 70);
   fresh.dispose(); cache.close();
 });

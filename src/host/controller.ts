@@ -107,7 +107,16 @@ export class SillyTavernController {
     this.updateVariableSnapshot();
     if (this.ready && !this.runtime.pendingCount && !this.pendingImportError && !this.nativeHistoryChanged) {
       try { await this.adapter.syncVariables(this.runtime.archive, this.runtime.headId); }
-      catch (error) { this.readyState = false; this.reason = describeError(error).message; throw error; }
+      // Writing back an already archived history adds nothing new: a failure (network…) leaves the disk behind, not the state wrong.
+      // Stay usable; the next save writes the same views again.
+      catch (error) {
+        // A conflict with what is on disk (another tab, a foreign record) still stops; a failed request does not.
+        const code = describeError(error).code;
+        if (['REMOTE_HEAD_CHANGED', 'ARCHIVE_OWNERSHIP', 'STATE_NOT_ALIGNED', 'DEFINITION_SNAPSHOT_CHANGED', 'STORAGE_MISSING', 'STORAGE_HEAD_MISMATCH'].includes(code)) {
+          this.readyState = false; this.reason = describeError(error).message;
+        } else this.record('VARIABLES_SYNC_FAILED', `写回变量快照失败：${describeError(error).message}`, 'warning');
+        throw error;
+      }
       this.assertBound(); this.updateVariableSnapshot();
     }
   }
@@ -244,7 +253,11 @@ export class SillyTavernController {
     this.record('CATCH_UP', `楼层 ${index} 的回复带有变量操作但还没处理过，现在补上`);
     void this.processMessage(index).then(commit => {
       if (commit) this.record('CATCH_UP', `楼层 ${index} 的变量操作已补处理`);
-    }, error => this.tellUnprocessed(index, describeError(error).message));
+    }, error => {
+      // Overtaken by a generation or a chat switch: nothing went wrong, the next turn sees it again.
+      if (['STALE_BINDING', 'STALE_ACTION', 'STATE_NOT_ALIGNED'].includes(describeError(error).code)) { this.record('CATCH_UP', `楼层 ${index} 的补处理被新的生成打断，稍后再补`); return; }
+      this.tellUnprocessed(index, describeError(error).message);
+    });
   }
   private tellUnprocessed(index: number, why: string): void {
     this.record('REPLY_UNPROCESSED', `楼层 ${index} 回复里的变量操作没有处理：${why}`, 'warning');
@@ -304,6 +317,13 @@ export class SillyTavernController {
           if (epoch !== this.generationEpoch || this.disposed) return;
           this.assertBound(); await this.context().saveChat?.();
         }
+        if (epoch === this.generationEpoch && !this.disposed && this.runtime.pendingCount && (this.options.mode ?? 'in-band') === 'in-band') {
+          // A draft left from an earlier failed save would block this reply: rebuild, redo that reply, then go on.
+          const messageId = this.runtime.exportPending()[0]?.binding.messageId;
+          await this.enqueue(() => this.dropStalePending('新回复到达时还有上次没保存的草稿'));
+          const at = messageId ? this.context().chat.findIndex(m => m.extra?.solve?.messageId === messageId) : -1;
+          if (messageId && at >= 0 && at < this.context().chat.length - 1) await this.redoReply(messageId);
+        }
         if (epoch === this.generationEpoch && !this.disposed) await this.processMessage();
         const left = this.disposed ? undefined : this.unprocessedReply();
         if (left !== undefined && left === this.context().chat.length - 1) this.tellUnprocessed(left, '原因未知，见调试日志');
@@ -323,9 +343,12 @@ export class SillyTavernController {
         const binding = this.adapter.binding(index);
         const head = await this.adapter.selectedHead(binding);
         await this.runtime.select(head ?? this.findParent(index));
-        await this.syncVariableViews();
         this.record('SWIPE_SELECTED', `已恢复楼层 ${index} 当前回复的变量状态`);
-      } catch (error) { this.readyState = false; onError(error); }
+      } catch (error) { this.readyState = false; onError(error); return; }
+      // Writing the variable snapshot back is secondary: the state is already selected; the next save writes it again.
+      try { await this.syncVariableViews(); } catch (error) { this.record('SWIPE_SYNC_FAILED', `切换回复后写回变量快照失败（${describeError(error).message}），变量照常可用，下次保存时一并写入`, 'warning'); }
+      // A swipe that carries operations but was never processed (its save failed earlier, SOLVE was off…): process it now.
+      this.catchUp();
     });
     // An edited reply is reread automatically from that floor on (the operations are in the reply text; no model request).
     this.listen('MESSAGE_EDITED', async (index: number) => {
@@ -347,6 +370,15 @@ export class SillyTavernController {
     const deleted = async () => {
       this.operator?.abort(); this.adapter.invalidate(); this.nativeHistoryChanged = true;
       const gap = preserveOrphanAncestors(this.runtime.archive, this.context().chat);
+      if ((this.runtime.pendingCount || this.pendingImportError) && (this.options.mode ?? 'in-band') === 'in-band') {
+        // The draft was made before the deletion: rebuild instead of leaving the chat stuck.
+        const messageId = this.runtime.exportPending()[0]?.binding.messageId;
+        try {
+          await this.enqueue(() => this.dropStalePending('删除消息时还有没保存的草稿'));
+          if (messageId) await this.redoReply(messageId);
+          return;
+        } catch (error) { this.markDirty(describeError(error).message); onError(error); return; }
+      }
       if (this.runtime.pendingCount || this.pendingImportError) { this.markDirty('删除后仍有待保存草稿，请先处理草稿，再重新检查历史'); return; }
       if (gap) { this.markDirty('中间历史已删除；已保留所需旧修订，请重放剩余的后续楼层'); return; }
       try {
@@ -409,7 +441,8 @@ export class SillyTavernController {
     try {
       if (!this.ready) return this.reason || 'SOLVE 状态未就绪';
       if (this.pendingImportError) return this.pendingImportError;
-      if (this.runtime.pendingCount) return '有一次操作没有保存成功';
+      // In-band drafts heal themselves when the next reply arrives (dropStalePending / redoReply).
+      if (this.runtime.pendingCount) return (this.options.mode ?? 'in-band') === 'in-band' ? undefined : '有一次操作没有保存成功';
       if (this.findParent(this.context().chat.length) !== this.runtime.headId) return '选中历史尚未对齐，请重放后续楼层';
     } catch (error) { return describeError(error).message; }
     return undefined;
@@ -722,19 +755,54 @@ export class SillyTavernController {
     return { beforeId, afterId, dataPatch: jsonpatch.compare(before.data, after.data), enginePatch: jsonpatch.compare(before.engineState, after.engineState) };
   }
   getPending() { return this.runtime.exportPending(); }
-  retryPending(): Promise<Commit> {
+  retryPending(): Promise<Commit | undefined> {
+    let redo: string | undefined;
     return this.enqueue(async () => {
       const draft = this.runtime.exportPending()[0]; if (!draft) fail('NO_PENDING_SAVE', '没有待保存操作');
-      const index = this.context().chat.findIndex(m => m.extra?.solve?.messageId === draft.binding.messageId);
-      if (index < 0) fail('PENDING_CONFLICT', '待保存操作所属消息已不存在');
-      const binding = this.adapter.binding(index);
-      if (headKey(binding) !== headKey(draft.binding)) fail('PENDING_CONFLICT', '请切回待保存操作所属的回复版本');
-      if (draft.prepared) {
-        const commit = await this.persist(() => this.runtime.savePrepared({ ...draft, binding }, this.context().chat[index]!.mes), false);
-        this.readyState = true; this.reason = ''; this.checkAlignment(); return commit;
+      try {
+        const index = this.context().chat.findIndex(m => m.extra?.solve?.messageId === draft.binding.messageId);
+        if (index < 0) fail('PENDING_CONFLICT', '待保存操作所属消息已不存在');
+        const binding = this.adapter.binding(index);
+        if (headKey(binding) !== headKey(draft.binding)) fail('PENDING_CONFLICT', '请切回待保存操作所属的回复版本');
+        if (draft.prepared) {
+          const commit = await this.persist(() => this.runtime.savePrepared({ ...draft, binding }, this.context().chat[index]!.mes), false);
+          this.readyState = true; this.reason = ''; this.checkAlignment(); return commit;
+        }
+        return await this.persist(() => this.runtime.submit(draft.commit.actions.at(-1)!, binding, draft.text, { sourceText: this.context().chat[index]!.mes }));
+      } catch (error) {
+        if (!this.canRedoPending(error)) throw error;
+        redo = draft.binding.messageId;
+        await this.dropStalePending(`重试保存时这份草稿已经过时（${describeError(error).message}）`);
+        return undefined;
       }
-      return this.persist(() => this.runtime.submit(draft.commit.actions.at(-1)!, binding, draft.text, { sourceText: this.context().chat[index]!.mes }));
-    });
+    }).then(commit => redo ? this.redoReply(redo) : commit);
+  }
+  /**
+   * In-band drafts can always be rebuilt: the operations live in the reply text. A draft made before the chat changed
+   * (swipes, deletions, regeneration, a half-written save) is dropped and its reply processed again on the current history.
+   */
+  private canRedoPending(error: unknown): boolean {
+    if ((this.options.mode ?? 'in-band') !== 'in-band') return false;
+    return ['ARCHIVE_OWNERSHIP', 'PENDING_CONFLICT', 'PENDING_TEXT_CHANGED', 'PENDING_INVALID', 'STATE_NOT_ALIGNED', 'STALE_ACTION', 'HEAD_CHANGED', 'STALE_BINDING', 'SOURCE_TEXT_CHANGED']
+      .includes(describeError(error).code);
+  }
+  /** Runs inside the queue: forget the draft, rebuild the runtime from the chat as it is now. */
+  private async dropStalePending(why: string): Promise<void> {
+    if (this.cache) await this.useCache(cache => cache.savePending(this.runtime.sessionId, []));
+    this.runtime.discardPending(); this.pendingImportError = undefined;
+    this.adapter.invalidate();
+    const archive = this.adapter.loadMemory(); if (!archive) fail('BROKEN_HISTORY', '当前聊天缺少归档');
+    preserveOrphanAncestors(archive, this.context().chat);
+    const head = this.findParent(this.context().chat.length, archive);
+    this.runtime.invalidate(); this.runtime = this.createRuntime(archive, head); await this.runtime.ready(); this.assertBound();
+    this.readyState = true; this.reason = '';
+    this.record('PENDING_REBUILT', `${why}；已放弃这份草稿，按当前聊天重建历史，再从回复正文重新处理`, 'warning');
+  }
+  /** Process the reply that carried a dropped draft again, if it is still in the chat. */
+  private async redoReply(messageId: string): Promise<Commit | undefined> {
+    const index = this.context().chat.findIndex(m => m.extra?.solve?.messageId === messageId);
+    if (index < 0) { this.record('PENDING_REBUILT', '草稿所属的回复已经不在聊天里，不需要重新处理'); return undefined; }
+    return this.processMessage(index);
   }
   discardPending(): Promise<void> {
     return this.enqueue(async () => {
