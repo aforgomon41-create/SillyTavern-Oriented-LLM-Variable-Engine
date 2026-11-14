@@ -19,7 +19,7 @@ const tag = mobile ? '390' : '1440';
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok: Boolean(ok), detail }); console.log(`${ok ? '✔' : '✖'} ${name}${detail ? ' — ' + detail : ''}`); };
 const mock = async (path, body) => (await fetch(MOCK + path, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })).json();
-const SOP = 'SOLVE 变量操作说明', SCHEMA = '## 数据结构', DATA = '当前变量（TOON）', GUIDE = '驱动力：剧情推进后及时更新';
+const SOP = 'SOLVE 变量操作说明', SCHEMA = '## 数据结构', DATA = '## 当前变量（TOON）', GUIDE = '驱动力：剧情推进后及时更新';
 
 const target = resolve(ST_ROOT, 'public/scripts/extensions/third-party/solve');
 await rm(target, { recursive: true, force: true });
@@ -121,7 +121,7 @@ try {
     await page.waitForFunction(() => window.__solveReady.length > 0, null, { timeout: 30000 });
     const got = await page.evaluate(() => window.__solveReady.at(-1));
     const at = got.findIndex(c => c.includes(SOP));
-    check('提示词查看器拿到的请求里有 SOLVE 的内容', at >= 0 && got.some(c => c.includes('当前变量（TOON）')));
+    check('提示词查看器拿到的请求里有 SOLVE 的内容', at >= 0 && got.some(c => c.includes(DATA)));
     check('合并后的那条以操作说明开头', at >= 0 && got[at].trimStart().startsWith('## SOLVE 变量操作说明'));
     const report = await page.evaluate(() => SOLVE.injection());
     check('SOLVE.injection() 记下了这次注入', report && !report.skipped && report.items.filter(i => i.on).length >= 3, report ? report.items.map(i => `${i.label}:${i.on ? '注入' : i.why}`).join(' ') : '无');

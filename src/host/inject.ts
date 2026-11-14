@@ -50,12 +50,18 @@ export function injectTexts(controller: SillyTavernController, format: InjectPre
   const def = controller.core.definition, state = controller.getState();
   const feedback = controller.runtime.getCommit()?.feedback ?? [];
   const data = format === 'json' ? toJson(def, state, { view: 'narrative' }) : toToon(def, state, { view: 'narrative' });
+  const rules = guide(def, state);
+  // Empty collections read as a bare 「name:」 in TOON; say so instead of letting it look broken.
+  let empty: string[] = [];
+  try { const top = JSON.parse(toJson(def, state, { view: 'narrative' })); empty = Object.entries(top).filter(([, v]) => v && typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length).map(([k]) => k); } catch { empty = []; }
+  // The tavern trims each prompt and joins those of one place with a newline: every part starts with its own heading instead.
+  const part = (text: string) => text.trim();
   return {
-    sop: sop(),
-    schema: schemaText(def, state),
-    guide: guide(def, state),
-    data: data ? `当前变量（${format === 'json' ? 'JSON' : 'TOON'}）：\n${data}` : '',
-    feedback: feedback.length ? `上一回合的变量操作反馈（照此改正）：\n${JSON.stringify(feedback)}` : '',
+    sop: part(sop()),
+    schema: part(schemaText(def, state)),
+    guide: part(rules ? `## 变量规则\n${rules}` : ''),
+    data: part(data ? `## 当前变量（${format === 'json' ? 'JSON' : 'TOON'}）\n${empty.length && format === 'toon' ? `${empty.join('、')} 后面没有内容：还没有建任何实体。\n` : ''}${data}` : ''),
+    feedback: part(feedback.length ? `## 上一轮变量操作的反馈\n下面的操作被修正或失败了，这一轮照此改正：\n${JSON.stringify(feedback)}` : ''),
   };
 }
 
