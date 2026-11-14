@@ -108,12 +108,11 @@ try {
   await send('外面打起来了。', `<content>\n火把照亮了巷口。\n</content>\n${example}`);
   st = await state();
   const feedback = await page.evaluate(() => SOLVE.controller.inspectCommit().then(c => c.commit.feedback));
-  const e = st.data.characters.erin;
+  const l = st.data.characters.lena;
   check('示例操作原样执行，没有失败', !feedback.some(f => f.level === 'L3'), JSON.stringify(feedback).slice(0, 300));
-  check('$set / $inc 生效', st.data.meta.weather === '暴雨' && e.condition === '左臂流血' && e.rp.gauges['生命'].value === 60, `weather=${st.data.meta.weather} hp=${e.rp.gauges['生命'].value}`);
-  check('示例里先建后引用：地点、在场名单就位', st.data.places?.harbor?.name === '灰港' && st.data.meta.location === 'harbor' && st.data.meta.present.includes('zealot_a'), `location=${st.data.meta.location}`);
-  check('$createEntity + $from 建出独立实体', st.data.characters.zealot_a?.name === '持火把的狂信徒' && st.data.characters.zealot_a?.role === '一次性敌人');
-  check('$group 内 $transfer 守恒、$inc 生效', e.items.gold.count === 110 && st.data.characters.mira.items.gold.count === 30 && e.items.healing_draught.count === 3, `gold ${e.items.gold.count}/${st.data.characters.mira.items.gold.count}`);
+  check('$createEntity 建出地点、角色、货币', st.data.places?.harbor?.name === '灰港' && l?.name === '莉娜' && st.data.items?.cowrie?.type === '货币');
+  check('示例里先建后引用：地点、在场名单就位', st.data.meta.location === 'harbor' && st.data.meta.present.includes('lena'), `location=${st.data.meta.location}`);
+  check('$set / $inc 生效', st.data.meta.weather === '暴雨' && l?.condition === '左臂流血' && l?.items?.cowrie?.count === 25, `weather=${st.data.meta.weather} 贝币=${l?.items?.cowrie?.count}`);
   await page.screenshot({ path: '/workspace/scratch/bp/live-sop.png' });
 } catch (error) {
   check('脚本异常', false, String(error).slice(0, 300));

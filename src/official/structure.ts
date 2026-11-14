@@ -98,7 +98,7 @@ const character: FieldNode = {
     role: { type: 'enum', label: '定位', values: ['用户角色', '核心角色', '主要配角', '次要配角', '一次性敌人'], default: '次要配角',
       hint: '玩家扮演的角色是「用户角色」；只出场一次的敌人用「一次性敌人」，事件结束后删除；会反复出场的反派按分量归入配角。路人与龙套不建' },
     // Which prefab / template this character was spawned from (by $from); the codex lists them under it.
-    origin: text('原型', { optional: true, hint: '用 $from 以预制实体或模板为底新建时，写来源的 ID' }),
+    origin: text('原型', { optional: true, hint: '以模板或预制实体为底新建时，写来源的 ID' }),
     age: text('年龄'),
     intro: text('简介', { as: 'paragraph', edit: mine, hint: '一两句：身份、来历、性格' }),
     tags: { type: 'array', label: '身份', of: { type: 'string' }, list: OFFICIAL_LISTS.tags, as: 'tags', hint: '职业、头衔、种族等短标签' },
@@ -152,7 +152,7 @@ const character: FieldNode = {
         // Abilities live once in the root `abilities`; a character only references them (with its own level).
         abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities', actions: ABILITY_ACTIONS, spoiler: 'spoiler',
           of: { type: 'object', fields: {
-            level: { type: 'int', label: '等级', min: 0, optional: true, hint: '按 abilities 里该能力 levels 中不超过此等级的最高一级生效' },
+            level: { type: 'int', label: '等级', min: 0, optional: true, hint: '生效的是该能力 levels 里不超过这个等级的最高一级' },
             // Practice toward the next level (0–100); reaching 100 raises the level and starts again.
             progress: { type: 'int', label: '熟练度', min: 0, max: 100, optional: true, module: 'scale_num', hint: '锻炼、实战会增长；满 100 时等级加一并从 0 重新累计' },
             progressText: text('熟练度', { optional: true, module: 'scale_text', hint: '一句描述，如「已经能在实战里稳定用出来」' }),
@@ -205,7 +205,7 @@ export const officialStructure: StructureDescription = {
         location: { type: 'ref', label: '地点', to: 'place', nullable: true, hint: '主角所在的地点' },
         weather: { type: 'enum', label: '天气', values: ['晴', '雨', '阴', '雪', '雾', '大风', '雷暴', '暴雨', '沙暴', '瘴气', '异象'] },
         present: { type: 'refs', label: '在场角色', to: 'character', hint: '当前场景里的角色（含用户角色），登场离场时更新' },
-        mood: { type: 'enum', label: '场景情绪', values: ['日常', '紧张', '战斗', '悲伤', '浪漫', '神秘', '欢快', '恐怖'], hint: '决定背景音乐' },
+        mood: { type: 'enum', label: '场景情绪', values: ['日常', '紧张', '战斗', '悲伤', '浪漫', '神秘', '欢快', '恐怖'], hint: '当前场景的氛围' },
       },
     },
     characters: { type: 'record', label: '角色', entity: 'character', of: character, hint: '有名有姓、会再出场的角色，包括用户角色' },
@@ -217,7 +217,7 @@ export const officialStructure: StructureDescription = {
         parent: { type: 'ref', label: '所属区域', to: 'place', nullable: true, hint: '上一级区域（区域 → 地点）' },
         links: { type: 'refs', label: '相连', to: 'place', module: 'map', hint: '能直接走到的地点' },
         desc: text('描述'),
-        truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '真相，玩家看不到；与表面描述一致时不写' }),
+        truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
         discovered: { type: 'bool', label: '已发现', default: true, module: 'map' },
         thumb: media('缩略图', 'image'),
         image: media('背景图', 'image'),
@@ -229,11 +229,11 @@ export const officialStructure: StructureDescription = {
       of: { type: 'object', fields: {
         name: text('物品名', { required: true }),
         type: { type: 'enum', label: '类型', values: ['装备', '道具', '消耗', '货币', '关键', '杂物', '座驾'], default: '杂物', hint: '钱也是物品，类型为「货币」，每个币种一个物品' },
-        unique: { type: 'bool', label: '独一无二', hint: '世上只有一件（具名武器、信物、钥匙、座驾）时为 true，同一时间只能在一个角色名下；制式装备、药剂、货币不设' },
+        unique: { type: 'bool', label: '独一无二', hint: '世上只有一件的东西（具名武器、信物、钥匙、座驾）设 true；制式装备、药剂、货币不设' },
         thumb: media('缩略图', 'image'),
         image: media('图片', 'image'),
         desc: text('描述'),
-        truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '真相，玩家看不到；与表面描述一致时不写' }),
+        truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
         condition: text('状态', { optional: true }),
       } },
     },
@@ -245,7 +245,7 @@ export const officialStructure: StructureDescription = {
         desc: text('描述'),
         // Effect per level, keyed by the level number ("1", "2" …; gaps allowed). A holder at level n gets the highest key ≤ n.
         levels: { type: 'record', label: '等级效果', of: { type: 'string' }, as: 'levels', hint: '键是等级数字（"1"、"3"，可以跳级），值是该级效果，每级要有实际差别' },
-        truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '真相，玩家看不到；与表面描述一致时不写' }),
+        truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
       } },
     },
     // Lore established during play (the card author's fixed setting stays in the world book): rules, history,
@@ -278,7 +278,7 @@ export const officialStructure: StructureDescription = {
         vault: { type: 'bool', label: '可寄存', optional: true, hint: '任何人都能寄存（银行、出租仓库）时为 true' },
         thumb: media('缩略图', 'image'),
         image: media('图片', 'image'),
-        desc: text('描述'), truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '真相，玩家看不到；与表面描述一致时不写' }),
+        desc: text('描述'), truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
         developments: { type: 'record', label: '建设', of: { type: 'string' } },
       } },
     },
@@ -320,7 +320,7 @@ export const officialStructure: StructureDescription = {
     rp_status: { label: '状态', parent: 'rp' },
     scale_num: { label: '数值', parent: 'rp', exclusive: 'scales' },
     scale_text: { label: '描述', parent: 'rp', exclusive: 'scales', enabled: false, guide: '量表与熟练度用一句描述，随剧情改写，不写数字。' },
-    assets: { label: '资产', guide: '资产：新物品先在 items 建实体，再加到持有者的 items 下。付钱、交易用 $transfer 在双方的 count 之间转移（对方还没有时自动新建），保证总数守恒。独一无二的物品转手时直接加到新持有者名下，引擎自动从原持有者处移除（也可以用 $move）。' },
+    assets: { label: '资产', guide: '资产：新物品先在 items 建实体，再加到持有者的 items 下。付钱、交易用 $transfer 在双方的 count 之间转移（对方还没有这种物品时自动新建），总数守恒。独一无二的物品转手时直接加到新持有者名下，引擎自动从原持有者处移除（也可以用 $move）。' },
     nsfw: { label: 'NSFW', enabled: false },
     map: { label: '地图', guide: '地图：新发现的地点建实体并设 discovered: true；移动时更新 meta.location。' },
     lore: { label: '设定', guide: '设定：新剧情与已有设定矛盾时修改原条目，不要另建一条。' },
@@ -329,11 +329,13 @@ export const officialStructure: StructureDescription = {
   },
   groups: { attributes: { label: '属性体系' }, scales: { label: '量表与熟练度' } },
   guide: [
-    '实体 ID 用简短英文或拼音，全局唯一（角色、物品、能力、地点、势力之间也不能重名）。',
-    '开局或新场景：先用 $createEntity 建出登场的角色（包括用户角色）和所在地点，再在后面的操作对象里写 meta.location、meta.present 等引用它们的字段。',
-    '有预制实体或模板时优先使用：预制实体以它自己的 ID 登场；需要以它为基础另做一个独立角色时用 $from，并把 origin 写成来源的 ID。',
+    '实体 ID 用简短英文或拼音，全局唯一（角色、物品、能力、地点、建筑、势力之间也不能重名）。',
+    '开局或进入新场景时，先建出登场的角色（包括用户角色）和所在地点，再写 meta.location 和 meta.present。',
+    '有预制实体或模板时优先使用：预制实体以它自己的 ID 登场；以它为底另做一个独立角色时用 $from，并把 origin 写成来源的 ID。',
     '清单类条目有上限；收到整理提示时先合并或删除旧条目。',
   ].join('\n'),
+  // Shown while the opening time is still the empty default (纪元为空、年份为 0): not a setting, just unset.
+  guides: [{ id: 'opening_time', when: 'meta.time.era == "" && meta.time.year == 0', text: '开局时间还没定（纪元为空、年份为 0 只是默认值）：按剧情用 $set 整体写入 meta.time。' }],
   projection: [
     { kind: 'present', collection: 'characters', list: 'meta.present', keep: ['name', 'alias', 'role', 'intro', 'tags', 'condition'], always: { field: 'role', equals: '用户角色' } },
     { kind: 'related', path: 'characters.*.relations', collection: 'characters', list: 'meta.present', always: { field: 'role', equals: '用户角色' } },

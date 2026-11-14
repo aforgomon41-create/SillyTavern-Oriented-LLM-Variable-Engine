@@ -97,5 +97,5 @@ export function schemaText(def: CompiledDefinition, state: LogicalState): string
   };
   for (const p of kids('')) walk(p, 0);
   if (!lines.length) return '';
-  return ['## 数据结构', '可写的字段只有下面这些（键名照抄，括号里是中文名）。<ID> 处换成实体 ID；写「XxID」的字段填对应实体的 ID，这个实体必须已经存在。', ...lines].join('\n');
+  return ['## 数据结构', '可写的字段只有下面这些：键名照抄，括号里是中文名，— 后面是写法说明。<ID> 处换成实体 ID；类型写「角色ID」「地点ID」的字段填对应实体的 ID。', ...lines].join('\n');
 }

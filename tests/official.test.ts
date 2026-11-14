@@ -394,15 +394,15 @@ test('操作说明：每个算子都有用法，自带的示例在官方结构�
   assert.deepEqual(result.feedback.filter(f => f.level === 'L3'), []);
   const d = data(result.state);
   assert.equal(d.meta.weather, '暴雨');
-  assert.equal(d.characters.erin.rp.gauges['生命'].value, 60);
-  assert.equal(d.characters.zealot_a.name, '持火把的狂信徒');
-  assert.equal(d.characters.zealot_a.role, '一次性敌人', '$from 带入模板字段');
   assert.equal(d.places.harbor.name, '灰港');
   assert.equal(d.meta.location, 'harbor', '引用排在新建之后');
-  assert.ok(d.meta.present.includes('zealot_a'));
-  assert.equal(d.characters.erin.items.gold.count, 110);
-  assert.equal(d.characters.mira.items.gold.count, 30);
-  assert.equal(d.characters.erin.items.healing_draught.count, 3);
+  assert.ok(d.meta.present.includes('lena'));
+  assert.equal(d.characters.lena.condition, '左臂流血');
+  assert.equal(d.characters.lena.items.cowrie.count, 25);
+  // 示例自带它引用的一切：在空白开局上也能原样执行
+  const blank = await compile(compileStructure(officialStructure)), fresh = new SolveCore(blank);
+  const r2 = await applyAction(fresh, model(operations), await fresh.initialize());
+  assert.deepEqual(r2.feedback.filter(f => f.level === 'L3'), []);
 });
 
 test('数据结构：列出可写字段与说明，跟随模块开关，说明不进指纹', async () => {
