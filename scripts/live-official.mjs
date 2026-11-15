@@ -98,13 +98,13 @@ try {
   await send('我走进酒馆。', op([
     { $set: { 'places.capital': { name: '王都', kind: '区域' }, 'characters.erin': { name: '艾琳', role: '用户角色', age: '二十出头' }, 'characters.mira': { name: '米拉', role: '核心角色' } } },
     { $set: { 'places.tavern': { name: '醉橡木酒馆', parent: 'capital' }, 'meta.location': 'tavern', 'meta.present': ['erin', 'mira'], 'meta.weather': '雨', 'meta.mood': '日常' } },
-    { $set: { '@erin.relations.mira': { affection: 20, keyEvents: ['初次见面'] }, '@erin.rp.attributes.dnd.str': 14 }, $push: { '@erin.tags': '见习骑士' } },
+    { $set: { '@erin.relations.mira': { affection: 20, keyEvents: ['初次见面'] }, '@erin.attributes_dnd.str': 14 }, $push: { '@erin.tags': '见习骑士' } },
   ]));
   let st = await state();
   const floor1 = await page.evaluate(() => SillyTavern.getContext().chat.length - 1);
   check('轮次等于酒馆楼层号', st.data.meta.round === floor1, `round=${st.data.meta.round} 楼层=#${floor1}`);
   check('关键事件写字符串，引擎自动补轮次', JSON.stringify(st.data.characters.erin.relations.mira.keyEvents) === JSON.stringify([{ round: floor1, text: '初次见面' }]), JSON.stringify(st.data.characters.erin.relations.mira.keyEvents));
-  check('新角色自动补齐默认字段（属性空缺为 null）', st.data.characters.mira.rp.attributes.dnd.str === null && st.data.characters.erin.rp.attributes.dnd.str === 14);
+  check('新角色自动补齐默认字段（属性空缺为 null）', st.data.characters.mira.attributes_dnd.str === null && st.data.characters.erin.attributes_dnd.str === 14);
 
   // 3. 单次变化上限 + 模型不能改轮次
   await send('我请米拉喝一杯。', op([{ $inc: { '@erin.relations.mira.affection': 30 }, $set: { 'meta.round': 999 } }]));
@@ -134,11 +134,11 @@ try {
   await reopen();
   st = await state();
   check('刷新后状态、设置与迁移待办都从聊天恢复', st.engineState.settings?.lists?.['characters.*.tags']?.max === 12 && st.engineState.activeModules.attr_wod === true && st.engineState.migration?.to === 'attr_wod');
-  await send('属性体系换了。', op([{ $set: { '@erin.rp.attributes.wod': { str: 11, dex: 6, sta: 4, int: 3, wits: 4, res: 5, pre: 2, man: 2, com: 3 }, '@mira.rp.attributes.wod': { str: 2, dex: 5, sta: null } } }]));
+  await send('属性体系换了。', op([{ $set: { '@erin.attributes_wod': { str: 11, dex: 6, sta: 4, int: 3, wits: 4, res: 5, pre: 2, man: 2, com: 3 }, '@mira.attributes_wod': { str: 2, dex: 5, sta: null } } }]));
   const migrationPrompt = await lastRequestText();
   check('迁移指令进入模型实际收到的提示词', migrationPrompt.includes('【迁移】属性体系由「DND」切换为「WOD」'));
   st = await state();
-  check('迁移指令只出现一次（模型回复后清除）', st.engineState.migration === undefined && st.data.characters.erin.rp.attributes.wod.str === 11);
+  check('迁移指令只出现一次（模型回复后清除）', st.engineState.migration === undefined && st.data.characters.erin.attributes_wod.str === 11);
   await send('看看状态。', op([]));
   const computedPrompt = await lastRequestText();
   check('计算字段（超凡）进入提示词', computedPrompt.includes('str(超凡)\\":2') || computedPrompt.includes('"str(超凡)":2'), computedPrompt.match(/str\(超凡\)[^,]{0,6}/u)?.[0] ?? '未找到');
@@ -148,7 +148,7 @@ try {
   await send('米拉先走了。', op([{ $set: { 'meta.present': ['erin'] } }]));
   await send('我一个人坐着。', op([]));
   const projected = JSON.parse(await page.evaluate(() => SOLVE.toJson(SOLVE.controller.core.definition, SOLVE.controller.getState())));
-  check('不在场角色只保留核心字段', !projected.characters['@mira'].rp && projected.characters['@mira'].name === '米拉');
+  check('不在场角色只保留核心字段', projected.characters['@mira'].rank === undefined && projected.characters['@mira'].name === '米拉');
   check('社交只保留在场相关条目', Object.keys(projected.characters['@erin'].relations ?? {}).length === 0);
 
   // 8. 重新生成（Swipe）：同一楼层轮次不变

@@ -8,7 +8,9 @@ import type { ActionSpec } from '../interact.js';
 const text = (label: string, extra: Partial<FieldNode> = {}): FieldNode => ({ type: 'string', label, ...extra });
 /** Player-editable on their own character (the player's mind is theirs to write). */
 const mine = { owner: 'user' as const };
-const goals = (spoiler?: FieldNode['spoiler']): FieldNode => ({ type: 'object', label: '目标', ...(spoiler ? { spoiler } : {}), fields: { long: text('远期', { edit: mine }), short: text('近期', { edit: mine }) } });
+/** Long- and short-term goals as two flat fields (the quest log groups them under 目标). */
+const goals = (extra: Partial<FieldNode> = {}): Record<string, FieldNode> => ({
+  longGoal: text('远期目标', { spoiler: 'spoiler', hint: '长远想达成的事', ...extra }), shortGoal: text('近期目标', { spoiler: 'spoiler', hint: '眼下要办成的事', ...extra }) });
 const attribute = (label: string, node: Partial<FieldNode>): FieldNode => ({ type: 'int', label, nullable: true, ...node } as FieldNode);
 const ladder = (label: string, values: string[]): FieldNode => ({ type: 'ladder', label, values, nullable: true });
 const FATE = ['F', 'F+', 'E', 'E+', 'D', 'D+', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+', 'EX'];
@@ -23,6 +25,8 @@ const fu = (label: string): FieldNode => ladder(label, FU);
  * either one stands in for the other.
  */
 const media = (label: string, as: 'image' | 'bgm'): FieldNode => ({ type: 'string', label, optional: true, as, readonly: true, internal: true });
+/** Image-generation tags, written by the model (the 配图 module collects every `imagePrompt` field automatically). */
+const picture = (hint: string): FieldNode => ({ type: 'string', label: '生图提示词', optional: true, hint: '生图用的英文 tags，逗号分隔；' + hint });
 /** A numeric gauge; wherever it is used, a natural-language description is accepted too. */
 const gauge = (): FieldNode => ({ type: 'object', fields: { value: { type: 'number', label: '当前' }, max: { type: 'number', label: '上限', min: 0, default: 100 } } });
 
@@ -95,6 +99,7 @@ const character: FieldNode = {
     alias: text('别称', { optional: true }),
     thumb: media('缩略图', 'image'),
     image: media('立绘', 'image'),
+    imagePrompt: picture('写外貌、发型、服装、神态，如 1girl, silver hair, red eyes, black hooded cloak, calm expression；不写人名、画风与画质词'),
     role: { type: 'enum', label: '定位', values: ['用户角色', '核心角色', '主要配角', '次要配角', '一次性敌人'], default: '次要配角',
       hint: '玩家扮演的角色是「用户角色」；只出场一次的敌人用「一次性敌人」，事件结束后删除；会反复出场的反派按分量归入配角。路人与龙套不建' },
     // Which prefab / template this character was spawned from (by $from); the codex lists them under it.
@@ -104,15 +109,12 @@ const character: FieldNode = {
     tags: { type: 'array', label: '身份', of: { type: 'string' }, list: OFFICIAL_LISTS.tags, as: 'tags', hint: '职业、头衔、种族等短标签' },
     appearance: text('外貌', { as: 'paragraph', edit: mine, hint: '外貌与穿着' }),
     condition: text('当前状态', { hint: '此刻的身体与精神状况，一句话，如「左臂流血，惊魂未定」' }),
-    drive: {
-      type: 'object', label: '驱动力', module: 'drive', fields: {
-        goals: goals('spoiler'),
-        thoughts: text('想法', { spoiler: 'spoiler', edit: mine, hint: '此刻在想什么' }),
-        plan: { type: 'array', label: '规划', spoiler: 'spoiler', list: OFFICIAL_LISTS.plan, as: 'checklist', edit: mine, hint: '接下来打算做的事；完成后 done 设为 true 或移除',
-          of: { type: 'object', fields: { text: text('内容', { required: true }),
-            done: { type: 'bool', label: '完成', edit: { owner: 'user', narrate: ['{holder}完成了规划：{text}', '{holder}的规划「{text}」重新标为未完成'] } } } } },
-      },
-    },
+    // 驱动力 (module drive): flat on the character.
+    ...goals({ module: 'drive', edit: mine }),
+    thoughts: text('想法', { module: 'drive', spoiler: 'spoiler', edit: mine, hint: '此刻在想什么' }),
+    plan: { type: 'array', label: '规划', module: 'drive', spoiler: 'spoiler', list: OFFICIAL_LISTS.plan, as: 'checklist', edit: mine, hint: '接下来打算做的事；完成后 done 设为 true 或移除',
+      of: { type: 'object', fields: { text: text('内容', { required: true }),
+        done: { type: 'bool', label: '完成', edit: { owner: 'user', narrate: ['{holder}完成了规划：{text}', '{holder}的规划「{text}」重新标为未完成'] } } } } },
     // Spoilers: what one can see from outside stays public (好感度, equipped gear); the rest is folded until clicked.
     relations: {
       type: 'record', label: '社交', module: 'social', keys: 'character', spoiler: 'spoiler', hint: '本角色对对方的单向看法，键是对方的角色 ID',
@@ -126,44 +128,38 @@ const character: FieldNode = {
         },
       },
     },
-    rp: {
-      type: 'object', label: '角色扮演', module: 'rp', fields: {
-        rank: text('位阶', { hint: '依世界观推断的实力层级，如 见习骑士、筑基期' }),
-        attributes: {
-          type: 'object', label: '属性', module: 'rp_attributes', fields: {
-            dnd: { type: 'object', label: 'DND', module: 'attr_dnd',
-              sections: [{ label: '身体', keys: ['str', 'dex', 'con'] }, { label: '心智', keys: ['int', 'wis', 'cha'] }], fields: {
-              str: dnd('力量'), dex: dnd('敏捷'), con: dnd('体质'), int: dnd('智力'), wis: dnd('感知'), cha: dnd('魅力') } },
-            wod: { type: 'object', label: 'WOD', module: 'attr_wod',
-              sections: [{ label: '身体', keys: ['str', 'dex', 'sta'] }, { label: '心智', keys: ['int', 'wits', 'res'] }, { label: '社交', keys: ['pre', 'man', 'com'] }], fields: {
-              str: wod('力量'), dex: wod('敏捷'), sta: wod('耐力'),
-              int: wod('智力'), wits: wod('感知'), res: wod('决心'),
-              pre: wod('风度'), man: wod('操控'), com: wod('沉着') } },
-            fate: { type: 'object', label: 'FATE', module: 'attr_fate', fields: {
-              physique: fate('体格'), athletics: fate('运动'), melee: fate('近战'), shoot: fate('射击'),
-              notice: fate('察觉'), empathy: fate('共情'), rapport: fate('交际'), deceive: fate('欺诈'), provoke: fate('挑衅'), contacts: fate('人脉'),
-              investigate: fate('调查'), lore: fate('学识'), crafts: fate('工艺'), burglary: fate('盗窃'), stealth: fate('潜行'), drive: fate('驾驶'),
-              resources: fate('财富'), will: fate('意志') } },
-            fu: { type: 'object', label: 'FU', module: 'attr_fu', fields: {
-              might: fu('力量'), dex: fu('敏捷'), insight: fu('洞察'), will: fu('意志') } },
-          },
-        },
-        special: { type: 'record', label: '特殊属性', module: 'rp_attributes', hint: '世界观特有的属性（如 魔力、灵根），键是属性名', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
-        // Abilities live once in the root `abilities`; a character only references them (with its own level).
-        abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities', actions: ABILITY_ACTIONS, spoiler: 'spoiler',
-          of: { type: 'object', fields: {
-            level: { type: 'int', label: '等级', min: 0, optional: true, hint: '生效的是该能力 levels 里不超过这个等级的最高一级' },
-            // Practice toward the next level (0–100); reaching 100 raises the level and starts again.
-            progress: { type: 'int', label: '熟练度', min: 0, max: 100, optional: true, module: 'scale_num', hint: '锻炼、实战会增长；满 100 时等级加一并从 0 重新累计' },
-            progressText: text('熟练度', { optional: true, module: 'scale_text', hint: '一句描述，如「已经能在实战里稳定用出来」' }),
-          } } },
-        // Two exclusive ways to keep gauges (and ability 熟练度): numbers, or a sentence that fits the story better.
-        gauges: { type: 'record', label: '量表', module: ['rp_status', 'scale_num'], as: 'meters', of: gauge(), hint: '键是量表名，名称与数量依世界观决定（如 生命、体力、理智）' },
-        gaugesText: { type: 'record', label: '量表', module: ['rp_status', 'scale_text'], as: 'meters', of: { type: 'string' }, hint: '键是量表名，值是一句描述（如 生命：「伤口在渗血，勉强能走」）' },
-        effects: { type: 'record', label: '效果', module: 'rp_status', as: 'chips', hint: '身上的增益、减益、伤病，键是效果名；剧情上结束后移除',
-          of: { type: 'object', fields: { desc: text('描述'), source: text('来源', { optional: true }), until: text('持续到', { optional: true, hint: '结束条件，如「下次长休」' }) } } },
-      },
-    },
+    // 角色扮演 (module rp and its children): flat on the character.
+    rank: text('位阶', { module: 'rp', hint: '依世界观推断的实力层级，如 见习骑士、筑基期' }),
+    // Attribute systems are exclusive (group attributes): only the one switched on appears.
+    attributes_dnd: { type: 'object', label: 'DND 属性', module: 'attr_dnd',
+      sections: [{ label: '身体', keys: ['str', 'dex', 'con'] }, { label: '心智', keys: ['int', 'wis', 'cha'] }], fields: {
+      str: dnd('力量'), dex: dnd('敏捷'), con: dnd('体质'), int: dnd('智力'), wis: dnd('感知'), cha: dnd('魅力') } },
+    attributes_wod: { type: 'object', label: 'WOD 属性', module: 'attr_wod',
+      sections: [{ label: '身体', keys: ['str', 'dex', 'sta'] }, { label: '心智', keys: ['int', 'wits', 'res'] }, { label: '社交', keys: ['pre', 'man', 'com'] }], fields: {
+      str: wod('力量'), dex: wod('敏捷'), sta: wod('耐力'),
+      int: wod('智力'), wits: wod('感知'), res: wod('决心'),
+      pre: wod('风度'), man: wod('操控'), com: wod('沉着') } },
+    attributes_fate: { type: 'object', label: 'FATE 属性', module: 'attr_fate', fields: {
+      physique: fate('体格'), athletics: fate('运动'), melee: fate('近战'), shoot: fate('射击'),
+      notice: fate('察觉'), empathy: fate('共情'), rapport: fate('交际'), deceive: fate('欺诈'), provoke: fate('挑衅'), contacts: fate('人脉'),
+      investigate: fate('调查'), lore: fate('学识'), crafts: fate('工艺'), burglary: fate('盗窃'), stealth: fate('潜行'), drive: fate('驾驶'),
+      resources: fate('财富'), will: fate('意志') } },
+    attributes_fu: { type: 'object', label: 'FU 属性', module: 'attr_fu', fields: {
+      might: fu('力量'), dex: fu('敏捷'), insight: fu('洞察'), will: fu('意志') } },
+    special: { type: 'record', label: '特殊属性', module: 'rp_attributes', hint: '世界观特有的属性（如 魔力、灵根），键是属性名；和 attributes_* 同级，不要放进属性体系里', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
+    // Abilities live once in the root `abilities`; a character only references them (with its own level).
+    abilities: { type: 'record', label: '能力', module: 'rp_abilities', keys: 'ability', as: 'abilities', actions: ABILITY_ACTIONS, spoiler: 'spoiler',
+      of: { type: 'object', fields: {
+        level: { type: 'int', label: '等级', min: 0, optional: true, hint: '生效的是该能力 levels 里不超过这个等级的最高一级' },
+        // Practice toward the next level (0–100); reaching 100 raises the level and starts again.
+        progress: { type: 'int', label: '熟练度', min: 0, max: 100, optional: true, module: 'scale_num', hint: '锻炼、实战会增长；满 100 时等级加一并从 0 重新累计' },
+        progressText: text('熟练度', { optional: true, module: 'scale_text', hint: '一句描述，如「已经能在实战里稳定用出来」' }),
+      } } },
+    // Two exclusive ways to keep gauges (and ability 熟练度): numbers, or a sentence that fits the story better.
+    gauges: { type: 'record', label: '量表', module: ['rp_status', 'scale_num'], as: 'meters', of: gauge(), hint: '键是量表名，名称与数量依世界观决定（如 生命、体力、理智）' },
+    gaugesText: { type: 'record', label: '量表', module: ['rp_status', 'scale_text'], as: 'meters', of: { type: 'string' }, hint: '键是量表名，值是一句描述（如 生命：「伤口在渗血，勉强能走」）' },
+    effects: { type: 'record', label: '效果', module: 'rp_status', as: 'chips', hint: '身上的增益、减益、伤病，键是效果名；剧情上结束后移除',
+      of: { type: 'object', fields: { desc: text('描述'), source: text('来源', { optional: true }), until: text('持续到', { optional: true, hint: '结束条件，如「下次长休」' }) } } },
     // Items live once in the root `items`; a character only references them (with its own count / equipped).
     // Unique items (unique: true) have one holder: giving one to someone takes it from its previous holder.
     // Money is an item of type 货币 (金币, 银两 …): counted, given and deposited like anything else.
@@ -192,6 +188,11 @@ const character: FieldNode = {
   },
 };
 
+const ATTRS = ['attributes_dnd', 'attributes_wod', 'attributes_fate', 'attributes_fu'];
+const DRIVE = ['longGoal', 'shortGoal', 'thoughts', 'plan'];
+/** Quest log: the two goal lines read as one entry. */
+const GOALS = [{ label: '目标', paths: ['longGoal', 'shortGoal'] }];
+
 export const officialStructure: StructureDescription = {
   id: 'solve-official', version: '1.0.0-draft.1', label: 'SOLVE 官方数据结构',
   round: 'meta.round',
@@ -214,13 +215,14 @@ export const officialStructure: StructureDescription = {
       of: { type: 'object', fields: {
         name: text('地点名', { required: true }),
         kind: { type: 'enum', label: '类别', values: ['区域', '地点'], default: '地点' },
-        parent: { type: 'ref', label: '所属区域', to: 'place', nullable: true, hint: '上一级区域（区域 → 地点）' },
-        links: { type: 'refs', label: '相连', to: 'place', module: 'map', hint: '能直接走到的地点' },
+        parent: { type: 'ref', label: '所属区域', to: 'place', nullable: true, hint: '上一级区域；区域也可以属于更大的区域（世界 → 城市 → 地点），最顶层留 null' },
+        links: { type: 'refs', label: '相连', to: 'place', module: 'map', hint: '能直接走到的地点；走不到的（另一个世界、副本、梦境）不要相连' },
         desc: text('描述'),
         truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
         discovered: { type: 'bool', label: '已发现', default: true, module: 'map' },
         thumb: media('缩略图', 'image'),
         image: media('背景图', 'image'),
+        imagePrompt: picture('写景物、建筑、时间与天气，如 scenery, ancient harbor town, stone bridge, dusk, light rain；不写人物'),
         bgm: media('背景音乐', 'bgm'),
       } },
     },
@@ -232,13 +234,14 @@ export const officialStructure: StructureDescription = {
         unique: { type: 'bool', label: '独一无二', hint: '世上只有一件的东西（具名武器、信物、钥匙、座驾）设 true；制式装备、药剂、货币不设' },
         thumb: media('缩略图', 'image'),
         image: media('图片', 'image'),
+        imagePrompt: picture('写物品本身的外观，如 ornate silver dagger, glowing blue runes, simple background'),
         desc: text('描述'),
         truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
         condition: text('状态', { optional: true }),
       } },
     },
     abilities: {
-      type: 'record', label: '能力', entity: 'ability', module: 'rp_abilities', hint: '能力本体，每种只建一次；谁会记在角色的 rp.abilities 下，多人共有同一能力时引用同一个 ID',
+      type: 'record', label: '能力', entity: 'ability', module: 'rp_abilities', hint: '能力本体，每种只建一次；谁会记在角色的 abilities 下，多人共有同一能力时引用同一个 ID',
       of: { type: 'object', fields: {
         name: text('能力名', { required: true }),
         kind: { type: 'enum', label: '类别', values: ['特质', '技能'], default: '技能' },
@@ -278,6 +281,7 @@ export const officialStructure: StructureDescription = {
         vault: { type: 'bool', label: '可寄存', optional: true, hint: '任何人都能寄存（银行、出租仓库）时为 true' },
         thumb: media('缩略图', 'image'),
         image: media('图片', 'image'),
+        imagePrompt: picture('写建筑外观与周边，如 small bakery, red brick, warm window light, cobblestone street'),
         desc: text('描述'), truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
         developments: { type: 'record', label: '建设', of: { type: 'string' } },
       } },
@@ -287,12 +291,13 @@ export const officialStructure: StructureDescription = {
       of: { type: 'object', fields: {
         name: text('势力名', { required: true }), alias: text('别称', { optional: true }),
         thumb: media('徽记', 'image'), image: media('图片', 'image'),
+        imagePrompt: picture('写势力的徽记，如 emblem, black raven, crossed swords, gold trim, simple background'),
         tier: { type: 'enum', label: '定位', values: ['霸主统治', '核心大派', '地方霸权', '隐秘结社', '小型流派'], default: '小型流派' },
         leader: { type: 'ref', label: '领袖', to: 'character', nullable: true },
         intro: text('概括', { as: 'paragraph' }),
         base: { type: 'ref', label: '根据地', to: 'place', nullable: true },
         territory: { type: 'refs', label: '势力范围', to: 'place' },
-        goals: goals('spoiler'),
+        ...goals(),
         plan: { type: 'array', label: '规划', of: { type: 'string' }, list: OFFICIAL_LISTS.plan, spoiler: 'spoiler' },
         reputation: { type: 'record', label: '声望', keys: 'character', spoiler: 'spoiler', of: { type: 'object', fields: {
           value: { type: 'int', label: '声望值', min: -100, max: 100, maxDelta: 10, as: 'meter-center', spoiler: 'public' },
@@ -308,21 +313,21 @@ export const officialStructure: StructureDescription = {
   },
   // Module guides keep only the rules that span several fields; what each field means is its `hint`.
   modules: {
-    drive: { label: '驱动力', guide: '驱动力：新建角色时写上 drive 的目标（goals）和想法（thoughts）；剧情推进后及时更新目标、想法与规划。' },
+    drive: { label: '驱动力', guide: '驱动力：新建角色时写上目标（longGoal、shortGoal）和想法（thoughts）；剧情推进后及时更新目标、想法与规划（plan）。' },
     social: { label: '社交', guide: '社交：新建角色时写上他对在场角色（包括用户角色）的 relations。两人之间的看法各自记在自己的 relations 下，互不影响。' },
-    rp: { label: '角色扮演', guide: '角色扮演：新建角色时写上位阶（rp.rank）。' },
-    rp_attributes: { label: '属性', parent: 'rp', guide: '属性：新建角色时按当前开启的属性体系写上属性；该角色没有的属性填 null（例如亡灵没有体质）。' },
+    rp: { label: '角色扮演', guide: '角色扮演：新建角色时写上位阶（rank）。' },
+    rp_attributes: { label: '属性', parent: 'rp', guide: '属性：新建角色时写上当前开启的那一套属性（数据结构里列出的 attributes_*）；该角色没有的属性填 null（例如亡灵没有体质）。' },
     attr_dnd: { label: 'DND', parent: 'rp_attributes', exclusive: 'attributes' },
     attr_wod: { label: 'WOD', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'WOD：每超过 5 点获得 1 点超凡（由引擎计算，不要写入）。' },
     attr_fate: { label: 'FATE', parent: 'rp_attributes', exclusive: 'attributes', enabled: false },
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false },
-    rp_abilities: { label: '能力', parent: 'rp', guide: '能力：新能力先在 abilities 建实体，再加到角色的 rp.abilities 下。玩家说要「开发」能力时，依剧情决定成果：为该能力补充更高等级的效果，或新建一个衍生能力。' },
+    rp_abilities: { label: '能力', parent: 'rp', guide: '能力：新能力先在 abilities 建实体，再加到角色的 abilities 下。玩家说要「开发」能力时，依剧情决定成果：为该能力补充更高等级的效果，或新建一个衍生能力。' },
     rp_status: { label: '状态', parent: 'rp', guide: '状态：新建角色时写上他主要的量表（如 生命）。' },
     scale_num: { label: '数值', parent: 'rp', exclusive: 'scales' },
     scale_text: { label: '描述', parent: 'rp', exclusive: 'scales', enabled: false, guide: '量表与熟练度用一句描述，随剧情改写，不写数字。' },
     assets: { label: '资产', guide: '资产：新物品先在 items 建实体，再加到持有者的 items 下；新建角色时也写上他随身带的重要物品和钱。付钱、交易用 $transfer 在双方的 count 之间转移（对方还没有这种物品时自动新建），总数守恒。独一无二的物品转手时直接加到新持有者名下，引擎自动从原持有者处移除（也可以用 $move）。' },
     nsfw: { label: 'NSFW', enabled: false },
-    map: { label: '地图', guide: '地图：新发现的地点建实体并设 discovered: true；移动时更新 meta.location。' },
+    map: { label: '地图', guide: '地图：新发现的地点建实体并设 discovered: true；移动时更新 meta.location。换到另一个世界或副本时，为它建一个顶层区域，里面的地点都归到它下面，不要和原来的世界相连。' },
     lore: { label: '设定', guide: '设定：新剧情与已有设定矛盾时修改原条目，不要另建一条。' },
     buildings: { label: '建筑', enabled: false, guide: '建筑：物品存进建筑时用 $transfer 从持有者的 count 转到 items.<物品ID>.stored.<建筑ID>，取出反过来。' },
     factions: { label: '势力', enabled: false },
@@ -342,7 +347,7 @@ export const officialStructure: StructureDescription = {
     { kind: 'related', path: 'characters.*.relations', collection: 'characters', list: 'meta.present', always: { field: 'role', equals: '用户角色' } },
     { kind: 'related', path: 'factions.*.reputation', collection: 'characters', list: 'meta.present', always: { field: 'role', equals: '用户角色' } },
     { kind: 'referenced', collection: 'items', from: ['characters.*.items'], keep: ['name', 'type'] },
-    { kind: 'referenced', collection: 'abilities', from: ['characters.*.rp.abilities'], keep: ['name', 'kind'] },
+    { kind: 'referenced', collection: 'abilities', from: ['characters.*.abilities'], keep: ['name', 'kind'] },
     { kind: 'neighborhood', collection: 'places', current: 'meta.location', parent: 'parent', links: 'links', keep: ['name', 'kind', 'parent'] },
   ],
   bgm: { mood: 'meta.mood', location: 'meta.location', places: 'places', field: 'bgm', parent: 'parent', library: [] },
@@ -354,13 +359,13 @@ export const officialStructure: StructureDescription = {
     bar: ['meta.location', 'meta.time', 'meta.weather', 'meta.mood', 'meta.present'],
     layout: [
       { tab: '角色', items: [{
-        sheet: 'characters', id: '$user', subtitle: 'alias', badges: ['rp.rank', 'role'], tags: 'tags',
-        vitals: ['rp.gauges', 'rp.gaugesText'], status: 'condition', effects: 'rp.effects', currency: 'items', currencyType: '货币',
+        sheet: 'characters', id: '$user', subtitle: 'alias', badges: ['rank', 'role'], tags: 'tags',
+        vitals: ['gauges', 'gaugesText'], status: 'condition', effects: 'effects', currency: 'items', currencyType: '货币',
         pages: [
-          { label: '属性', paths: ['rp.attributes', 'rp.special'] },
-          { label: '能力', paths: ['rp.abilities'] },
+          { label: '属性', paths: [...ATTRS, 'special'] },
+          { label: '能力', paths: ['abilities'] },
           { label: '背包', paths: ['items'], as: 'inventory' },
-          { label: '任务', paths: ['drive'], as: 'quests' },
+          { label: '任务', paths: DRIVE, as: 'quests', groups: GOALS },
           { label: '档案', paths: ['age', 'intro', 'appearance', 'nsfw'] },
         ],
       }] },
@@ -373,9 +378,9 @@ export const officialStructure: StructureDescription = {
           // then motives, ties, abilities, belongings. What is not visible from outside sits behind spoilers.
           aside: { label: '概况', paths: ['relations.$user.affection', 'condition', 'age', 'tags', 'intro', 'appearance'] },
           pages: [
-            { label: '动机', paths: ['drive'], as: 'quests' },
+            { label: '动机', paths: DRIVE, as: 'quests', groups: GOALS },
             { label: '关系', paths: ['relations'] },
-            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.gaugesText', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
+            { label: '能力', paths: ['rank', 'gauges', 'gaugesText', 'effects', ...ATTRS, 'special', 'abilities'] },
             { label: '物品', paths: ['items'], as: 'inventory' },
             { label: '私密', paths: ['nsfw'] },
           ] },
@@ -387,11 +392,11 @@ export const officialStructure: StructureDescription = {
         { prefabs: 'character', into: 'characters', label: '角色', origin: 'origin', badges: ['role'],
           pages: [
             { label: '概况', paths: ['condition', 'age', 'tags', 'intro', 'appearance'] },
-            { label: '能力', paths: ['rp.rank', 'rp.gauges', 'rp.gaugesText', 'rp.effects', 'rp.attributes', 'rp.special', 'rp.abilities'] },
+            { label: '能力', paths: ['rank', 'gauges', 'gaugesText', 'effects', ...ATTRS, 'special', 'abilities'] },
             { label: '物品', paths: ['items'], as: 'inventory' },
           ] },
         { collection: 'items', label: '物品', group: 'type', holders: ['characters.*.items'] },
-        { collection: 'abilities', label: '能力', group: 'kind', holders: ['characters.*.rp.abilities'] },
+        { collection: 'abilities', label: '能力', group: 'kind', holders: ['characters.*.abilities'] },
       ] }] },
       { tab: '势力', module: 'factions', items: [
         { graph: 'factions', title: '势力关系图', edges: 'diplomacy', tone: 'stance', label: 'stance', size: 'tier', badges: ['tier'],
@@ -400,7 +405,7 @@ export const officialStructure: StructureDescription = {
           backrefs: [{ collection: 'lore', field: 'related', label: '相关设定' }],
           aside: { label: '概况', paths: ['reputation.$user.value', 'reputation.$user.title', 'leader', 'base', 'territory', 'intro'] },
           pages: [
-            { label: '目标', paths: ['goals', 'plan'], as: 'quests' },
+            { label: '目标', paths: ['longGoal', 'shortGoal', 'plan'], as: 'quests', groups: GOALS },
             { label: '声望', paths: ['reputation'] },
             { label: '外交', paths: ['diplomacy'] },
           ] },

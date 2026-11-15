@@ -10,7 +10,8 @@ import { Abilities, Inventory } from './inventory.js';
 import { Checklist, part, solve } from './widgets.js';
 import { EditableText, TickList, editFor, useInteract } from './interact.js';
 
-export interface PageSpec { label: string; paths: string[]; as?: string }
+/** `groups` (quest log only): sibling text fields shown as one entry, e.g. 远期目标 + 近期目标 under 目标. */
+export interface PageSpec { label: string; paths: string[]; as?: string; groups?: { label: string; paths: string[] }[] }
 const rel = (s: string): Path => s.split('.');
 export function resolveUser(m: StatusModel, base: Path, r: string): Path | undefined {
   const out = [...base, ...rel(r).map(k => k === '$user' ? m.userId ?? '' : k)];
@@ -40,7 +41,8 @@ export function Pages({ base, pages, label, compact = false, page: controlled, o
         </div>
       ) : null}
       <div {...part('page')} data-page={current.as ?? 'default'}>
-        {current.as === 'quests' ? <QuestLog paths={current.paths.map(r => resolveUser(m, base, r)).filter(p => visible(m, p)) as Path[]} />
+        {current.as === 'quests' ? <QuestLog paths={current.paths.map(r => resolveUser(m, base, r)).filter(p => visible(m, p)) as Path[]}
+          groups={(current.groups ?? []).map(g => ({ label: g.label, paths: g.paths.map(r => resolveUser(m, base, r)).filter(p => visible(m, p)) as Path[] }))} />
           : <PageBody base={base} paths={current.paths} as={current.as} />}
       </div>
     </div>
@@ -78,8 +80,10 @@ function Part({ path, as }: { path: Path; as?: string }) {
   if (meta?.type === 'object') {
     // attribute blocks keep their stat grid; other objects are flattened so cards are not nested in cards
     const kids = m.children(path).filter(k => !m.dormant([...path, k]));
-    const stat = (p: Path) => m.meta(p)?.type === 'object' && m.children(p).every(k => ['int', 'number', 'ladder'].includes(m.meta([...p, k])?.type ?? ''));
-    if (kids.length && kids.every(k => stat([...path, k]))) return <Section path={path} />;
+    const number = (p: Path) => ['int', 'number', 'ladder'].includes(m.meta(p)?.type ?? '');
+    const stat = (p: Path) => m.meta(p)?.type === 'object' && m.children(p).every(k => number([...p, k]));
+    // a group of attribute systems, or one system on its own (attributes_dnd)
+    if (kids.length && (kids.every(k => stat([...path, k])) || kids.every(k => number([...path, k])))) return <Section path={path} />;
     return <EntityBody path={path} />;
   }
   if (meta?.type === 'record') return <Section path={path} />;
@@ -87,7 +91,7 @@ function Part({ path, as }: { path: Path; as?: string }) {
 }
 
 /** Quest log: objective groups as quest entries, a sentence as the inner voice, checklists as steps. */
-function QuestLog({ paths }: { paths: Path[] }) {
+function QuestLog({ paths, groups = [] }: { paths: Path[]; groups?: { label: string; paths: Path[] }[] }) {
   const m = useModel(), live = useInteract();
   // Editable lines stay visible while empty, so the player can fill them in.
   const open = (p: Path, v: unknown) => !isEmpty(v) || (!!live && !!editFor(m, p));
@@ -111,7 +115,25 @@ function QuestLog({ paths }: { paths: Path[] }) {
       rows.push(<figure key={p.join('.')} {...solve('inner-voice')}><figcaption>{m.label(p)}</figcaption><Guard path={p}><EditableText path={p}>{isEmpty(v) ? <span {...solve('none')}>未填写</span> : <blockquote>{v}</blockquote>}</EditableText></Guard></figure>);
     } else rows.push(<Field key={p.join('.')} path={p} />);
   };
-  paths.forEach(walk);
+  const key = (p: Path) => p.join('.');
+  const grouped = new Map<string, { label: string; paths: Path[] }>();
+  for (const g of groups) for (const p of g.paths) grouped.set(key(p), g);
+  const done = new Set<object>();
+  for (const p of paths) {
+    const g = grouped.get(key(p));
+    if (!g) { walk(p); continue; }
+    if (done.has(g)) continue;
+    done.add(g);
+    const shown = g.paths.filter(q => open(q, m.value(q)));
+    if (!shown.length) continue;
+    // Under the heading 目标, 远期目标 reads as 远期.
+    const tier = (l: string) => l.endsWith(g.label) && l.length > g.label.length ? l.slice(0, -g.label.length) : l;
+    // One spoiler for the whole entry, as when the goals were one object.
+    const guard = shown.find(q => m.spoiler(q) === 'spoiler') ?? shown[0]!;
+    rows.push(<section key={'group:' + g.label} {...solve('quests')}><h5 {...part('title')}>{g.label}</h5>
+      <Guard path={guard}><ul>{shown.map((q, i) => <li key={key(q)} data-tier={i}><span {...part('tier')}>{tier(m.label(q))}</span>
+        <span {...part('text')}><EditableText path={q}>{isEmpty(m.value(q)) ? <span {...solve('none')}>未填写</span> : m.value(q) as string}</EditableText></span></li>)}</ul></Guard></section>);
+  }
   return <div {...solve('quest-log')}>{rows}</div>;
 }
 function Guard({ path, children }: { path: Path; children: React.ReactNode }) {
@@ -126,7 +148,7 @@ function SpoilerBlock({ children }: { children: React.ReactNode }) {
 /** Full entity: facts, paragraphs, then sections; composite groups (e.g. roleplay) are flattened one level. Empty values are skipped. */
 export function EntityBody({ path, skip = [] }: { path: Path; skip?: string[] }) {
   const m = useModel(), v = m.value(path) ?? {};
-  const keys = m.children(path).filter(k => !skip.includes(k) && !['image', 'bgm'].includes(m.widget([...path, k]) ?? '') && !m.dormant([...path, k]) && m.spoiler([...path, k]) !== 'hidden' && !isEmpty(v[k]) && v[k] !== null);
+  const keys = m.children(path).filter(k => !skip.includes(k) && !['image', 'bgm', 'imagePrompt'].includes(m.widget([...path, k]) ?? '') && !m.dormant([...path, k]) && m.spoiler([...path, k]) !== 'hidden' && !isEmpty(v[k]) && v[k] !== null);
   const type = (k: string) => m.meta([...path, k])?.type ?? '';
   const isStringList = (k: string) => type(k) === 'array' && !m.meta([...path, k])?.stamp && (v[k] ?? []).every((x: unknown) => typeof x === 'string');
   const scalar = keys.filter(k => ['string', 'enum', 'int', 'number', 'bool', 'ref', 'refs', 'ladder'].includes(type(k)) || isStringList(k));

@@ -68,7 +68,7 @@ export function Field({ path, compact = false }: { path: Path; compact?: boolean
   }
   if (value === undefined) return null;
   // Media links are shown where they belong (portraits, scene banners, the music button), never as text.
-  if (as === 'image' || as === 'bgm') return null;
+  if (as === 'image' || as === 'bgm' || as === 'imagePrompt') return null;
   let body: React.ReactNode;
   if (typeof value === 'number' || (value === null && (meta?.type === 'int' || meta?.type === 'number'))) {
     const computed = m.computed(path, value);
@@ -126,10 +126,11 @@ export function Section({ path, title }: { path: Path; title?: React.ReactNode }
     // e.g. attributes → only the active system object
     return <>{stats.map(key => <Block key={key} title={`${label} · ${m.label([...path, key])}`} path={[...path, key]}><StatGroups path={[...path, key]} /></Block>)}</>;
   }
-  const allStats = children.length > 0 && children.every(key => { const mm = m.meta([...path, key]); return mm?.type === 'ladder' || mm?.type === 'int' || mm?.type === 'number'; });
+  // An attribute system on its own (attributes_dnd …): the same stat grid, with its sections and engine notes.
+  if (children.length && children.every(key => scalar([...path, key]))) return <Block title={label} path={path}><StatGroups path={path} /></Block>;
   return (
     <Block title={label} path={path}>
-      <div {...solve(allStats ? 'stats' : 'fields')}>{children.map(key => <Field key={key} path={[...path, key]} compact />)}</div>
+      <div {...solve('fields')}>{children.map(key => <Field key={key} path={[...path, key]} compact />)}</div>
     </Block>
   );
 }

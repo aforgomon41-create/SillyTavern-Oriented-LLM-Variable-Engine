@@ -14,11 +14,11 @@ const data = (state: LogicalState) => state.data as any;
 
 test('官方结构可编译，示例数据通过校验，指纹稳定且不含展示信息', async () => {
   const { def, state } = await official();
-  assert.equal(data(state).characters.erin.rp.attributes.wod.str, 23);
-  assert.equal(data(state).characters.ash.rp.attributes.wod.sta, null);
+  assert.equal(data(state).characters.erin.attributes_wod.str, 23);
+  assert.equal(data(state).characters.ash.attributes_wod.sta, null);
   const again = await compile(compileStructure({ ...exampleStructure, display: { layout: [] } }));
   assert.equal(again.fingerprint, def.fingerprint, '布局变化不改变定义指纹');
-  assert.equal(def.display?.labels?.['characters.*.rp.attributes.wod.str'], '力量');
+  assert.equal(def.display?.labels?.['characters.*.attributes_wod.str'], '力量');
   assert.equal(def.display?.spoiler?.['items.*.truth'], 'hidden');
 });
 
@@ -76,49 +76,49 @@ test('互斥组：切换属性体系关闭其他成员，给下一次模型动�
   const switched = await core.setModule('attr_fate', true, state);
   const modules = switched.state.engineState.activeModules;
   assert.equal(modules.attr_fate, true); assert.equal(modules.attr_wod, false); assert.equal(modules.attr_dnd, false);
-  assert.equal(data(switched.state).characters.erin.rp.attributes.wod.str, 23, '休眠数据保留');
+  assert.equal(data(switched.state).characters.erin.attributes_wod.str, 23, '休眠数据保留');
   const text = guide(def, switched.state);
   assert.match(text, /属性体系由「WOD」切换为「FATE」/);
-  assert.match(text, /"characters\.erin\.rp\.attributes\.wod":\{"str":23/);
-  assert.doesNotMatch(toJson(def, switched.state), /"wod"/, '休眠体系不进提示词');
+  assert.match(text, /"characters\.erin\.attributes_wod":\{"str":23/);
+  assert.doesNotMatch(toJson(def, switched.state), /"attributes_wod"/, '休眠体系不进提示词');
   const again = await core.setModule('attr_fu', true, switched.state);
   assert.equal(again.state.engineState.migration?.from, 'attr_wod', '连续切换保留最初来源');
   const back = await core.setModule('attr_wod', true, again.state);
   assert.equal(back.state.engineState.migration, undefined, '切回原体系取消迁移');
-  const filled = await applyAction(core, model({ $set: { '@erin.rp.attributes.fate.physique': 'B+' } }, 43), switched.state);
+  const filled = await applyAction(core, model({ $set: { '@erin.attributes_fate.physique': 'B+' } }, 43), switched.state);
   assert.equal(filled.state.engineState.migration, undefined, '迁移指令只出现一次');
-  assert.equal(data(filled.state).characters.erin.rp.attributes.fate.physique, 'B+');
+  assert.equal(data(filled.state).characters.erin.attributes_fate.physique, 'B+');
 });
 
 test('计算字段：WOD 超凡与 DND 调整值进入投影，不能写入', async () => {
   const { core, state, def } = await official();
   const json = JSON.parse(toJson(def, state));
-  assert.equal(json.characters['@erin'].rp.attributes.wod.str, 23);
-  assert.equal(json.characters['@erin'].rp.attributes.wod['str(超凡)'], 4);
-  assert.equal(json.characters['@ash'].rp.attributes.wod['str(超凡)'], 2);
-  assert.equal(json.characters['@ash'].rp.attributes.wod.sta, null);
-  assert.equal(json.characters['@ash'].rp.attributes.wod['sta(超凡)'], undefined);
+  assert.equal(json.characters['@erin'].attributes_wod.str, 23);
+  assert.equal(json.characters['@erin'].attributes_wod['str(超凡)'], 4);
+  assert.equal(json.characters['@ash'].attributes_wod['str(超凡)'], 2);
+  assert.equal(json.characters['@ash'].attributes_wod.sta, null);
+  assert.equal(json.characters['@ash'].attributes_wod['sta(超凡)'], undefined);
   for (const [value, expected] of [[0, 0], [5, 0], [6, 1], [10, 1], [11, 2], [23, 4]] as const) {
-    const s = (await core.execute({ $set: { '@erin.rp.attributes.wod.dex': value } }, state)).state;
-    assert.equal(computeAll(def, s)['/characters/erin/rp/attributes/wod/dex']?.[0]?.value, expected, `${value} → ${expected}`);
+    const s = (await core.execute({ $set: { '@erin.attributes_wod.dex': value } }, state)).state;
+    assert.equal(computeAll(def, s)['/characters/erin/attributes_wod/dex']?.[0]?.value, expected, `${value} → ${expected}`);
   }
-  const write = await core.execute({ $set: { '@erin.rp.attributes.wod.str(超凡)': 9 } }, state);
+  const write = await core.execute({ $set: { '@erin.attributes_wod.str(超凡)': 9 } }, state);
   assert.ok(write.feedback.some(f => f.level === 'L3'));
 });
 
 test('声明式投影：不在场角色只留核心字段，社交只留在场相关，地点只展开附近', async () => {
   const { state, def } = await official();
   const json = JSON.parse(toJson(def, state));
-  assert.ok(json.characters['@erin'].rp, '在场角色完整');
+  assert.ok(json.characters['@erin'].rank, '在场角色完整');
   assert.deepEqual(Object.keys(json.characters['@cassius']).sort(), ['condition', 'intro', 'name', 'role', 'tags']);
   assert.deepEqual(Object.keys(json.characters['@erin'].relations), ['mira'], '不在场的卡修斯被过滤');
   assert.ok(json.places['@tavern'].desc, '当前地点完整');
   assert.ok(json.places['@capital'].desc, '上级区域完整');
   assert.ok(json.places['@lower_town'].desc, '相邻地点完整');
   assert.equal(json.places['@marsh_hut'].desc, undefined, '远处地点只留名称');
-  const exact = project(def, state, { paths: ['@cassius.drive'] }) as any;
-  assert.ok(exact.characters['@cassius'].drive, '指定路径查询不受规则影响');
-  assert.equal(data(state).characters.cassius.rp.rank, '金阶', '原数据不变');
+  const exact = project(def, state, { paths: ['@cassius.thoughts'] }) as any;
+  assert.ok(exact.characters['@cassius'].thoughts, '指定路径查询不受规则影响');
+  assert.equal(data(state).characters.cassius.rank, '金阶', '原数据不变');
 });
 
 test('引用类型：地点字段不能指向角色；删除角色时在场名单与社交自动清理', async () => {
@@ -155,23 +155,23 @@ test('空白新聊天：只靠模型操作就能建立角色和地点', async ()
     { $set: { 'meta.location': 'inn', 'meta.present': ['me'] }, $push: { '@me.tags': '旅人' } },
   ], 1), state);
   assert.equal(result.feedback.filter(f => f.level === 'L3').length, 0, JSON.stringify(result.feedback));
-  assert.equal(data(result.state).characters.me.rp.attributes.dnd.str, null);
+  assert.equal(data(result.state).characters.me.attributes_dnd.str, null);
   assert.equal(data(result.state).meta.round, 1);
   void exampleData;
 });
 
 test('数值或文字（oneOf）：特殊属性两种写法都能存；数值量表照常增减与截断', async () => {
   const { core, state, def } = await official();
-  assert.equal((def.display?.fields?.['characters.*.rp.special.*'] as any)?.type, 'oneOf');
-  const inc = await core.execute({ $inc: { '@erin.rp.gauges.生命.value': 10 } }, state);
-  assert.equal(data(inc.state).characters.erin.rp.gauges.生命.value, 82);
-  const max = await core.execute({ $set: { '@erin.rp.gauges.生命.max': -5 } }, state);
-  assert.equal(data(max.state).characters.erin.rp.gauges.生命.max, 0, '数值形式里的下限照常截断');
-  const swap = await core.execute({ $set: { '@erin.rp.special.契约之力': { value: 3, max: 10 } } }, state);
-  assert.deepEqual(data(swap.state).characters.erin.rp.special.契约之力, { value: 3, max: 10 });
-  const text = await core.execute({ $set: { '@erin.rp.special.契约之力': '若隐若现' } }, state);
-  assert.equal(data(text.state).characters.erin.rp.special.契约之力, '若隐若现');
-  const bad = await core.execute({ $set: { '@erin.rp.special.契约之力': true } }, state);
+  assert.equal((def.display?.fields?.['characters.*.special.*'] as any)?.type, 'oneOf');
+  const inc = await core.execute({ $inc: { '@erin.gauges.生命.value': 10 } }, state);
+  assert.equal(data(inc.state).characters.erin.gauges.生命.value, 82);
+  const max = await core.execute({ $set: { '@erin.gauges.生命.max': -5 } }, state);
+  assert.equal(data(max.state).characters.erin.gauges.生命.max, 0, '数值形式里的下限照常截断');
+  const swap = await core.execute({ $set: { '@erin.special.契约之力': { value: 3, max: 10 } } }, state);
+  assert.deepEqual(data(swap.state).characters.erin.special.契约之力, { value: 3, max: 10 });
+  const text = await core.execute({ $set: { '@erin.special.契约之力': '若隐若现' } }, state);
+  assert.equal(data(text.state).characters.erin.special.契约之力, '若隐若现');
+  const bad = await core.execute({ $set: { '@erin.special.契约之力': true } }, state);
   assert.ok(bad.feedback.some(f => f.code === 'SCHEMA_REJECTED'), '两种形式都不是时拒绝');
 });
 
@@ -204,8 +204,8 @@ test('物品与能力是根节点实例，角色只引用：引用须存在、�
   assert.deepEqual(data(state).characters.mira.items.healing_draught, { count: 1, equipped: false }, '同类物品多人各自计数');
   const ghost = await core.execute({ $set: { '@erin.items.no_such_item': { count: 1, equipped: false } } }, state);
   assert.equal(data(ghost.state).characters.erin.items.no_such_item, undefined, '引用不存在的物品被拒绝');
-  const bad = await core.execute({ $set: { '@erin.rp.abilities.iron_sword': {} } }, state);
-  assert.equal(data(bad.state).characters.erin.rp.abilities.iron_sword, undefined, '能力引用不能指向物品');
+  const bad = await core.execute({ $set: { '@erin.abilities.iron_sword': {} } }, state);
+  assert.equal(data(bad.state).characters.erin.abilities.iron_sword, undefined, '能力引用不能指向物品');
   const gone = await core.execute({ $deleteEntity: ['@healing_draught'] }, state);
   assert.equal(data(gone.state).characters.erin.items.healing_draught, undefined, '删除物品后持有者的引用自动清理');
   assert.equal(data(gone.state).characters.mira.items.healing_draught, undefined);
@@ -346,10 +346,10 @@ test('量表与熟练度：数值 / 描述 互斥，切换时给迁移指令', a
   assert.equal(text.engineState.activeModules.scale_num, false);
   assert.equal(text.engineState.migration?.group, 'scales');
   assert.match(migrationText(def, text.engineState.migration!), /生命/u, '迁移指令附上原来的数值');
-  assert.equal(data(text).characters.erin.rp.gaugesText.饱腹, '一天没吃东西，肚子在叫');
-  const num = await core.execute({ $set: { '@erin.rp.gauges.生命': { value: 1, max: 2 } } }, text);
+  assert.equal(data(text).characters.erin.gaugesText.饱腹, '一天没吃东西，肚子在叫');
+  const num = await core.execute({ $set: { '@erin.gauges.生命': { value: 1, max: 2 } } }, text);
   assert.ok(num.feedback.some(f => f.code === 'MODULE_DORMANT'), '描述模式下数值量表休眠');
-  const bad = await core.execute({ $set: { '@erin.rp.gauges.生命': '重伤' } }, state);
+  const bad = await core.execute({ $set: { '@erin.gauges.生命': '重伤' } }, state);
   assert.ok(bad.feedback.some(f => f.level === 'L3'), '数值模式只收 {value, max}');
 });
 test('剧透：社交、能力、物品默认折叠，好感度与已装备物品公开', async () => {
@@ -360,7 +360,7 @@ test('剧透：社交、能力、物品默认折叠，好感度与已装备物�
   assert.equal(m.spoiler(['characters', 'mira', 'relations', 'erin', 'affection']), 'public');
   assert.equal(m.spoiler(['characters', 'mira', 'items', 'lute']), 'public', '已装备的物品看得见');
   assert.equal(m.spoiler(['characters', 'mira', 'items', 'healing_draught']), 'spoiler');
-  assert.equal(m.spoiler(['characters', 'mira', 'rp', 'abilities']), 'spoiler');
+  assert.equal(m.spoiler(['characters', 'mira', 'abilities']), 'spoiler');
   assert.equal(m.spoiler(['characters', 'erin', 'items', 'healing_draught']), 'public', '玩家自己的不遮');
   assert.equal(m.spoiler(['items', 'lute', 'truth']), 'hidden');
 });
@@ -419,7 +419,7 @@ test('数据结构：列出可写字段与说明，跟随模块开关，说明�
   assert.doesNotMatch(text, /buildings|factions|wod（WOD）|nsfw/u, '关闭的模块不列');
   assert.match(text, /related（相关）: \[角色\/地点\/物品ID, …\]/u, '关闭模块的实体类型不作为引用目标');
   const noDrive = structuredClone(state) as LogicalState; noDrive.engineState.activeModules.drive = false;
-  assert.doesNotMatch(schemaText(def, noDrive), /drive（驱动力）/u);
+  assert.doesNotMatch(schemaText(def, noDrive), /thoughts（想法）/u);
   // hint is presentation only: the fingerprint does not move.
   const plain = structuredClone(officialStructure) as any; delete plain.fields.characters.of.fields.intro.hint;
   assert.equal((await compile(compileStructure(plain))).fingerprint, def.fingerprint);
@@ -427,4 +427,62 @@ test('数据结构：列出可写字段与说明，跟随模块开关，说明�
   const tiny = await compile(compileStructure({ id: 't', version: '1', fields: { hp: { type: 'int', label: '生命', desc: '当前生命', min: 0 } } }));
   assert.equal(schemaText(tiny, await new SolveCore(tiny).initialize()).split('\n').at(-1), 'hp（生命）: 整数（≥0） — 当前生命');
   assert.throws(() => compileStructure({ id: 't', version: '1', fields: { hp: { type: 'int', hint: 3 as any } } }), /hint 必须是文字/u);
+});
+
+test('同一个 $createEntity 里新建的实体可以互相引用；写坏的那个单独拒绝', async () => {
+  const def = await compile(compileStructure(officialStructure)), core = new SolveCore(def), state = await core.initialize();
+  const town = { name: '铃见町', kind: '区域', parent: null, links: ['shrine'], desc: '小镇' };
+  const shrine = { name: '社务所', kind: '地点', parent: 'town', links: ['town'], desc: '老木屋' };
+  const yana = (extra: object) => ({ name: '阳菜', role: '主要配角', relations: { kami: { affection: 5 } }, attributes_dnd: { str: 9, ...extra } });
+  const kami = { name: '卡密', role: '用户角色', relations: { yana: { affection: 0 } } };
+  const lore = { title: '唤日祭', kind: '伏笔', content: '铃绳断了', related: ['shrine', 'yana'] };
+  const ok = await applyAction(core, model([{ $createEntity: { 'places.town': town, 'places.shrine': shrine, 'characters.kami': kami, 'characters.yana': yana({}), 'lore.fest': lore } },
+    { $set: { 'meta.location': 'shrine', 'meta.present': ['kami', 'yana'] } }]), state);
+  assert.deepEqual(ok.feedback.filter(f => f.level === 'L3'), []);
+  const d = ok.state.data as any;
+  assert.deepEqual([d.places.town.links, d.places.shrine.parent, d.meta.location, d.meta.present], [['shrine'], 'town', 'shrine', ['kami', 'yana']]);
+  // yana 写坏（special 放进了 attributes）：只拒绝 yana 和引用她的条目，其余照常建出
+  const bad = await applyAction(core, model([{ $createEntity: { 'places.town': town, 'places.shrine': shrine, 'characters.kami': kami, 'characters.yana': yana({ special: {} }), 'lore.fest': lore } }]), state);
+  const rejected = bad.feedback.filter(f => f.level === 'L3').map(f => `${f.code} ${f.path}`);
+  assert.deepEqual(rejected, ['DANGLING_REFERENCE /characters/kami/relations/yana', 'SCHEMA_PATH /characters/yana/attributes_dnd/special', 'DANGLING_REFERENCE /lore/fest/related/1']);
+  const b = bad.state.data as any;
+  assert.deepEqual([Object.keys(b.places), Object.keys(b.characters), Object.keys(b.lore)], [['town', 'shrine'], [], []]);
+});
+
+test('节点图：能不交叉的连线不交叉（树、环、网格）', async () => {
+  const { forceLayout, countCrossings } = await import('../src/ui/statusbar/force.js');
+  const node = (i: number) => ({ id: 'n' + i, r: 14, label: '地点' + i });
+  const ring = (n: number) => Array.from({ length: n }, (_, i) => ({ a: 'n' + i, b: 'n' + ((i + 1) % n), length: 150 }));
+  const grid = (w: number, h: number) => { const e = []; for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) { if (i + 1 < w) e.push({ a: 'n' + (i * h + j), b: 'n' + ((i + 1) * h + j) }); if (j + 1 < h) e.push({ a: 'n' + (i * h + j), b: 'n' + (i * h + j + 1) }); } return e; };
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const tree = (n: number) => Array.from({ length: n - 1 }, (_, i) => ({ a: 'n' + (i + 1), b: 'n' + Math.floor(rnd() * (i + 1)) }));
+  for (const [name, n, edges] of [['五环', 5, ring(5)], ['十二环', 12, ring(12)], ['3×3 网格', 9, grid(3, 3)], ['4×4 网格', 16, grid(4, 4)], ['树 6', 6, tree(6)], ['树 30', 30, tree(30)]] as const) {
+    const nodes = Array.from({ length: n }, (_, i) => node(i));
+    assert.equal(countCrossings(forceLayout(nodes, [...edges]), [...edges]), 0, name);
+    // 同样的数据总是同样的图
+    assert.deepEqual([...forceLayout(nodes, [...edges])], [...forceLayout(nodes, [...edges])], name + ' 确定性');
+  }
+});
+
+test('配图：imagePrompt 字段自动归入配图模块，总开关默认关，字段级开关单独控制', async () => {
+  const { def, core, state } = await official();
+  const images = (def.display as any).images as { path: string; module: string; label: string; shape: string }[];
+  assert.deepEqual(images.map(f => f.path), ['characters.*.imagePrompt', 'places.*.imagePrompt', 'items.*.imagePrompt', 'buildings.*.imagePrompt', 'factions.*.imagePrompt']);
+  assert.deepEqual(images.map(f => f.shape), ['portrait', 'landscape', 'square', 'square', 'square']);
+  assert.equal(def.modules?.image?.enabled, false);
+  assert.equal(def.modules?.image_characters?.parent, 'image');
+  assert.equal(def.modules?.image_characters?.label, '角色');
+  assert.equal(def.display?.as?.['characters.*.imagePrompt'], 'imagePrompt');
+  assert.ok(!schemaText(def, state).includes('imagePrompt'), '关着时不进数据结构');
+  const off = await applyAction(core, model({ $set: { '@erin.imagePrompt': '1girl' } }, 43), state);
+  assert.ok(off.feedback.some(f => f.level === 'L3'), '关着时不能写');
+  const on = await core.setModule('image', true, state);
+  assert.ok(schemaText(def, on.state).includes('imagePrompt'));
+  assert.ok(guide(def, on.state).includes('配图'));
+  const written = await applyAction(core, model({ $set: { '@erin.imagePrompt': '1girl, red hair' } }, 43), on.state);
+  assert.equal(data(written.state).characters.erin.imagePrompt, '1girl, red hair');
+  const noPlaces = await core.setModule('image_places', false, on.state);
+  const place = await applyAction(core, model({ $set: { 'places.tavern.imagePrompt': 'scenery' } }, 43), noPlaces.state);
+  assert.ok(place.feedback.some(f => f.level === 'L3'), '字段级开关关掉后不能写');
+  assert.throws(() => compileStructure({ id: 'x', version: '1', fields: { imagePrompt: { type: 'int' } } }), /只能是文字/u);
 });

@@ -32,6 +32,9 @@ import { officialStructure } from '../official/structure.js';
 import { VERSION } from '../version.js';
 import { UPDATE_PREFS, detectCardMacros, injectTexts, type InjectionReport } from './inject.js';
 import type { InjectKey } from '../ui/statusbar/inject.js';
+import { ImageGenContext, imageFields, imageSpec, type ImageGenView } from '../ui/statusbar/imagegen.js';
+import { IMAGE_DEFAULTS, IMAGE_PREFS, ImageService, PLUGIN_LABELS, type ImagePrefs } from './images.js';
+import { dormant } from '../schema.js';
 
 const PREFS = 'solve.statusbar.prefs.v1';
 const UPDATE = UPDATE_PREFS;
@@ -164,6 +167,7 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
   const [debug, setDebug] = React.useState(false);
   const [builder, setBuilder] = React.useState(false);
   const [settingsAt, setSettingsAt] = React.useState(0);
+  const images = React.useMemo(() => new ImageService(scope), [scope]);
   let bar: { def: CompiledDefinition; state: LogicalState } | undefined;
   if (controller) {
     const def = controller.core.definition;
@@ -209,7 +213,7 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
     <>
       {/* Separate stacking contexts: the builder above the debug panel above the status bar. */}
       <div style={{ position: 'relative', zIndex: 1 }}>{controller && bar
-        ? <Bound key={bar.def.fingerprint} scope={scope} controller={controller} def={bar.def} state={bar.state} {...(bgm ? { bgm } : {})}
+        ? <Bound key={bar.def.fingerprint} scope={scope} controller={controller} def={bar.def} state={bar.state} {...(bgm ? { bgm } : {})} images={images}
           extras={{ openDebug: () => setDebug(true), openBuilder: () => setBuilder(true), ...(settingsAt ? { openSettings: settingsAt } : {}) }} />
         : null}</div>
       <div style={{ position: 'relative', zIndex: 2 }}>{debug ? <DebugPanel host={debugHost} onClose={() => setDebug(false)} /> : null}</div>
@@ -221,14 +225,49 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
 /** Opening view (previews) and the debug-panel entry. */
 export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean; section?: string }; openDebug?: () => void; openBuilder?: () => void; openSettings?: number; update?: Partial<UpdateHost>; structure?: Partial<StructureHost> }
 /** The status bar for one bound controller (the tavern host and the design preview both render this). */
-export function Bound({ scope, controller, def, state, bgm, extras = {} }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike; extras?: StatusBarExtras }) {
+export function Bound({ scope, controller, def, state, bgm, images, extras = {} }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike; images?: ImageService; extras?: StatusBarExtras }) {
   const status = controller.getStatus();
   const [prefs, setPrefs] = React.useState<LocalPrefs>(() => ({ revealSpoilers: false, ...read(scope, PREFS, {}) }));
   React.useEffect(() => {
     write(scope, PREFS, prefs);
     try { scope.document.dispatchEvent(new scope.CustomEvent('solve:statusbar-prefs')); } catch { /* old browser */ }
   }, [prefs]); // eslint-disable-line react-hooks/exhaustive-deps
-  const model = React.useMemo(() => new StatusModel(def, state, { revealSpoilers: prefs.revealSpoilers }), [def, state, prefs.revealSpoilers]);
+  // ── 生图: generated pictures are shown over the entities' `image` / `thumb`; they are not engine state ──
+  const fields = React.useMemo(() => imageFields({ def } as StatusModel), [def]);
+  const gen = images && fields.length ? images : undefined;
+  const [imgPrefs, setImgPrefs] = React.useState<ImagePrefs>(() => ({ ...IMAGE_DEFAULTS, ...read<Partial<ImagePrefs>>(scope, IMAGE_PREFS, {}) }));
+  React.useEffect(() => { write(scope, IMAGE_PREFS, imgPrefs); }, [imgPrefs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [imgRev, imgTick] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => gen?.subscribe(imgTick), [gen]);
+  React.useEffect(() => {
+    // Plugins finish loading at their own pace (the built-in one ~15 s after the page): watch their readiness.
+    if (!gen) return;
+    let sig = '';
+    const check = () => { const s = JSON.stringify(gen.plugins().map(p => [p.installed, p.ready])); if (s !== sig) { sig = s; imgTick(); } };
+    const timer = scope.setInterval(check, 3000);
+    return () => scope.clearInterval(timer);
+  }, [gen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = React.useMemo(() => gen ? overlayImages(def, state, gen) : state, [def, state, gen, imgRev]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => {
+    // 自动生成: entities whose prompt has no picture yet (authored art stays as it is).
+    if (!gen || imgPrefs.mode !== 'auto' || !status.ready || status.generating || !gen.pick(imgPrefs)) return;
+    const m = new StatusModel(def, state);
+    for (const f of fields) for (const parts of expand(state.data, f.owner.split('.'))) {
+      if (!imageSpec(m, parts)) continue;
+      const v = m.value(parts), prompt = typeof v?.imagePrompt === 'string' ? v.imagePrompt.trim() : '', key = parts.join('.');
+      if (!prompt || v.image || v.thumb || gen.job(key) || gen.record(key)?.versions.some(x => x.prompt === prompt)) continue;
+      gen.generate(key, prompt, f.shape, imgPrefs);
+    }
+  }, [state, imgPrefs, status.ready, status.generating]); // eslint-disable-line react-hooks/exhaustive-deps
+  const model = React.useMemo(() => new StatusModel(def, shown, { revealSpoilers: prefs.revealSpoilers }), [def, shown, prefs.revealSpoilers]);
+  const picked = gen?.pick(imgPrefs);
+  const genView: ImageGenView | undefined = gen ? {
+    mode: imgPrefs.mode,
+    plugin: picked ? { label: PLUGIN_LABELS[picked] } : { missing: imgPrefs.plugin === 'auto' ? '没有检测到可用的生图插件，请在「设置 → 生图」里查看' : `「${PLUGIN_LABELS[imgPrefs.plugin]}」没有安装或还没加载完` },
+    record: key => gen.record(key), job: key => gen.job(key),
+    generate: (key, prompt, shape) => gen.generate(key, prompt, shape, imgPrefs),
+    cancel: key => gen.cancel(key), dismiss: key => gen.dismiss(key), select: (key, i) => void gen.select(key, i),
+  } : undefined;
   const locked = !status.ready ? (status.reason || 'SOLVE 状态尚未就绪') : status.generating ? '模型正在回复，回复完成后再操作'
     : status.pendingCount ? '有待保存的操作，请先在调试面板处理' : undefined;
   // What the next turn will tell the model: the narrations of the player's actions on the current reply.
@@ -295,6 +334,11 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
     ...(extras.openBuilder ? { openBuilder: extras.openBuilder } : {}),
     update,
     structure,
+    ...(gen ? { images: {
+      prefs: imgPrefs, onPrefs: patch => setImgPrefs(p => ({ ...p, ...patch } as ImagePrefs)),
+      plugins: gen.plugins(), ...(picked ? { active: PLUGIN_LABELS[picked] } : {}), usage: gen.usage(),
+      prune: () => gen.prune(new Set(fields.flatMap(f => expand(state.data, f.owner.split('.')).map(p => p.join('.'))))),
+    } } : {}),
     ...(extras.initial?.section ? { section: extras.initial.section } : {}),
   };
   const bgmView: BgmView | undefined = bgm && bgmStatus && bgmStatus.selection ? (() => {
@@ -311,10 +355,39 @@ export function Bound({ scope, controller, def, state, bgm, extras = {} }: { sco
   const [saved] = React.useState(() => ({ ...read<{ pos?: { x: number; y: number }; tab?: string; mode?: Mode }>(scope, key, {}), ...extras.initial }));
   const remember = (patch: object) => write(scope, key, { ...read(scope, key, {}), ...patch });
   return (
-    <StatusBar model={model} interact={interact} settings={settings} {...(bgmView ? { bgm: bgmView } : {})}
+    <ImageGenContext.Provider value={genView}><StatusBar model={model} interact={interact} settings={settings} {...(bgmView ? { bgm: bgmView } : {})}
       defaultMode={saved.mode ?? 'bar'} {...(saved.settings ? { defaultSettings: true } : {})} onModeChange={mode => { if (mode !== 'panel') remember({ mode }); }}
       {...(extras.openSettings ? { openSettings: extras.openSettings } : {})}
       {...(saved.tab ? { defaultTab: saved.tab } : {})} onTabChange={tab => remember({ tab })}
-      {...(saved.pos ? { position: saved.pos } : {})} onPositionChange={pos => remember({ pos })} />
+      {...(saved.pos ? { position: saved.pos } : {})} onPositionChange={pos => remember({ pos })} /></ImageGenContext.Provider>
   );
+}
+
+/** Concrete paths matching a pattern (`characters.*` → each character). */
+function expand(data: unknown, pattern: string[], at: string[] = []): string[][] {
+  if (!pattern.length) return data && typeof data === 'object' ? [at] : [];
+  if (!data || typeof data !== 'object') return [];
+  const [head, ...rest] = pattern;
+  const keys = head === '*' ? Object.keys(data) : [head!];
+  return keys.flatMap(k => expand((data as Record<string, unknown>)[k], rest, [...at, k]));
+}
+/** The state as the status bar shows it: each entity with a generated picture wears it as `image` / `thumb`. */
+function overlayImages(def: CompiledDefinition, state: LogicalState, images: ImageService): LogicalState {
+  const records = images.records();
+  let data = state.data as Record<string, unknown>;
+  for (const [key, r] of Object.entries(records)) {
+    const v = r.versions[r.current];
+    const parts = key.split('.');
+    if (!v || dormant(def, state, [...parts, 'imagePrompt'])) continue;
+    const next = setIn(data, parts, { image: v.url, thumb: v.url });
+    if (next) data = next;
+  }
+  return data === state.data ? state : { ...state, data } as LogicalState;
+}
+function setIn(data: Record<string, unknown>, parts: string[], patch: Record<string, unknown>): Record<string, unknown> | undefined {
+  const [head, ...rest] = parts;
+  const child = data[head!];
+  if (!child || typeof child !== 'object' || Array.isArray(child)) return undefined;
+  const next = rest.length ? setIn(child as Record<string, unknown>, rest, patch) : { ...(child as object), ...patch };
+  return next ? { ...data, [head!]: next } : undefined;
 }

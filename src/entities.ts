@@ -5,7 +5,8 @@ export class EntityGraph {
   private byPointer = new Map<string, EntityEntry>();
   readonly entities = new Map<string, EntityEntry>();
   readonly refs: RefEntry[] = [];
-  constructor(public readonly definition: CompiledDefinition, public readonly state: LogicalState) {
+  /** `partial`: references to missing entities are skipped instead of rejected (mid-way through creating several at once). */
+  constructor(public readonly definition: CompiledDefinition, public readonly state: LogicalState, private readonly partial = false) {
     for (const spec of definition.entities ?? []) {
       const locations = expand(state.data, spec.path);
       if (spec.singletonId && !spec.nullable && !locations.length) fail('REQUIRED_ENTITY', `缺少必需单例：${spec.singletonId}`);
@@ -58,7 +59,7 @@ export class EntityGraph {
   }
   private addRef(value: unknown, parts: string[], spec: RefEntry['spec']): void {
     const target = this.refId(value);
-    if (!this.entities.has(target)) fail('DANGLING_REFERENCE', `引用目标不存在：${target}`, pointer(parts));
+    if (!this.entities.has(target)) { if (this.partial) return; fail('DANGLING_REFERENCE', `引用目标不存在：${target}`, pointer(parts)); }
     this.refs.push({ pointer: pointer(parts), target, spec });
   }
   container(parts: string[]): EntitySpec | undefined {

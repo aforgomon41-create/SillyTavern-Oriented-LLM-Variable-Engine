@@ -20,8 +20,8 @@ import { part, solve, useB } from './builder.js';
 
 export interface PathOption { path: string; label: string; type: string }
 /**
- * Fields under `base` as dotted paths relative to it (entries of records and lists are skipped through `*`, so `rp.gauges`
- * is offered but not `rp.gauges.*.value`). `deep` also lists inside records / lists (`relations.*.affection`).
+ * Fields under `base` as dotted paths relative to it (entries of records and lists are skipped through `*`, so `gauges`
+ * is offered but not `gauges.*.value`). `deep` also lists inside records / lists (`relations.*.affection`).
  */
 export function pathOptions(d: StructureDescription, base: Addr, deep = false): PathOption[] {
   const out: PathOption[] = [];

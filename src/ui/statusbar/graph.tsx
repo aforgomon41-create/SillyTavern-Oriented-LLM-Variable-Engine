@@ -11,7 +11,8 @@ import { parseCrop, part, solve } from './widgets.js';
 
 export type Tone = 'positive' | 'negative' | 'neutral' | 'info';
 /** `hidden`: takes part in the layout (e.g. a region pulling its places together) but is not drawn. */
-export interface GraphNode { id: string; label: string; r?: number; kind?: string; current?: boolean; muted?: boolean; mark?: string; tone?: Tone; hidden?: boolean; image?: string }
+/** `group`: untangling only swaps nodes of the same group (map: places of one region). */
+export interface GraphNode { id: string; label: string; group?: string; r?: number; kind?: string; current?: boolean; muted?: boolean; mark?: string; tone?: Tone; hidden?: boolean; image?: string }
 export interface GraphEdge { a: string; b: string; kind?: 'link' | 'hierarchy' | 'relation'; tone?: Tone; label?: string; width?: number; length?: number; strength?: number; opacity?: number; hidden?: boolean }
 /** An area drawn around `members` (ids of drawn nodes); `level` 0 is innermost, outer areas get more padding. */
 export interface GraphGroup { id: string; label: string; members: string[]; level?: number; current?: boolean }
@@ -35,8 +36,11 @@ export function GraphView({ nodes, edges, groups = [], selected, onSelect, label
 }) {
   const K = useKit(), uid = React.useId().replace(/[^a-zA-Z0-9_-]/gu, '');
   const [broken, setBroken] = React.useState<Set<string>>(() => new Set());
-  const key = JSON.stringify([nodes.map(n => [n.id, n.label, n.r]), edges.map(e => [e.a, e.b, e.length])]);
-  const layout = React.useMemo(() => forceLayout(nodes.map(n => ({ id: n.id, r: n.r ?? 16, label: n.label })), edges.map(e => ({ a: e.a, b: e.b, ...(e.length ? { length: e.length } : {}), strength: e.strength ?? (e.kind === 'hierarchy' ? 0.9 : 0.6) }))), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = JSON.stringify([nodes.map(n => [n.id, n.label, n.r, n.group]), edges.map(e => [e.a, e.b, e.length, e.hidden]), groups.map(g => [g.id, g.members])]);
+  // Hidden edges are springs only; lines to a region end at the middle of its places (both matter when untangling crossings).
+  const layout = React.useMemo(() => forceLayout(nodes.map(n => ({ id: n.id, r: n.r ?? 16, label: n.label, ...(n.group ? { group: n.group } : {}) })),
+    edges.map(e => ({ a: e.a, b: e.b, ...(e.length ? { length: e.length } : {}), strength: e.strength ?? (e.kind === 'hierarchy' ? 0.9 : 0.6), drawn: !e.hidden })),
+    420, Object.fromEntries(groups.map(g => [g.id, g.members]))), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const [moved, setMoved] = React.useState<Record<string, Point>>({});
   React.useEffect(() => setMoved({}), [key]);
   const pos = (id: string): Point => moved[id] ?? layout.get(id) ?? { x: 0, y: 0 };
@@ -46,23 +50,24 @@ export function GraphView({ nodes, edges, groups = [], selected, onSelect, label
   const svgRef = React.useRef<SVGSVGElement>(null);
   const [px, setPx] = React.useState({ w: 0, h: 0 });
   const [view, setView] = React.useState(box);
-  const fitted = React.useRef(false);
+  // Until the player pans or zooms, the view keeps fitting the canvas (it is first measured while the panel is still opening).
+  const touched = React.useRef(false);
   const focusOn = React.useCallback((id: string | undefined, zoom: number) => {
     const p = id ? layout.get(id) : undefined;
     setView(p ? { minX: p.x - box.w * zoom / 2, minY: p.y - box.h * zoom / 2, w: box.w * zoom, h: box.h * zoom } : box);
   }, [layout, box]);
-  React.useEffect(() => { fitted.current = false; setView(box); }, [box]);
+  React.useEffect(() => { touched.current = false; setView(box); }, [box]);
   React.useEffect(() => {
     const el = svgRef.current; if (!el) return undefined;
     const ro = new ResizeObserver(() => setPx({ w: el.clientWidth, h: el.clientHeight }));
     ro.observe(el); return () => ro.disconnect();
   }, []);
   React.useEffect(() => {
-    if (fitted.current || !px.w) return;
-    fitted.current = true;
+    if (touched.current || !px.w) return;
     // Fit by the scale the whole graph needs; when labels would get tiny, open zoomed on `start`.
     const scale = Math.min(px.w / box.w, px.h / box.h);
-    if (scale < 0.55 && start) focusOn(start, Math.max(0.45, scale / 0.8));
+    // Dots shrink with the map (labels do not): below ~0.4 they get too small to tap, so zoom in only then.
+    if (scale < 0.4 && start) focusOn(start, Math.max(0.45, scale / 0.6)); else setView(box);
   }, [px, box, start, focusOn]);
   /** World units per screen pixel (labels are scaled by this to stay a constant size). */
   const upp = px.w && px.h ? Math.max(view.w / px.w, view.h / px.h) : 1;
@@ -74,11 +79,11 @@ export function GraphView({ nodes, edges, groups = [], selected, onSelect, label
     const s = Math.max(view.w / r.width, view.h / r.height);
     return { x: view.minX + view.w / 2 + (cx - r.left - r.width / 2) * s, y: view.minY + view.h / 2 + (cy - r.top - r.height / 2) * s };
   };
-  const zoom = (factor: number, c?: Point) => setView(v => {
+  const zoom = (factor: number, c?: Point) => { touched.current = true; setView(v => {
     const cx = c?.x ?? v.minX + v.w / 2, cy = c?.y ?? v.minY + v.h / 2;
     const w = Math.min(box.w * 3, Math.max(box.w / 5, v.w * factor)), f = w / v.w, h = v.h * f;
     return { minX: cx - (cx - v.minX) * f, minY: cy - (cy - v.minY) * f, w, h };
-  });
+  }); };
   React.useEffect(() => {
     const el = svgRef.current; if (!el) return undefined;
     const onWheel = (e: WheelEvent) => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15, toWorld(e.clientX, e.clientY)); };
@@ -108,7 +113,7 @@ export function GraphView({ nodes, edges, groups = [], selected, onSelect, label
         for (const k of group ? group.members : [id]) { const p = m[k] ?? layout.get(k) ?? { x: 0, y: 0 }; out[k] = { x: p.x + dx, y: p.y + dy }; }
         return out;
       });
-      else setView(v => ({ ...v, minX: v.minX - dx, minY: v.minY - dy }));
+      else { touched.current = true; setView(v => ({ ...v, minX: v.minX - dx, minY: v.minY - dy })); }
     } else if (pointers.current.size === 2) {
       const [pa, pb] = [...pointers.current.values()];
       const others = [...pointers.current.entries()].find(([pid]) => pid !== e.pointerId)?.[1];
@@ -213,7 +218,7 @@ export function GraphView({ nodes, edges, groups = [], selected, onSelect, label
         <div {...part('tools')}>
           <K.IconButton label="放大" size="sm" variant="default" onClick={() => zoom(1 / 1.3)}>＋</K.IconButton>
           <K.IconButton label="缩小" size="sm" variant="default" onClick={() => zoom(1.3)}>－</K.IconButton>
-          {start ? <K.IconButton label="回到当前位置" size="sm" variant="default" onClick={() => focusOn(start, 0.6)}>◎</K.IconButton> : null}
+          {start ? <K.IconButton label="回到当前位置" size="sm" variant="default" onClick={() => { touched.current = true; focusOn(start, 0.6); }}>◎</K.IconButton> : null}
           <K.IconButton label="查看全图" size="sm" variant="default" onClick={() => { setMoved({}); setView(box); }}>⤢</K.IconButton>
         </div>
       </div>

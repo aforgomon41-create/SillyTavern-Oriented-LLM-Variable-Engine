@@ -58,18 +58,18 @@ export async function createDebugDemo() {
     { $inc: { '@erin.relations.mira.affection': 30 }, $push: { '@erin.relations.mira.keyEvents': '在酒馆请她喝了一杯' } },
     { $set: { 'meta.mood': '浪漫', 'meta.time.clock': '20:10' } },
   ]));
-  await c().submit([{ $group: [{ $inc: { '@erin.items.healing_draught.count': -1 } }, { $inc: { '@erin.rp.gauges.生命.value': 15 } }] }] as never,
+  await c().submit([{ $group: [{ $inc: { '@erin.items.healing_draught.count': -1 } }, { $inc: { '@erin.gauges.生命.value': 15 } }] }] as never,
     { authorInputs: { narrate: '艾琳喝下了一瓶治疗药剂' } });
   user('地窖里传来铁链的声音。我拔出铁剑走下去。');
   await reply(op('幽蓝的火在锈蚀的板甲里跳动。灰烬抬起头，盯着你的剑。', [
     { $set: { 'meta.location': 'tavern', 'meta.mood': '紧张' } },
-    { $inc: { '@ash.rp.gauges.生命.value': -5 } },
-    { $set: { '@erin.rp.attributes.dnd.str': 15 } },
+    { $inc: { '@ash.gauges.生命.value': -5 } },
+    { $set: { '@erin.attributes_dnd.str': 15 } },
     { $set: { '@erin.items.iron_sword.equipped': true } },
   ]));
   // A second version of the same floor (re-rolled reply).
   const last = ctx.chat.at(-1)!;
-  last.swipes = [last.mes, op('灰烬没有动，只是轻声说：“你父亲也走过这道楼梯。”', [{ $set: { 'meta.mood': '悲伤' } }, { $push: { '@erin.drive.plan': { text: '问灰烬关于父亲的事' } } }])];
+  last.swipes = [last.mes, op('灰烬没有动，只是轻声说：“你父亲也走过这道楼梯。”', [{ $set: { 'meta.mood': '悲伤' } }, { $push: { '@erin.plan': { text: '问灰烬关于父亲的事' } } }])];
   last.swipe_info = [{ extra: last.extra?.solve ? { solve: last.extra.solve } : {} }, { extra: {} }];
   last.swipe_id = 1; last.mes = last.swipes[1]!;
   await c().processMessage(ctx.chat.length - 1);

@@ -10,7 +10,7 @@
 
 ## 算子与 group
 
-普通操作对象保持五阶段固定顺序：createEntity；move/swap；set/inc/transfer；push/pull；unset/deleteEntity。每条操作以候选副本执行，成功后提交工作状态；失败不影响独立操作。自动升级 set→create、unset→delete 在计划阶段完成。
+普通操作对象保持五阶段固定顺序：createEntity；move/swap；set/inc/transfer；push/pull；unset/deleteEntity。每条操作以候选副本执行，成功后提交工作状态；失败不影响独立操作。自动升级 set→create、unset→delete 在计划阶段完成。同一对象里的多条 createEntity 先一起写入再统一检查引用，因此可以互相引用；某条失败（或最终检查的报错路径落在它建出的实体里）就单独拒绝它、其余重试，直到剩下的都通过；报错无法归到某一条时退回逐条执行。
 
 `$group` 接收有序操作数组，例如：
 

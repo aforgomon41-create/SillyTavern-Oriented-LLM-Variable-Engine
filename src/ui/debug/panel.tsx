@@ -370,7 +370,7 @@ function FloorBody({ c, m, head, children }: { c: Controller; m: StatusModel; he
 
 const TEMPLATES = (path?: string): { label: string; ops: unknown }[] => [
   { label: '改一个值', ops: { $set: { [path ?? '@erin.condition']: '新的值' } } },
-  { label: '加减数值', ops: { $inc: { [path ?? '@erin.rp.gauges.生命.value']: -5 } } },
+  { label: '加减数值', ops: { $inc: { [path ?? '@erin.gauges.生命.value']: -5 } } },
   { label: '追加到清单', ops: { $push: { '@erin.tags': '新身份' } } },
   { label: '原子组（全成或全不成）', ops: { $group: [{ $inc: { '@erin.items.gold.count': -30 } }, { $inc: { '@erin.items.healing_draught.count': 1 } }] } },
   { label: '删除', ops: { $unset: [path ?? '@erin.condition'] } },

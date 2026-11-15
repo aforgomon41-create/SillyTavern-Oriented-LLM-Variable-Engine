@@ -6,6 +6,7 @@
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
+import { ArtSlot, imageSpec, useImageGen } from './imagegen.js';
 import { artOf, isEmpty, StatusModel, thumbOf, type Path } from './model.js';
 import { ModelContext, NavigateContext, RefChip, Section, useModel } from './fields.js';
 import { EntityBody, PageBody, Pages, resolveUser, visible, type PageSpec } from './body.js';
@@ -441,20 +442,22 @@ function CardBody({ item, path, v }: { item: any; path: Path; v: any }) {
   const aside: { label: string; paths: string[] } | undefined = item.aside;
   const asideShown = !!aside && aside.paths.some(r => visible(m, resolveUser(m, path, r)));
   const pages: PageSpec[] | undefined = item.pages ? (aside && !wide ? [{ label: aside.label, paths: aside.paths }, ...item.pages] : item.pages) : undefined;
-  const side = wide && (artOf(v) || asideShown);
+  const imageGen = useImageGen(), gen = !!imageGen && !!imageSpec(m, path);
+  const side = wide && (artOf(v) || asideShown || gen);
+  const slot = <ArtSlot path={path} v={v} name={name} variant="side" />;
   // An entry the player does not know yet (a secret) opens as one spoiler.
   const veiled = m.spoiler(path) === 'spoiler';
   // The name is in the header already — unless the header is veiled, or the player may rename it here.
   const live = useInteract();
   const skip = [...(item.badges ?? []), ...(item.hide ?? []), ...['name', 'title'].filter(k => !veiled && !(live && editFor(m, [...path, k])))];
   const body = (
-    <div ref={ref} {...solve('card-body', { art: artOf(v) ? '' : undefined, aside: wide && asideShown ? '' : undefined })}><div {...part('layout')}>
+    <div ref={ref} {...solve('card-body', { art: artOf(v) || gen ? '' : undefined, aside: wide && asideShown ? '' : undefined })}><div {...part('layout')}>
       {side ? (
         <div {...part('side')}>
-          {artOf(v) ? <Art src={artOf(v)!} alt={name} variant="side" /> : null}
+          {slot}
           {aside && asideShown ? <div {...part('overview')}><PageBody base={path} paths={aside.paths} /></div> : null}
         </div>
-      ) : artOf(v) ? <Art src={artOf(v)!} alt={name} variant="side" /> : null}
+      ) : slot}
       <div {...part('main')}>{pages ? <Pages key={wide ? 'wide' : 'narrow'} base={path} pages={pages} label={`${name}的资料`} compact />
         : <EntityBody path={path} skip={skip} />}
         {item.stored ? <StoredHere id={id} spec={item.stored} /> : null}
@@ -548,31 +551,60 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
   const parent = item.parent ?? 'parent', links = item.links ?? 'links', hidden = item.discovered ?? 'discovered';
   // The detail card follows the current place until the player picks a node; only a pick highlights.
   const [picked, setPicked] = React.useState<string | undefined>();
+  const [world, setWorld] = React.useState<string | undefined>();
   React.useEffect(() => {
-    if (focus && focus.path.slice(0, path.length).join('.') === path.join('.') && focus.path[path.length]) setPicked(focus.path[path.length]);
+    if (focus && focus.path.slice(0, path.length).join('.') === path.join('.') && focus.path[path.length]) { setPicked(focus.path[path.length]); setWorld(undefined); }
   }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
-  const sel = picked ?? here;
   const known = (id: string) => places[id]?.[hidden] !== false;
   const nameOf = (id: string) => known(id) ? places[id]?.name ?? id : '？？？';
   const parentOf = (id: string): string | undefined => { const p = places[id]?.[parent]; return typeof p === 'string' && places[p] && p !== id ? p : undefined; };
   const childrenOf = (id: string) => Object.keys(places).filter(k => parentOf(k) === id);
   const ancestors = (id: string) => { const out: string[] = []; for (let p = parentOf(id); p && !out.includes(p) && out.length < 32; p = parentOf(p)) out.push(p); return out; };
+  // Worlds: places that reach each other through regions or links share one map. Places with no way between them
+  // (another world, an instance, a dream) get a map of their own instead of being squeezed into one picture.
+  const root = new Map<string, string>(Object.keys(places).map(id => [id, id]));
+  const find = (id: string): string => { let r = id; while (root.get(r) !== r) r = root.get(r)!; root.set(id, r); return r; };
+  const join = (a: string, b: string) => { const x = find(a), y = find(b); if (x !== y) root.set(x < y ? y : x, x < y ? x : y); };
+  for (const id of Object.keys(places)) {
+    const p = parentOf(id); if (p) join(id, p);
+    for (const l of (places[id]?.[links] ?? []) as string[]) if (places[l]) join(id, l);
+  }
+  const sets = new Map<string, string[]>();
+  for (const id of Object.keys(places)) (sets.get(find(id)) ?? sets.set(find(id), []).get(find(id))!).push(id);
+  // Single places that belong nowhere share one sheet.
+  const loose = [...sets.values()].filter(ids => ids.length === 1).flat();
+  const tops = (ids: string[]) => ids.filter(id => !parentOf(id) && childrenOf(id).length > 0);
+  const title = (ids: string[]) => { const t = tops(ids).map(nameOf); return t.length ? t.slice(0, 2).join('、') + (t.length > 2 ? ' 等' : '') : nameOf(ids[0]!); };
+  const worlds = [...[...sets.values()].filter(ids => ids.length > 1).map(ids => ({ key: find(ids[0]!), label: title(ids), ids })),
+    ...(loose.length ? [{ key: '~loose', label: loose.length === 1 ? nameOf(loose[0]!) : '零散地点', ids: loose }] : [])];
+  const worldOf = (id: string | undefined) => id ? worlds.find(w => w.ids.includes(id))?.key : undefined;
+  // The world with the current place first, then the bigger ones.
+  worlds.sort((a, b) => Number(b.key === worldOf(here)) - Number(a.key === worldOf(here)) || b.ids.length - a.ids.length || (a.key < b.key ? -1 : 1));
+  // The map follows the current place until the player turns to another world.
+  const hereWorld = worldOf(here);
+  // Arriving in another world: the map follows (a pick or a chosen sheet from before would hold it back).
+  const lastWorld = React.useRef(hereWorld);
+  React.useEffect(() => { if (lastWorld.current === hereWorld) return; lastWorld.current = hereWorld; setWorld(undefined); setPicked(undefined); }, [hereWorld]);
+  const followed = worldOf(picked) ?? worldOf(here) ?? worlds[0]?.key;
+  const shown = world === '*' || worlds.some(w => w.key === world) ? world! : followed;
+  const inView = new Set(shown === '*' ? Object.keys(places) : worlds.find(w => w.key === shown)?.ids ?? []);
+  const sel = picked && inView.has(picked) ? picked : here && inView.has(here) ? here : undefined;
   // Regions (places with places under them) become areas around their descendants, not nodes.
-  const regions = Object.keys(places).filter(id => childrenOf(id).length > 0);
-  const leaves = Object.keys(places).filter(id => !regions.includes(id));
+  const regions = [...inView].filter(id => childrenOf(id).length > 0);
+  const leaves = [...inView].filter(id => !regions.includes(id));
   const levelOf = (id: string): number => Math.max(0, ...childrenOf(id).filter(c => regions.includes(c)).map(c => levelOf(c) + 1));
   const groups: GraphGroup[] = regions.map(id => ({
     id, label: nameOf(id), level: levelOf(id),
     members: leaves.filter(l => ancestors(l).includes(id)), current: !!here && (here === id || ancestors(here).includes(id)),
   })).filter(g => g.members.length);
-  const nodes: GraphNode[] = Object.keys(places).map(id => {
+  const nodes: GraphNode[] = [...inView].map(id => {
     const area = groups.some(g => g.id === id);
     const pic = !area && known(id) ? thumbOf(places[id]) : undefined, img = pic ? { image: pic } : {};
-    return { id, label: area ? '' : nameOf(id), r: area ? 4 : img.image ? 17 : 14, kind: regions.includes(id) ? 'region' : 'place', current: id === here, muted: !known(id), ...img, ...(area ? { hidden: true } : {}) };
+    return { id, label: area ? '' : nameOf(id), r: area ? 4 : img.image ? 17 : 14, kind: regions.includes(id) ? 'region' : 'place', current: id === here, muted: !known(id), ...img, ...(area ? { hidden: true } : {}), ...(parentOf(id) ? { group: parentOf(id)! } : {}) };
   });
   const edges: GraphEdge[] = [];
   const seen = new Set<string>();
-  for (const id of Object.keys(places)) {
+  for (const id of inView) {
     // Invisible springs keep a region's places together.
     const p = parentOf(id);
     if (p) edges.push({ a: id, b: p, kind: 'hierarchy', length: 70, strength: 0.9, hidden: true });
@@ -589,12 +621,24 @@ function MapItem({ item, focus }: { item: any; focus: Focus }) {
   return (
     <div ref={box} {...solve('map', { layout: wide ? 'split' : undefined })}>
       <div {...part('view')}>
-        <GraphView nodes={nodes} edges={edges} groups={groups} selected={picked} onSelect={setPicked} label={`${m.label(path)}地图`} {...(here ? { start: here } : {})} />
-        <div {...part('legend')}><span data-kind="link"><i />相连</span>{groups.length ? <span data-kind="region"><i />区域</span> : null}<span {...part('hint')}>点区域名选中整个区域，拖动区域名可整体移动</span></div>
+        {worlds.length > 1 ? (
+          <div {...solve('cats')} {...part('worlds')} role="group" aria-label="选择地图">
+            {worlds.map(w => (
+              <button key={w.key} type="button" {...solve('cat')} aria-pressed={shown === w.key} data-current={w.key === worldOf(here) ? '' : undefined}
+                onClick={() => { setWorld(w.key); if (picked && !w.ids.includes(picked)) setPicked(undefined); }}>
+                {w.key === worldOf(here) ? <i aria-hidden="true">◎</i> : null}{w.label}<small>{w.ids.filter(id => !tops(w.ids).includes(id)).length || w.ids.length}</small>
+              </button>
+            ))}
+            <button type="button" {...solve('cat')} aria-pressed={shown === '*'} onClick={() => setWorld('*')}>全部<small>{Object.keys(places).length}</small></button>
+          </div>
+        ) : null}
+        <GraphView key={shown} nodes={nodes} edges={edges} groups={groups} selected={picked && inView.has(picked) ? picked : undefined} onSelect={setPicked} label={`${m.label(path)}地图`} {...(here && inView.has(here) ? { start: here } : {})} />
+        <div {...part('legend')}><span data-kind="link"><i />相连</span>{groups.length ? <span data-kind="region"><i />区域</span> : null}<span {...part('hint')}>{groups.length ? '点区域名选中整个区域，拖动区域名可整体移动' : '点地点查看详情，拖动可调整位置'}</span></div>
       </div>
+      {!s && worlds.length > 1 && shown !== followed ? <p {...solve('paragraph')} {...part('elsewhere')}>这里和当前位置之间没有相连的路。点地点查看详情。</p> : null}
       {s ? (
         <K.Card title={known(sel!) ? s.name ?? sel : '未发现的地点'} meta={<>{s.kind ? <K.Badge tone="neutral">{s.kind}</K.Badge> : null}{sel === here ? <K.Badge tone="accent">当前位置</K.Badge> : null}</>}>
-          {known(sel!) && artOf(s) ? <Art key={artOf(s)} src={artOf(s)!} alt={s.name ?? sel!} variant="banner" /> : null}
+          {known(sel!) ? <ArtSlot key={sel} path={[...path, sel!]} v={s} name={s.name ?? sel!} variant="banner" /> : null}
           {known(sel!) ? <PlaceMusic places={places} id={sel!} parentKey={parent} /> : null}
           <ActionBar path={[...path, sel!]} />
           {known(sel!) ? <EntityBody path={[...path, sel!]} skip={['name', 'kind', hidden]} /> : <p {...solve('paragraph')}>这里还没有被探索。</p>}

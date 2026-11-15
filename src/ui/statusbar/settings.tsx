@@ -16,6 +16,19 @@ import type { InteractResult } from './interact.js';
 import type { BgmView } from './views.js';
 import { UpdateSection, type UpdateHost } from './update.js';
 import { StructureSection, type StructureHost } from './gate.js';
+import { imageFields } from './imagegen.js';
+
+/** 生图 (this browser): which plugin draws and when; the switches themselves are the 配图 modules (per chat). */
+export interface ImageSettingsHost {
+  prefs: { plugin: string; mode: 'auto' | 'button' };
+  onPrefs(patch: Partial<{ plugin: string; mode: 'auto' | 'button' }>): void;
+  plugins: { id: string; label: string; installed: boolean; ready: boolean; note?: string }[];
+  /** Label of the plugin that will draw now. */
+  active?: string;
+  usage: { entities: number; pictures: number };
+  /** Delete the pictures of entities that no longer exist; resolves to the number of files removed. */
+  prune(): Promise<number>;
+}
 
 export interface LocalPrefs {
   /** Show spoiler content directly instead of the 「剧透 · 点击查看」 veil. */
@@ -44,13 +57,16 @@ export interface SettingsHost {
   update?: UpdateHost;
   /** Which structure new chats use, and what happens with cards that bring MVU / ERA (this browser). */
   structure?: StructureHost;
+  /** 生图: plugin and timing (this browser). */
+  images?: ImageSettingsHost;
   /** Section to open first (previews). */
   section?: string;
 }
 
-type Section = 'modules' | 'lists' | 'delta' | 'structure' | 'update' | 'display' | 'music';
+type Section = 'modules' | 'images' | 'lists' | 'delta' | 'structure' | 'update' | 'display' | 'music';
 const SECTIONS: { id: Section; label: string; note: string }[] = [
   { id: 'modules', label: '模块', note: '按聊天保存' },
+  { id: 'images', label: '生图', note: '开关按聊天' },
   { id: 'lists', label: '清单上限', note: '按聊天保存' },
   { id: 'delta', label: '变化上限', note: '按聊天保存' },
   { id: 'structure', label: '数据结构', note: '本机' },
@@ -62,13 +78,15 @@ const SECTIONS: { id: Section; label: string; note: string }[] = [
 export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: BgmView; onBack: () => void }) {
   const K = useKit(), m = useModel();
   const [box, wide] = useWide(900);
-  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure);
+  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure)
+    .filter(s => s.id !== 'images' || (host.images && imageFields(m).length));
   const [current, setCurrent] = React.useState<Section>(() => sections.some(x => x.id === host.section) ? host.section as Section : 'modules');
   const [status, setStatus] = React.useState<{ text: string; tone?: 'error' } | undefined>();
   const report = (r: InteractResult, done: string) => setStatus(r.ok ? { text: done } : { text: r.error, tone: 'error' });
   const body = (id: Section) => (
     <div {...solve('settings-section', { section: id })}>
       {id === 'modules' ? <Modules host={host} report={report} />
+        : id === 'images' ? <Images host={host} report={report} />
         : id === 'lists' ? <Limits host={host} report={report} kind="lists" />
         : id === 'delta' ? <Limits host={host} report={report} kind="delta" />
         : id === 'structure' ? <StructureSection host={host.structure!} />
@@ -104,7 +122,8 @@ export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: 
 type ModRow = ModuleSpec & { name: string };
 function Modules({ host, report }: { host: SettingsHost; report: (r: InteractResult, done: string) => void }) {
   const K = useKit(), m = useModel();
-  const mods: ModRow[] = Object.entries(m.def.modules ?? {}).map(([name, spec]) => ({ name, ...spec }));
+  const own = new Set(imageModules(m));
+  const mods: ModRow[] = Object.entries(m.def.modules ?? {}).filter(([name]) => !own.has(name)).map(([name, spec]) => ({ name, ...spec }));
   const groups = (m.def as { groups?: Record<string, { label?: string; migrate?: boolean }> }).groups ?? {};
   const pref = (name: string) => { const v = m.state.engineState.activeModules[name]; return v === undefined ? mods.find(x => x.name === name)?.enabled !== false : v; };
   const [busy, setBusy] = React.useState(false);
@@ -151,6 +170,83 @@ function Modules({ host, report }: { host: SettingsHost; report: (r: InteractRes
     <>
       <p {...part('intro')}>关闭的模块不再进入提示词，状态栏里对应的页签和字段也会隐藏；数据保留，重新开启后还在。元信息与角色核心始终开启。</p>
       <div {...solve('module-tree')}>{level(undefined, true, 0)}</div>
+    </>
+  );
+}
+const IMAGE_ROOT = 'image';
+function imageModules(m: ReturnType<typeof useModel>): string[] {
+  const fields = imageFields(m);
+  return fields.length ? [IMAGE_ROOT, ...fields.map(f => f.module)] : [];
+}
+
+// ── 生图 ──
+
+function Images({ host, report }: { host: SettingsHost; report: (r: InteractResult, done: string) => void }) {
+  const K = useKit(), m = useModel(), img = host.images!;
+  const fields = imageFields(m);
+  const on = (name: string) => { const v = m.state.engineState.activeModules[name]; return v === undefined ? m.def.modules?.[name]?.enabled !== false : v; };
+  const [busy, setBusy] = React.useState(false);
+  const toggle = async (name: string, label: string, v: boolean) => {
+    setBusy(true);
+    try { report(await host.setModule(name, v), `已${v ? '开启' : '关闭'}「${label}」`); } finally { setBusy(false); }
+  };
+  const disabled = busy || !!host.locked;
+  const all = on(IMAGE_ROOT);
+  const [cleaning, setCleaning] = React.useState(false);
+  const prune = async () => {
+    setCleaning(true);
+    try { const n = await img.prune(); report({ ok: true }, n ? `已删除 ${n} 张图片` : '没有需要清理的图片'); }
+    catch (e) { report({ ok: false, error: e instanceof Error ? e.message : String(e) }, ''); }
+    finally { setCleaning(false); }
+  };
+  const sameEvent = img.plugins.filter(p => (p.id === 'chatu8' || p.id === 'chami') && p.installed).length > 1;
+  return (
+    <>
+      <p {...part('intro')}>开启后，模型会在新建角色、地点等实体时写一段生图提示词（imagePrompt），状态栏用你装好的生图插件按它出图。关闭的项不再进入提示词。</p>
+      <div {...solve('module-tree')}>
+        <div {...solve('module')} style={{ '--depth': 0 } as React.CSSProperties}>
+          <div {...part('row')}>
+            <span {...part('label')}>配图<small>总开关 · 按聊天保存</small></span>
+            <K.Switch checked={all} aria-label="配图总开关" onCheckedChange={v => { if (!disabled) void toggle(IMAGE_ROOT, '配图', v); }} />
+          </div>
+          {fields.map(f => (
+            <div key={f.module} {...solve('module', { off: all ? undefined : '' })} style={{ '--depth': 1 } as React.CSSProperties}>
+              <div {...part('row')}>
+                <span {...part('label')}>{f.label}{!all ? <small>上级已关闭</small> : <small>{f.shape === 'portrait' ? '竖图' : f.shape === 'landscape' ? '横图' : '方图'}</small>}</span>
+                <K.Switch checked={on(f.module)} aria-label={`给${f.label}配图`} onCheckedChange={v => { if (!disabled && all) void toggle(f.module, f.label + '配图', v); }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <section {...solve('limit-group')}>
+        <h4>生图插件<small>本机</small></h4>
+        <div {...solve('image-plugins')} role="radiogroup" aria-label="生图插件">
+          {[{ id: 'auto', label: '自动选择', installed: true, ready: !!img.active, note: img.active ? `现在会用「${img.active}」` : '没有检测到可用的生图插件' }, ...img.plugins].map(p => (
+            <button key={p.id} type="button" role="radio" aria-checked={img.prefs.plugin === p.id} {...solve('image-plugin', { ready: p.ready ? '' : undefined })}
+              disabled={!p.installed && img.prefs.plugin !== p.id} onClick={() => img.onPrefs({ plugin: p.id })}>
+              <span {...part('label')}>{p.label}</span>
+              <span {...part('state')}>{p.id === 'auto' ? '' : p.ready ? '可用' : p.installed ? '未就绪' : '未安装'}</span>
+              {p.note ? <small>{p.note}</small> : null}
+            </button>
+          ))}
+        </div>
+        {sameEvent ? <p {...part('hint')}>智绘姬和酒馆场景插件响应同一个调用，两个都装着时会各画一张，SOLVE 用先画完的那张；建议只开其中一个的生图。</p> : null}
+      </section>
+      <section {...solve('limit-group')}>
+        <h4>生图方式<small>本机</small></h4>
+        <Choice value={img.prefs.mode} label="生图方式" options={[{ value: 'button', label: '按钮生成' }, { value: 'auto', label: '自动生成' }]} onChange={v => img.onPrefs({ mode: v as 'auto' | 'button' })} />
+        <p {...part('hint')}>{img.prefs.mode === 'auto'
+          ? '每轮回复后，给新写或改过提示词的实体自动出图（一次画一张，排队进行）。作者预制了图片的实体不自动生成。'
+          : '在图片位置显示「生成配图」按钮，点了才画。'}</p>
+      </section>
+      <section {...solve('limit-group')}>
+        <h4>图片<small>本聊天</small></h4>
+        <div {...solve('pref', { kind: 'action' })}>
+          <span {...part('label')}>已生成 {img.usage.pictures} 张<small>{img.usage.entities} 个实体；存放在酒馆的 user/images/ 下。删除实体后，它的图片可以在这里清理。</small></span>
+          <K.Button size="sm" disabled={cleaning || !img.usage.pictures} onClick={() => void prune()}>清理无主图片</K.Button>
+        </div>
+      </section>
     </>
   );
 }
