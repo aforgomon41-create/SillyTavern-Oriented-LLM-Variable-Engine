@@ -80,8 +80,10 @@ function Part({ path, as }: { path: Path; as?: string }) {
   if (meta?.type === 'object') {
     // attribute blocks keep their stat grid; other objects are flattened so cards are not nested in cards
     const kids = m.children(path).filter(k => !m.dormant([...path, k]));
-    const stat = (p: Path) => m.meta(p)?.type === 'object' && m.children(p).every(k => ['int', 'number', 'ladder'].includes(m.meta([...p, k])?.type ?? ''));
-    if (kids.length && kids.every(k => stat([...path, k]))) return <Section path={path} />;
+    const number = (p: Path) => ['int', 'number', 'ladder'].includes(m.meta(p)?.type ?? '');
+    const stat = (p: Path) => m.meta(p)?.type === 'object' && m.children(p).every(k => number([...p, k]));
+    // a group of attribute systems, or one system on its own (attributes_dnd)
+    if (kids.length && (kids.every(k => stat([...path, k])) || kids.every(k => number([...path, k])))) return <Section path={path} />;
     return <EntityBody path={path} />;
   }
   if (meta?.type === 'record') return <Section path={path} />;
@@ -124,9 +126,13 @@ function QuestLog({ paths, groups = [] }: { paths: Path[]; groups?: { label: str
     done.add(g);
     const shown = g.paths.filter(q => open(q, m.value(q)));
     if (!shown.length) continue;
+    // Under the heading 目标, 远期目标 reads as 远期.
+    const tier = (l: string) => l.endsWith(g.label) && l.length > g.label.length ? l.slice(0, -g.label.length) : l;
+    // One spoiler for the whole entry, as when the goals were one object.
+    const guard = shown.find(q => m.spoiler(q) === 'spoiler') ?? shown[0]!;
     rows.push(<section key={'group:' + g.label} {...solve('quests')}><h5 {...part('title')}>{g.label}</h5>
-      <ul>{shown.map((q, i) => <li key={key(q)} data-tier={i}><span {...part('tier')}>{m.label(q)}</span>
-        <span {...part('text')}><Guard path={q}><EditableText path={q}>{isEmpty(m.value(q)) ? <span {...solve('none')}>未填写</span> : m.value(q) as string}</EditableText></Guard></span></li>)}</ul></section>);
+      <Guard path={guard}><ul>{shown.map((q, i) => <li key={key(q)} data-tier={i}><span {...part('tier')}>{tier(m.label(q))}</span>
+        <span {...part('text')}><EditableText path={q}>{isEmpty(m.value(q)) ? <span {...solve('none')}>未填写</span> : m.value(q) as string}</EditableText></span></li>)}</ul></Guard></section>);
   }
   return <div {...solve('quest-log')}>{rows}</div>;
 }
