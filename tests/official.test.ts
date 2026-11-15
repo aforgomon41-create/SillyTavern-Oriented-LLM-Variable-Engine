@@ -479,10 +479,14 @@ test('配图：imagePrompt 字段自动归入配图模块，总开关默认关�
   const on = await core.setModule('image', true, state);
   assert.ok(schemaText(def, on.state).includes('imagePrompt'));
   assert.ok(guide(def, on.state).includes('配图'));
+  assert.match(guide(def, on.state), /【配图】这些实体还没有生图提示词：.*@erin\.imagePrompt/u, '已有实体缺提示词时点名提醒');
+  assert.ok(!guide(def, state).includes('【配图】'), '配图关着时不提醒');
   const written = await applyAction(core, model({ $set: { '@erin.imagePrompt': '1girl, red hair' } }, 43), on.state);
   assert.equal(data(written.state).characters.erin.imagePrompt, '1girl, red hair');
+  assert.ok(!guide(def, written.state).includes('@erin.imagePrompt'), '写上后不再点名');
   const noPlaces = await core.setModule('image_places', false, on.state);
   const place = await applyAction(core, model({ $set: { 'places.tavern.imagePrompt': 'scenery' } }, 43), noPlaces.state);
+  assert.ok(!guide(def, noPlaces.state).includes('@tavern.imagePrompt'), '字段级开关关掉的不点名');
   assert.ok(place.feedback.some(f => f.level === 'L3'), '字段级开关关掉后不能写');
   assert.throws(() => compileStructure({ id: 'x', version: '1', fields: { imagePrompt: { type: 'int' } } }), /只能是文字/u);
 });

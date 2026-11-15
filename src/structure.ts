@@ -341,7 +341,7 @@ export function compileStructure(description: StructureDescription): Definition 
 /** Module of every image prompt, and the parent switch of them all. */
 export const IMAGE_MODULE = 'image';
 export const IMAGE_FIELD = 'imagePrompt';
-const IMAGE_GUIDE = '配图：新建角色、地点等实体时写上 imagePrompt（生图用的英文 tags，逗号分隔，只描述画面内容：外貌、服装、神态或景物，不写画风、画质词）；外貌、服装或场景明显变化时改写它，界面会据此重新生图。';
+const IMAGE_GUIDE = '配图：新建角色、地点等实体时和其他字段一起写上 imagePrompt（生图用的英文 tags，逗号分隔，只描述画面内容：外貌、服装、神态或景物，不写画风、画质词）；外貌、服装或场景明显变化时改写它，界面会据此重新生图。';
 export interface ImageField { path: string; owner: string; module: string; label: string; shape: 'portrait' | 'landscape' | 'square' }
 /**
  * Image generation is a built-in module: every string field named `imagePrompt` belongs to it. The module `image`

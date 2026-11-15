@@ -268,6 +268,28 @@ export function listWarnings(def: CompiledDefinition, state: LogicalState, isDor
   return lines;
 }
 
+/**
+ * 配图: entities whose image prompt is switched on but still empty (typically those created before 配图 was turned
+ * on). Named every turn until written, so the model fills them in without being told to rewrite anything else.
+ */
+export function imageReminder(def: CompiledDefinition, state: LogicalState, isDormant: (parts: string[]) => boolean): string[] {
+  const fields = ((def.display as { images?: { path: string; owner: string }[] } | undefined)?.images ?? []);
+  const missing: string[] = [];
+  for (const f of fields) {
+    const field = f.path.split('.').at(-1)!;
+    for (const found of expand(state.data, f.owner)) {
+      if (!found.value || typeof found.value !== 'object' || Array.isArray(found.value)) continue;
+      const prompt = (found.value as Record<string, unknown>)[field];
+      if (typeof prompt === 'string' && prompt.trim()) continue;
+      if (isDormant([...found.parts, field])) continue;
+      missing.push('@' + found.parts.at(-1) + '.' + field);
+    }
+  }
+  if (!missing.length) return [];
+  const MAX = 12, shown = missing.slice(0, MAX);
+  return [`【配图】这些实体还没有生图提示词：${shown.join('、')}${missing.length > MAX ? ` 等 ${missing.length} 个` : ''}。请在本次更新中用 $set 写上（英文 tags，逗号分隔，只描述画面内容）。`];
+}
+
 /* ---------- declarative projection ---------- */
 
 function valueAt(data: Data, path: string): unknown { return at(data, path.split('.'), false); }

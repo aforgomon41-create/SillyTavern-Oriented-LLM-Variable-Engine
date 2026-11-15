@@ -153,12 +153,17 @@ try {
   await $('[data-solve="settings-trigger"]').click(); await settle();
   const prompt1 = await page.evaluate(() => (p => p.schema + '\n' + p.guide)(SOLVE.controller.getContextPreview()));
   check('打开后提示词里有 imagePrompt 和配图说明', /imagePrompt/u.test(prompt1) && /配图/u.test(prompt1));
+  check('打开前就有的实体：变量规则里点名要补提示词', /【配图】这些实体还没有生图提示词：[^\n]*@erin\.imagePrompt/u.test(prompt1), (prompt1.match(/【配图】[^\n]{0,80}/u) ?? [''])[0]);
 
   phase = 'model-writes';
   const nora = { name: '诺拉', role: '主要配角', age: '19', intro: '酒馆新来的吟游诗人', tags: ['吟游诗人'], appearance: '银发、红眼、黑色兜帽斗篷', condition: '健康',
     imagePrompt: '1girl, silver hair, red eyes, black hooded cloak, lute, calm expression' };
   await send('一个吟游诗人走了进来。', op([{ $createEntity: { 'characters.nora': nora } }, { $set: { 'places.tavern.imagePrompt': 'scenery, tavern interior, fireplace, wooden tables, night, rain outside' } }], '门口站着一个银发少女。'));
   const st1 = await state();
+  const prompt2 = await page.evaluate(() => (p => p.guide)(SOLVE.controller.getContextPreview()));
+  check('写过提示词的实体不再被点名', !/@nora\.imagePrompt|@tavern\.imagePrompt/u.test(prompt2) && /@erin\.imagePrompt/u.test(prompt2));
+  const sentToModel = await lastRequestText();
+  check('点名提醒确实发给了模型', /【配图】/u.test(sentToModel));
   check('模型写入的 imagePrompt 被接受', st1.data.characters.nora?.imagePrompt === nora.imagePrompt && /tavern interior/u.test(st1.data.places.tavern.imagePrompt ?? ''));
 
   phase = 'button';
