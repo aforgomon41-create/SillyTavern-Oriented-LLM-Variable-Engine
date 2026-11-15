@@ -882,6 +882,8 @@
 }
 [data-solve="cat"] > small { color: var(--k-on-muted); font-variant-numeric: tabular-nums; }
 [data-solve="cat"][aria-pressed="true"] { background: var(--k-accent); color: var(--k-on-accent); border-color: transparent; }
+[data-solve="cat"] > i { font-style: normal; margin-inline-end: 4px; }
+[data-solve="map"] [data-solve-part="worlds"] { margin: 0; }
 [data-solve="cat"][aria-pressed="true"] > small { color: inherit; opacity: .8; }
 [data-solve="cat"]:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--k-focus-ring); }
 [data-solve="list-section"] { margin: var(--k-space-3) 0 var(--k-space-2); font-size: var(--k-fs-sm); color: var(--k-on-muted); font-weight: var(--k-fw-strong); display: flex; gap: var(--k-space-2); }

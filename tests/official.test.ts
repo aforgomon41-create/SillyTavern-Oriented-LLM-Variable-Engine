@@ -448,3 +448,18 @@ test('同一个 $createEntity 里新建的实体可以互相引用；写坏的�
   const b = bad.state.data as any;
   assert.deepEqual([Object.keys(b.places), Object.keys(b.characters), Object.keys(b.lore)], [['town', 'shrine'], [], []]);
 });
+
+test('节点图：能不交叉的连线不交叉（树、环、网格）', async () => {
+  const { forceLayout, countCrossings } = await import('../src/ui/statusbar/force.js');
+  const node = (i: number) => ({ id: 'n' + i, r: 14, label: '地点' + i });
+  const ring = (n: number) => Array.from({ length: n }, (_, i) => ({ a: 'n' + i, b: 'n' + ((i + 1) % n), length: 150 }));
+  const grid = (w: number, h: number) => { const e = []; for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) { if (i + 1 < w) e.push({ a: 'n' + (i * h + j), b: 'n' + ((i + 1) * h + j) }); if (j + 1 < h) e.push({ a: 'n' + (i * h + j), b: 'n' + (i * h + j + 1) }); } return e; };
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const tree = (n: number) => Array.from({ length: n - 1 }, (_, i) => ({ a: 'n' + (i + 1), b: 'n' + Math.floor(rnd() * (i + 1)) }));
+  for (const [name, n, edges] of [['五环', 5, ring(5)], ['十二环', 12, ring(12)], ['3×3 网格', 9, grid(3, 3)], ['4×4 网格', 16, grid(4, 4)], ['树 6', 6, tree(6)], ['树 30', 30, tree(30)]] as const) {
+    const nodes = Array.from({ length: n }, (_, i) => node(i));
+    assert.equal(countCrossings(forceLayout(nodes, [...edges]), [...edges]), 0, name);
+    // 同样的数据总是同样的图
+    assert.deepEqual([...forceLayout(nodes, [...edges])], [...forceLayout(nodes, [...edges])], name + ' 确定性');
+  }
+});
