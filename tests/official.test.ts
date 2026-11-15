@@ -463,3 +463,26 @@ test('节点图：能不交叉的连线不交叉（树、环、网格）', async
     assert.deepEqual([...forceLayout(nodes, [...edges])], [...forceLayout(nodes, [...edges])], name + ' 确定性');
   }
 });
+
+test('配图：imagePrompt 字段自动归入配图模块，总开关默认关，字段级开关单独控制', async () => {
+  const { def, core, state } = await official();
+  const images = (def.display as any).images as { path: string; module: string; label: string; shape: string }[];
+  assert.deepEqual(images.map(f => f.path), ['characters.*.imagePrompt', 'places.*.imagePrompt', 'items.*.imagePrompt', 'buildings.*.imagePrompt', 'factions.*.imagePrompt']);
+  assert.deepEqual(images.map(f => f.shape), ['portrait', 'landscape', 'square', 'square', 'square']);
+  assert.equal(def.modules?.image?.enabled, false);
+  assert.equal(def.modules?.image_characters?.parent, 'image');
+  assert.equal(def.modules?.image_characters?.label, '角色');
+  assert.equal(def.display?.as?.['characters.*.imagePrompt'], 'imagePrompt');
+  assert.ok(!schemaText(def, state).includes('imagePrompt'), '关着时不进数据结构');
+  const off = await applyAction(core, model({ $set: { '@erin.imagePrompt': '1girl' } }, 43), state);
+  assert.ok(off.feedback.some(f => f.level === 'L3'), '关着时不能写');
+  const on = await core.setModule('image', true, state);
+  assert.ok(schemaText(def, on.state).includes('imagePrompt'));
+  assert.ok(guide(def, on.state).includes('配图'));
+  const written = await applyAction(core, model({ $set: { '@erin.imagePrompt': '1girl, red hair' } }, 43), on.state);
+  assert.equal(data(written.state).characters.erin.imagePrompt, '1girl, red hair');
+  const noPlaces = await core.setModule('image_places', false, on.state);
+  const place = await applyAction(core, model({ $set: { 'places.tavern.imagePrompt': 'scenery' } }, 43), noPlaces.state);
+  assert.ok(place.feedback.some(f => f.level === 'L3'), '字段级开关关掉后不能写');
+  assert.throws(() => compileStructure({ id: 'x', version: '1', fields: { imagePrompt: { type: 'int' } } }), /只能是文字/u);
+});

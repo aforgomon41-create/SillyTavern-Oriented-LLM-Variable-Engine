@@ -294,8 +294,10 @@ export function compileStructure(description: StructureDescription): Definition 
   const modules = new Set(Object.keys(description.modules ?? {}));
   const out: Collected = { entities: [], refs: [], typedRefs: [], uniqueHolds: [], modulePaths: {}, numeric: {}, lists: {}, computed: {}, stamps: {}, readonly: [], internal: [], labels: {}, spoiler: {}, as: {}, fields: {} };
   const root = build({ type: 'object', fields: description.fields }, [], out, modules, false);
+  const declared: Record<string, StructureModule> = { ...(description.modules ?? {}) };
+  const images = imageFields(out, declared);
   const moduleSpecs: Record<string, ModuleSpec> = {};
-  for (const [name, m] of Object.entries(description.modules ?? {})) {
+  for (const [name, m] of Object.entries(declared)) {
     safeKey(name);
     const paths = out.modulePaths[name] ?? [];
     moduleSpecs[name] = { paths, ...(m.enabled !== undefined ? { enabled: m.enabled } : {}), ...(m.parent ? { parent: m.parent } : {}),
@@ -328,12 +330,47 @@ export function compileStructure(description: StructureDescription): Definition 
     ...(description.prefabs && Object.keys(description.prefabs).length ? { prefabs: clone(description.prefabs) } : {}),
     ...(description.templates && Object.keys(description.templates).length ? { templates: clone(description.templates) } : {}),
     display: { ...(clone(description.display ?? {}) as DisplaySpec), labels: out.labels, spoiler: out.spoiler, as: out.as, fields: out.fields,
+      ...(images.length ? { images: images as unknown as Json } : {}),
       ...(description.label ? { title: description.label } : {}) },
     runtimeBindings: { build: `structure:${description.id}@${description.version}`, dependencies: { typedRefs: typedRefs.length ? 'v1' : 'none' } },
     // References must point at entities of the declared type (entity IDs are global).
     ...(typedRefs.length ? { validateState: (state) => checkRefTypes(definition as CompiledDefinition, state as any, typedRefs) } : {}),
   };
   return definition;
+}
+/** Module of every image prompt, and the parent switch of them all. */
+export const IMAGE_MODULE = 'image';
+export const IMAGE_FIELD = 'imagePrompt';
+const IMAGE_GUIDE = '配图：新建角色、地点等实体时写上 imagePrompt（生图用的英文 tags，逗号分隔，只描述画面内容：外貌、服装、神态或景物，不写画风、画质词）；外貌、服装或场景明显变化时改写它，界面会据此重新生图。';
+export interface ImageField { path: string; owner: string; module: string; label: string; shape: 'portrait' | 'landscape' | 'square' }
+/**
+ * Image generation is a built-in module: every string field named `imagePrompt` belongs to it. The module `image`
+ * (配图) is the overall switch, off by default; each prompt field gets its own child module (e.g. `image_characters`)
+ * for a per-field switch. A field that already sits in an author's module needs both on. The author may declare
+ * either module to change its label, default or guide.
+ */
+function imageFields(out: Collected, declared: Record<string, StructureModule>): ImageField[] {
+  const paths = Object.keys(out.fields).filter(p => p.split('.').at(-1) === IMAGE_FIELD);
+  const found: ImageField[] = [];
+  for (const path of paths) {
+    if ((out.fields[path] as { type?: string }).type !== 'string') problem(path, `${IMAGE_FIELD} 是生图提示词，只能是文字`);
+    const owner = path.split('.').slice(0, -1);
+    const collection = owner.at(-1) === '*' ? owner.slice(0, -1) : owner;
+    const base = 'image_' + (collection.filter(k => k !== '*').join('_') || 'root');
+    let name = base;
+    for (let i = 2; found.some(f => f.module === name); i++) name = base + i;
+    const label = out.labels[collection.join('.')] ?? collection.at(-1) ?? '配图';
+    const type = out.entities.find(e => e.path === collection.join('.'))?.type;
+    const shape = type === 'character' ? 'portrait' : type === 'place' ? 'landscape' : 'square';
+    found.push({ path, owner: owner.join('.'), module: name, label, shape });
+    (out.modulePaths[name] ??= []).push(path);
+    out.as[path] ??= IMAGE_FIELD;
+    const meta = out.fields[path] as Record<string, Json>;
+    meta.hint ??= '生图用的画面 tags（英文，逗号分隔）';
+    declared[name] = { label, ...declared[name], parent: IMAGE_MODULE };
+  }
+  if (found.length) declared[IMAGE_MODULE] = { label: '配图', enabled: false, guide: IMAGE_GUIDE, ...declared[IMAGE_MODULE] };
+  return found;
 }
 function groupMembers(modules: Record<string, ModuleSpec>): Record<string, string[]> {
   const groups: Record<string, string[]> = {};

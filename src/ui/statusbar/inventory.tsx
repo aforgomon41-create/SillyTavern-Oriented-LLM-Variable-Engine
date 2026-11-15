@@ -4,6 +4,7 @@
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
+import { ArtSlot } from './imagegen.js';
 import { artOf, isEmpty, thumbOf, type Path, type StatusModel } from './model.js';
 import { Field, NavigateContext, RefChip, useModel } from './fields.js';
 import { Art, Meter, Mono, Spoiler, part, solve } from './widgets.js';
@@ -59,7 +60,7 @@ export function Inventory({ path }: { path: Path }) {
       {typeof count === 'number' && (count !== 1 || h.data.type === MONEY) ? <span {...part('count')}>{h.data.type === MONEY ? count.toLocaleString('zh-CN') : `×${count}`}</span> : null}
     </button>
   );
-  const fixed = ['name', 'type', 'count', 'equipped', 'desc', 'unique', 'image', 'thumb', 'note', ...(store ? [store] : [])];
+  const fixed = ['name', 'type', 'count', 'equipped', 'desc', 'unique', 'image', 'thumb', 'imagePrompt', 'note', ...(store ? [store] : [])];
   const detail = it?.at ? m.children(it.at).filter(k => !fixed.includes(k) && !isEmpty(it.data[k]) && m.spoiler([...it.at!, k]) !== 'hidden') : [];
   const section = (key: string, title: React.ReactNode, entries: Held[], make: (h: Held) => React.ReactNode, empty?: string) => {
     const shown = entries.filter(open), folded = entries.filter(h => !open(h));
@@ -79,7 +80,7 @@ export function Inventory({ path }: { path: Path }) {
       {places.map(b => section('kept-' + b, <>存放于 <RefChip id={b} /></>, list.filter(h => (kept(h)[b] ?? 0) > 0), h => tile(h, kept(h)[b], b)))}
       {it ? (
         <div {...part('detail')} aria-live="polite">
-          {artOf(it.data) ? <Art key={it.id} src={artOf(it.data)!} alt={nameOf(it)} variant="item" /> : null}
+          {it.at ? <ArtSlot key={it.id} path={it.at} v={it.data} name={nameOf(it)} variant="item" /> : artOf(it.data) ? <Art key={it.id} src={artOf(it.data)!} alt={nameOf(it)} variant="item" /> : null}
           <div {...part('head')}>
             {artOf(it.data) ? null : <span {...part('glyph')} aria-hidden="true">{it.data.type === MONEY && !thumbOf(it.data) ? <CurrencyIcon name={nameOf(it)} size={28} /> : <Mono name={nameOf(it)} src={thumbOf(it.data)} />}</span>}
             <b>{nameOf(it)}</b>

@@ -12,6 +12,7 @@ import { Pages, visible } from './body.js';
 import { CurrencyList } from './currency.js';
 import { Art, Mono, part, solve } from './widgets.js';
 import { artOf } from './model.js';
+import { ArtSlot, imageSpec, useImageGen } from './imagegen.js';
 
 export interface SheetItem {
   sheet: string; id: string; subtitle?: string; badges?: string[]; tags?: string;
@@ -55,9 +56,10 @@ function Hero({ path, item }: { path: Path; item: SheetItem }) {
       return typeof count === 'number' && count > 0 ? [[inst.name ?? id, count] as [string, unknown]] : own?.note ? [[inst.name ?? id, own.note] as [string, unknown]] : [];
     });
   const art = artOf(v);
+  const gen = !!useImageGen() && !!imageSpec(m, path);
   return (
-    <section {...solve('hero', { art: art ? '' : undefined })} data-k-level="surface-1">
-      {art ? <Art src={art} alt={name} variant="hero" /> : null}
+    <section {...solve('hero', { art: art || gen ? '' : undefined })} data-k-level="surface-1">
+      <ArtSlot path={path} v={v} name={name} variant="hero" />
       <div {...part('top')}>
         {art ? null : <div {...part('portrait')} aria-hidden="true"><span><Mono name={name} src={v.thumb} /></span></div>}
         <div {...part('ident')}>

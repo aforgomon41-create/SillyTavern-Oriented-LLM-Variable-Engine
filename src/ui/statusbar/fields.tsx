@@ -68,7 +68,7 @@ export function Field({ path, compact = false }: { path: Path; compact?: boolean
   }
   if (value === undefined) return null;
   // Media links are shown where they belong (portraits, scene banners, the music button), never as text.
-  if (as === 'image' || as === 'bgm') return null;
+  if (as === 'image' || as === 'bgm' || as === 'imagePrompt') return null;
   let body: React.ReactNode;
   if (typeof value === 'number' || (value === null && (meta?.type === 'int' || meta?.type === 'number'))) {
     const computed = m.computed(path, value);

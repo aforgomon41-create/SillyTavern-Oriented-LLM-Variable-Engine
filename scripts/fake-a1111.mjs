@@ -11,13 +11,17 @@ function png(r, g, b) {
 }
 http.createServer(async (q, r) => {
   let body = ''; for await (const c of q) body += c;
-  const json = o => { r.writeHead(200, { 'content-type': 'application/json' }); r.end(JSON.stringify(o)); };
+  // Plugins that call A1111 straight from the browser need CORS.
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': q.headers['access-control-request-headers'] || '*', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
+  if (q.method === 'OPTIONS') { r.writeHead(204, cors); r.end(); return; }
+  const json = o => { r.writeHead(200, { 'content-type': 'application/json', ...cors }); r.end(JSON.stringify(o)); };
   const p = new URL(q.url, 'http://x').pathname;
   if (p === '/__seen') return json(seen);
   if (p === '/sdapi/v1/txt2img') {
-    const b = JSON.parse(body || '{}'); seen.push({ prompt: b.prompt, negative: b.negative_prompt, width: b.width, height: b.height });
+    const b = JSON.parse(body || '{}'); seen.push({ prompt: b.prompt, negative: b.negative_prompt, width: b.width, height: b.height, from: q.headers['user-agent']?.includes('node') ? 'server' : 'browser' });
     let h = 0; for (const ch of String(b.prompt)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return json({ images: [png(h & 255, (h >> 8) & 255, (h >> 16) & 255).toString('base64')], info: '{}' });
+    // FAKE_DELAY_MS：模拟出图耗时，让「生成中」状态看得见
+    return setTimeout(() => json({ images: [png(h & 255, (h >> 8) & 255, (h >> 16) & 255).toString('base64')], info: '{}' }), Number(process.env.FAKE_DELAY_MS ?? 1500));
   }
   if (p === '/sdapi/v1/options') return json({ sd_model_checkpoint: 'fake.safetensors' });
   if (p === '/sdapi/v1/sd-models') return json([{ title: 'fake.safetensors', model_name: 'fake' }]);

@@ -25,6 +25,8 @@ const fu = (label: string): FieldNode => ladder(label, FU);
  * either one stands in for the other.
  */
 const media = (label: string, as: 'image' | 'bgm'): FieldNode => ({ type: 'string', label, optional: true, as, readonly: true, internal: true });
+/** Image-generation tags, written by the model (the 配图 module collects every `imagePrompt` field automatically). */
+const picture = (hint: string): FieldNode => ({ type: 'string', label: '生图提示词', optional: true, hint: '生图用的英文 tags，逗号分隔；' + hint });
 /** A numeric gauge; wherever it is used, a natural-language description is accepted too. */
 const gauge = (): FieldNode => ({ type: 'object', fields: { value: { type: 'number', label: '当前' }, max: { type: 'number', label: '上限', min: 0, default: 100 } } });
 
@@ -97,6 +99,7 @@ const character: FieldNode = {
     alias: text('别称', { optional: true }),
     thumb: media('缩略图', 'image'),
     image: media('立绘', 'image'),
+    imagePrompt: picture('写外貌、发型、服装、神态，如 1girl, silver hair, red eyes, black hooded cloak, calm expression；不写人名、画风与画质词'),
     role: { type: 'enum', label: '定位', values: ['用户角色', '核心角色', '主要配角', '次要配角', '一次性敌人'], default: '次要配角',
       hint: '玩家扮演的角色是「用户角色」；只出场一次的敌人用「一次性敌人」，事件结束后删除；会反复出场的反派按分量归入配角。路人与龙套不建' },
     // Which prefab / template this character was spawned from (by $from); the codex lists them under it.
@@ -219,6 +222,7 @@ export const officialStructure: StructureDescription = {
         discovered: { type: 'bool', label: '已发现', default: true, module: 'map' },
         thumb: media('缩略图', 'image'),
         image: media('背景图', 'image'),
+        imagePrompt: picture('写景物、建筑、时间与天气，如 scenery, ancient harbor town, stone bridge, dusk, light rain；不写人物'),
         bgm: media('背景音乐', 'bgm'),
       } },
     },
@@ -230,6 +234,7 @@ export const officialStructure: StructureDescription = {
         unique: { type: 'bool', label: '独一无二', hint: '世上只有一件的东西（具名武器、信物、钥匙、座驾）设 true；制式装备、药剂、货币不设' },
         thumb: media('缩略图', 'image'),
         image: media('图片', 'image'),
+        imagePrompt: picture('写物品本身的外观，如 ornate silver dagger, glowing blue runes, simple background'),
         desc: text('描述'),
         truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
         condition: text('状态', { optional: true }),
@@ -276,6 +281,7 @@ export const officialStructure: StructureDescription = {
         vault: { type: 'bool', label: '可寄存', optional: true, hint: '任何人都能寄存（银行、出租仓库）时为 true' },
         thumb: media('缩略图', 'image'),
         image: media('图片', 'image'),
+        imagePrompt: picture('写建筑外观与周边，如 small bakery, red brick, warm window light, cobblestone street'),
         desc: text('描述'), truth: text('真实描述', { optional: true, spoiler: 'hidden', hint: '表面之下的真相，玩家看不到；没有隐情时不写' }),
         developments: { type: 'record', label: '建设', of: { type: 'string' } },
       } },
@@ -285,6 +291,7 @@ export const officialStructure: StructureDescription = {
       of: { type: 'object', fields: {
         name: text('势力名', { required: true }), alias: text('别称', { optional: true }),
         thumb: media('徽记', 'image'), image: media('图片', 'image'),
+        imagePrompt: picture('写势力的徽记，如 emblem, black raven, crossed swords, gold trim, simple background'),
         tier: { type: 'enum', label: '定位', values: ['霸主统治', '核心大派', '地方霸权', '隐秘结社', '小型流派'], default: '小型流派' },
         leader: { type: 'ref', label: '领袖', to: 'character', nullable: true },
         intro: text('概括', { as: 'paragraph' }),

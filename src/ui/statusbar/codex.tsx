@@ -12,6 +12,7 @@ import * as React from 'react';
 import { ReadOnly } from './interact.js';
 import { useWide } from './widgets.js';
 import { useKit } from '../kit.js';
+import { ArtSlot } from './imagegen.js';
 import { artOf, isEmpty, StatusModel, thumbOf, type Path } from './model.js';
 import { Field, ModelContext, NavigateContext, useModel } from './fields.js';
 import { Pages, type PageSpec } from './body.js';
@@ -172,11 +173,11 @@ export function Codex({ categories, focus }: { categories: CodexCategory[]; focu
 }
 
 /** Detail header; with a full picture the picture leads and the small glyph is dropped. */
-function Head({ name, src, art, artVariant = 'banner', onBack, label, children }: { name: string; src?: unknown; art?: string | undefined; artVariant?: 'banner' | 'item' | 'side'; onBack?: (() => void) | undefined; label: string; children?: React.ReactNode }) {
+function Head({ name, src, art, artVariant = 'banner', onBack, label, children, slot }: { name: string; src?: unknown; art?: string | undefined; artVariant?: 'banner' | 'item' | 'side'; onBack?: (() => void) | undefined; label: string; children?: React.ReactNode; slot?: { path: Path; v: any } }) {
   return (
     <>
       {onBack ? <button type="button" {...part('back')} onClick={onBack}>‹ 返回{label}列表</button> : null}
-      {art ? <Art src={art} alt={name} variant={artVariant} /> : null}
+      {slot ? <ArtSlot path={slot.path} v={slot.v} name={name} variant={artVariant} /> : art ? <Art src={art} alt={name} variant={artVariant} /> : null}
       <header {...part('head')}>
         {art ? null : <span {...part('glyph')} aria-hidden="true"><Mono name={name} src={src} /></span>}
         <div><h3 {...part('name')}>{name}</h3>{children ? <div {...part('badges')}>{children}</div> : null}</div>
@@ -193,7 +194,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
   const v = m.value(path) ?? {}, id = path.at(-1)!;
   const holders = holdersOf(m, category, id);
   const ladder = m.widget([...path, 'levels']) === 'levels' && !isEmpty(v.levels);
-  const fields = m.children(path).filter(k => !['name', 'desc', 'unique', 'image', 'thumb', category.group ?? '', ...(ladder ? ['levels'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
+  const fields = m.children(path).filter(k => !['name', 'desc', 'unique', 'image', 'thumb', 'imagePrompt', category.group ?? '', ...(ladder ? ['levels'] : [])].includes(k) && !isEmpty(v[k]) && m.spoiler([...path, k]) !== 'hidden');
   const skill = category.holders?.some(h => h.includes('abilities'));
   const describe = (entry: any) => entry && typeof entry === 'object'
     ? Object.entries(entry).filter(([, x]) => x !== false && x !== undefined && !(typeof x === 'number' && x === 1 && 'equipped' in entry))
@@ -201,7 +202,7 @@ function InstanceDetail({ path, category, onBack }: { path: Path; category: Code
     : '';
   return (
     <article {...solve('codex-detail')}>
-      <Head name={v.name ?? id} src={thumbOf(v)} art={artOf(v)} artVariant="item" onBack={onBack} label={category.label}>
+      <Head name={v.name ?? id} src={thumbOf(v)} art={artOf(v)} artVariant="item" onBack={onBack} label={category.label} slot={{ path, v }}>
         {category.group && v[category.group] ? <K.Badge tone="accent">{v[category.group]}</K.Badge> : null}
         {v.unique === true ? <K.Badge tone="warning">独一无二</K.Badge> : null}
       </Head>
@@ -246,7 +247,7 @@ function PrefabDetail({ entry, category, onBack }: { entry: Entry & { state: Pre
   const [shown, setShown] = React.useState(state !== 'dormant');
   return (
     <article {...solve('codex-detail', { state })}>
-      <Head name={data.name ?? id} src={thumbOf(data)} art={artOf(data)} artVariant="side" onBack={onBack} label={category.label}>
+      <Head name={data.name ?? id} src={thumbOf(data)} art={artOf(data)} artVariant="side" onBack={onBack} label={category.label} {...(state === 'active' ? { slot: { path: base, v: data } } : {})}>
         {(category.badges ?? []).map(b => data[b] ? <K.Badge key={b} tone="accent">{String(data[b])}</K.Badge> : null)}
         <K.Badge tone={STATE_TONE[state] as never}>{STATE_LABEL[state]}</K.Badge>
       </Head>
