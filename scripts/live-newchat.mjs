@@ -1,4 +1,5 @@
-// 实机验收：新开聊天（auto.js 角色脚本）——状态栏出现；第一次保存失败时自动重试后绑定；没绑定时「SOLVE 设置」写明原因。
+// 实机验收：新开聊天（auto.js 角色脚本）——状态栏出现；第一次保存失败时自动重试后绑定；切到没有 SOLVE 脚本的角色时 SOLVE 卸载、不留残留，切回来重新启动（不重新下载运行时）。
+// 新版打开没用过 SOLVE 的聊天会先弹窗选结构；本脚本测的是绑定和卸载，用 gate-use 预加载（直接使用）跳过弹窗，弹窗由 live-gate.mjs 测。
 // 用法：DYN_URL=<auto.js 地址> node scripts/live-newchat.mjs [--mobile]（会暂时挪开原生扩展 third-party/solve，结束后放回）
 import { createRequire } from 'node:module';
 import { rename, access } from 'node:fs/promises';
@@ -25,8 +26,11 @@ const st = () => page.evaluate(() => { const s = window.SOLVE?.sessions?.getStat
 const waitBar = async (chat, ms = 30000) => { for (let i = 0; i < ms / 500; i++) { const s = await st(); if (s.bar && s.phase === 'ready' && (!chat || s.chat !== chat)) return s; await page.waitForTimeout(500); } return st(); };
 const toasts = async () => (await page.locator('#toast-container .toast').allInnerTexts()).join(' / ').replace(/\s+/g, ' ');
 const created = [];
+let runtimeLoads = 0;
+page.on('request', r => { if (/\/runtime\.js(?:\?|$)/u.test(r.url())) runtimeLoads++; });
 try {
   await page.goto('http://127.0.0.1:8000/', { waitUntil: 'domcontentloaded' }); await boot();
+  const nativeFetch = await page.evaluate(() => window.fetch.toString());
   const make = name => page.evaluate(async name => {
     const ctx = SillyTavern.getContext(), headers = { ...ctx.getRequestHeaders() }; delete headers['Content-Type'];
     const form = new FormData();
@@ -57,13 +61,25 @@ try {
   check('新聊天第一次保存失败：自动重试后绑定，状态栏出现', failed === 1 && s3.bar && s3.phase === 'ready', JSON.stringify({ failed, ...s3, log: log3 }));
   await page.unroute('**/api/chats/save');
 
-  // 没有绑定 SOLVE 的角色：点「SOLVE 设置」时写明原因
-  await open(plain); await page.waitForTimeout(3000);
-  await page.evaluate(() => { document.querySelectorAll('#toast-container .toast').forEach(t => t.remove()); document.dispatchEvent(new CustomEvent('solve:open', { detail: 'settings' })); });
-  await page.waitForTimeout(800);
-  const t4 = await toasts();
-  check('没绑定的角色：「SOLVE 设置」提示写明原因', /当前角色尚未绑定 SOLVE 定义|这张角色卡没有加载 SOLVE/u.test(t4), t4);
-  await page.screenshot({ path: `${shots}-${tag}-unbound.png` });
+  // 切到没有 SOLVE 脚本的角色：角色脚本停了，SOLVE 把自己放进页面的东西全部拿走
+  await open(plain); await page.waitForTimeout(4000);
+  const left = await page.evaluate(native => {
+    const ctx = SillyTavern.getContext();
+    return {
+      solve: typeof window.SOLVE, interceptor: typeof window.solve_generation_interceptor, registry: typeof window.__SOLVE_RUNTIME_V1__,
+      layer: document.querySelectorAll('solve-statusbar').length, buttons: !!document.getElementById('solve_buttons'), wand: !!document.getElementById('solve_wand_container'),
+      // SOLVE 的保存守卫（认 /api/chats/save）不再是页面的 fetch（别的脚本也可能包一层 fetch，那不算）
+      fetch: !window.fetch.toString().includes('/api/chats/save') || window.fetch.toString().slice(0, 160), prompts: Object.keys(ctx.extensionPrompts ?? {}).filter(k => /solve/iu.test(k)),
+      macro: ctx.substituteParams('{{solve_json}}'), audio: [...document.querySelectorAll('audio')].filter(a => /solve/iu.test(a.id + a.className)).length,
+    };
+  }, nativeFetch);
+  check('切到没有 SOLVE 脚本的角色：SOLVE 卸载，不留界面、菜单、按钮、全局变量、fetch 钩子、注入和宏', left.solve === 'undefined' && left.interceptor === 'undefined' && left.registry === 'undefined'
+    && !left.layer && !left.buttons && !left.wand && left.fetch === true && !left.prompts.length && left.macro === '{{solve_json}}' && !left.audio, JSON.stringify(left));
+  await page.screenshot({ path: `${shots}-${tag}-unloaded.png` });
+  const before = runtimeLoads;
+  await open(avatar);
+  const s5 = await waitBar(undefined, 40000);
+  check('切回带 SOLVE 的角色：重新启动，状态栏回来，没有重新下载运行时', s5.bar && s5.phase === 'ready' && runtimeLoads === before && await page.evaluate(() => document.querySelectorAll('solve-statusbar').length) === 1, JSON.stringify({ ...s5, runtimeLoads }));
   check('页面无报错', !errs.length, errs.join(' | '));
 } catch (e) { check('流程未中断', false, String(e).slice(0, 300)); await page.screenshot({ path: `${shots}-${tag}-fail.png` }).catch(() => {}); }
 finally {

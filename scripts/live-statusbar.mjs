@@ -128,6 +128,26 @@ try {
   for (const tab of ['社交', '地图', '设定']) { await goTab(tab); await shot('tab-' + tab); }
   await goTab('角色');
 
+  phase = 'lightbox';
+  // 点图片看大图，关闭按钮是画出来的叉、居中在圆里（用酒馆自带的图片，示例图在外网）
+  await page.evaluate(async () => {
+    const st = SOLVE.controller.getState(), ids = Object.keys(st.data.characters ?? {});
+    await SOLVE.controller.submit([{ $set: Object.fromEntries(ids.map(id => [`@${id}.image`, '/img/ai4.png'])) }], { actionId: 'local-art' });
+  });
+  await settle(800);
+  const art = $('[data-k="panel"] button[data-solve="art"]').first();
+  await art.waitFor({ timeout: 10000 });
+  await art.click(); await settle(500);
+  const box = $('[data-solve="lightbox"]');
+  const geo = await box.locator('button[data-solve="close"]').evaluate(btn => {
+    const b = btn.getBoundingClientRect(), i = btn.querySelector('svg').getBoundingClientRect(), cs = getComputedStyle(btn);
+    return { w: b.width, h: b.height, dx: Math.abs((b.left + b.width / 2) - (i.left + i.width / 2)), dy: Math.abs((b.top + b.height / 2) - (i.top + i.height / 2)), radius: cs.borderRadius, border: cs.borderTopWidth, cursor: cs.cursor };
+  }).catch(e => ({ error: String(e) }));
+  check('大图的关闭按钮：圆形、叉居中、带样式', geo.w === geo.h && geo.w >= 36 && geo.dx <= 1 && geo.dy <= 1 && geo.radius === '50%' && geo.border === '1px' && geo.cursor === 'pointer', JSON.stringify(geo));
+  await shot('lightbox');
+  await box.locator('button[data-solve="close"]').click(); await settle(400);
+  check('点关闭按钮收起大图', await box.count() === 0);
+
   phase = 'flat';
   const pages = $('[data-solve="sheet"] [role="tab"], [data-solve="pages"] button');
   // 拍扁后的字段：任务页把远期 / 近期目标合成一项「目标」，属性页显示 attributes_*。

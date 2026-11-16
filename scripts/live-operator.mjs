@@ -110,7 +110,7 @@ try {
     return (await response.text()).trim();
   });
   // 独立操作模型：自定义 API（真实模型）
-  await prefs({ mode: 'out-of-band', source: 'custom', api: { url: API_URL, key: API_KEY, model: MODEL, temperature: 0.3, maxTokens: 16384 }, retries: 1, timeout: 120, auto: true, minLength: 0, trigger: '' });
+  await prefs({ mode: 'out-of-band', source: 'custom', api: { url: API_URL, key: API_KEY, model: MODEL, temperature: 0.3, maxTokens: 65536 }, retries: 1, timeout: 120, auto: true, minLength: 0, trigger: '' });
   await page.evaluate(async a => {
     const ctx = SillyTavern.getContext();
     await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characters: [a] });
@@ -195,7 +195,8 @@ try {
   const h4 = (await status()).headId;
   await send('我把靴子挪近炉火，问米拉最近王都有什么新闻。');
   await waitReady(h4);
-  check('触发标签（/正则/）命中 </content> 时照常请求', operator.length === opT + 1, `操作请求 ${operator.length - opT} 次`);
+  const opLog = await page.evaluate(() => SOLVE.controller.journal.read().filter(e => /OPERATOR|CATCH_UP|GENERATION|SWIPE|AUTO_RETRY/u.test(e.code)).slice(-8).map(e => `${e.code} ${e.message}`));
+  check('触发标签（/正则/）命中 </content> 时照常请求', operator.length === opT + 1, `操作请求 ${operator.length - opT} 次${operator.length === opT + 1 ? '' : '；日志：' + opLog.join(' | ')}`);
   await prefs({ trigger: '' });
 
   phase = 'failure';

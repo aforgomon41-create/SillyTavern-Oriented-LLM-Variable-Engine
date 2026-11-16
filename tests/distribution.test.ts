@@ -75,7 +75,7 @@ test('同一原生定义可绑定多个角色而不丢失之前绑定', async ()
   const api = installRuntime({ scope: { SillyTavern: { getContext: () => env.ctx }, fetch: env.fetcher, crypto }, native: true });
   await api.register(env.def, { characters: ['test.png'] });
   await api.register(env.def, { characters: ['another.png'] });
-  assert.deepEqual(api.sessions.getStatus().registered[0]?.characters, ['test.png', 'another.png']);
+  assert.deepEqual(api.sessions.getStatus().registered.find(r => r.id === env.def.id)?.characters, ['test.png', 'another.png']);
   api.detach();
 });
 

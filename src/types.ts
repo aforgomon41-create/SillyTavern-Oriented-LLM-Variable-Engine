@@ -81,6 +81,8 @@ export interface DisplaySpec { labels?: Record<string, string>; spoiler?: Record
 export interface Definition {
   id: string;
   version: string;
+  /** Name shown to the player (not part of the fingerprint). */
+  label?: string;
   schema: ZodType;
   runtimeBindings?: DefinitionBindings;
   outputSchema?: ZodType;

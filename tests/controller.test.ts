@@ -36,7 +36,8 @@ test('宿主先切聊天再渲染再发事件时，就绪探测和格式化钩�
   const c = await attachSillyTavern(env.def, () => { if (stale) throw new Error('绑定期间聊天已切换'); return env.ctx; }, { cache: false }, env.fetcher);
   try {
     stale = true; assert.equal(c.ready, false);
-    const text = '正文<solve_operate>{}</solve_operate>'; assert.equal(env.hooks[0]!(text), text);
+    // Display only: blocks stay hidden whatever the binding is doing (and the hook never throws).
+    const text = '正文<solve_operate>{}</solve_operate>'; assert.equal(env.hooks[0]!(text), '正文');
     await assert.rejects(c.submit({}), /绑定期间聊天已切换/u);
   } finally { stale = false; c.dispose(); }
 });

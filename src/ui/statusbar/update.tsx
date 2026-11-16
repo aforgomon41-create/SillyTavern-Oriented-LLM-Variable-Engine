@@ -29,7 +29,7 @@ export interface UpdatePrefs {
   inject: InjectPrefs;
 }
 export const UPDATE_DEFAULTS: UpdatePrefs = {
-  source: 'same', api: { url: '', key: '', model: '', temperature: 0.3, maxTokens: 16384 },
+  source: 'same', api: { url: '', key: '', model: '', temperature: 0.3, maxTokens: 65536 },
   format: 'toon', history: 4, preset: 'builtin', auto: true, minLength: 0, trigger: '', retries: 1, timeout: 60,
   notify: { working: true, failed: true },
   inject: INJECT_DEFAULTS,
@@ -141,7 +141,7 @@ export function UpdateSection({ host }: { host: UpdateHost }) {
                 <span {...part('label')}>温度<small>写操作要稳定，建议 0.2–0.5</small></span>
                 <K.Slider value={Math.round(p.api.temperature * 10)} min={0} max={20} onValueChange={v => api({ temperature: v / 10 })} format={v => (v / 10).toFixed(1)} aria-label="温度" />
               </div>
-              <Num label="最大回复长度" unit="token" hint="推理模型的思考也算在内；开局一次建好几个实体时，思考加输出常到 6000–9000" value={p.api.maxTokens} min={256} step={256} onChange={n => api({ maxTokens: n })} />
+              <Num label="最大回复长度" unit="token" hint="推理模型的思考也算在内；开局一次建好几个实体时，思考加输出常到 6000–9000；模型自己的上限更低时以模型为准" value={p.api.maxTokens} min={256} step={256} onChange={n => api({ maxTokens: n })} />
             </> : null}
             {host.test ? (
               <div {...solve('pref', { kind: 'action' })}>

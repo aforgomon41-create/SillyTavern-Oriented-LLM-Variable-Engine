@@ -57,6 +57,16 @@ export interface SettingsHost {
   update?: UpdateHost;
   /** Which structure new chats use, and what happens with cards that bring MVU / ERA (this browser). */
   structure?: StructureHost;
+  /** 设置存档 (the account): this structure's saved sets of per-chat settings. */
+  presets?: {
+    list: { id: string; name: string; savedAt: number }[];
+    /** When 「上次的设置」 was last recorded. */
+    last?: number;
+    save(name: string): InteractResult; overwrite(id: string): InteractResult; remove(id: string): void;
+    apply(id: string): Promise<InteractResult>;
+  };
+  /** Remove everything SOLVE keeps in this browser; resolves to the number of items removed. */
+  clearLocal?: () => Promise<number>;
   /** Quick buttons above the tavern's input (this browser). */
   buttons?: { list: { id: string; label: string; desc: string; on: boolean }[]; onToggle(id: string, on: boolean): void };
   /** 生图: plugin and timing (this browser). */
@@ -65,12 +75,13 @@ export interface SettingsHost {
   section?: string;
 }
 
-type Section = 'modules' | 'images' | 'lists' | 'delta' | 'structure' | 'update' | 'buttons' | 'display' | 'music';
+type Section = 'modules' | 'images' | 'lists' | 'delta' | 'presets' | 'structure' | 'update' | 'buttons' | 'display' | 'music';
 const SECTIONS: { id: Section; label: string; note: string }[] = [
   { id: 'modules', label: '模块', note: '按聊天保存' },
   { id: 'images', label: '生图', note: '开关按聊天' },
   { id: 'lists', label: '清单上限', note: '按聊天保存' },
   { id: 'delta', label: '变化上限', note: '按聊天保存' },
+  { id: 'presets', label: '设置存档', note: '所有聊天' },
   { id: 'structure', label: '数据结构', note: '本机' },
   { id: 'update', label: '变量更新', note: '本机' },
   { id: 'buttons', label: '快捷按钮', note: '本机' },
@@ -81,7 +92,7 @@ const SECTIONS: { id: Section; label: string; note: string }[] = [
 export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: BgmView; onBack: () => void }) {
   const K = useKit(), m = useModel();
   const [box, wide] = useWide(900);
-  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure).filter(s => s.id !== 'buttons' || host.buttons)
+  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure).filter(s => s.id !== 'buttons' || host.buttons).filter(s => s.id !== 'presets' || host.presets)
     .filter(s => s.id !== 'images' || (host.images && imageFields(m).length));
   const [current, setCurrent] = React.useState<Section>(() => sections.some(x => x.id === host.section) ? host.section as Section : 'modules');
   const [status, setStatus] = React.useState<{ text: string; tone?: 'error' } | undefined>();
@@ -92,6 +103,7 @@ export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: 
         : id === 'images' ? <Images host={host} report={report} />
         : id === 'lists' ? <Limits host={host} report={report} kind="lists" />
         : id === 'delta' ? <Limits host={host} report={report} kind="delta" />
+        : id === 'presets' ? <Presets host={host} report={report} />
         : id === 'structure' ? <StructureSection host={host.structure!} />
         : id === 'update' ? <UpdateSection host={host.update!} />
         : id === 'buttons' ? <Buttons host={host} />
@@ -413,6 +425,25 @@ function Display({ host }: { host: SettingsHost }) {
           <K.Button size="sm" onClick={host.openBuilder}>打开</K.Button>
         </div>
       ) : null}
+      {host.clearLocal ? <ClearLocal clear={host.clearLocal} /> : null}
+    </div>
+  );
+}
+/** 清除本机数据: what SOLVE keeps in this browser (preferences, the archive cache). Chats are not touched. */
+function ClearLocal({ clear }: { clear: () => Promise<number> }) {
+  const K = useKit();
+  const [state, setState] = React.useState<'idle' | 'confirm' | 'busy' | number>('idle');
+  return (
+    <div {...solve('pref', { kind: 'action' })}>
+      <span {...part('label')}>清除本机数据
+        <small>{typeof state === 'number' ? `已清除 ${state} 项本机设置和缓存。刷新页面后恢复默认。`
+          : '删掉 SOLVE 存在这个浏览器里的设置（显示、变量更新、快捷按钮、生图、悬浮球位置…）和存档缓存。聊天记录和里面的变量、跟着酒馆账号的「设置存档」都不受影响。不再用 SOLVE 时可以清掉。'}</small></span>
+      {state === 'confirm' ? (
+        <span {...part('buttons')}>
+          <K.Button size="sm" variant="ghost" onClick={() => setState('idle')}>取消</K.Button>
+          <K.Button size="sm" variant="primary" onClick={() => { setState('busy'); void clear().then(n => setState(n), () => setState('idle')); }}>确定清除</K.Button>
+        </span>
+      ) : <K.Button size="sm" disabled={state === 'busy'} onClick={() => setState('confirm')}>{state === 'busy' ? '清除中…' : '清除'}</K.Button>}
     </div>
   );
 }
@@ -467,6 +498,51 @@ function Music({ host, bgm }: { host: SettingsHost; bgm?: BgmView }) {
           <ul {...solve('tracks')}>{author.map(t => row(t, false))}</ul>
         </section>
       ) : null}
+    </>
+  );
+}
+
+/** 设置存档: save this chat's module switches and limits as a named set; new chats can start with one. */
+function Presets({ host, report }: { host: SettingsHost; report: (r: InteractResult, done: string) => void }) {
+  const K = useKit(), p = host.presets!;
+  const [name, setName] = React.useState('');
+  const [busy, setBusy] = React.useState<string | undefined>();
+  const day = (t: number) => new Date(t).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const apply = async (id: string, label: string) => { setBusy(id); try { report(await p.apply(id), `已把「${label}」套用到这个聊天`); } finally { setBusy(undefined); } };
+  return (
+    <>
+      <p {...part('intro')}>「模块」「清单上限」「变化上限」是按聊天保存的，新聊天默认从结构自带的设置开始。把一个聊天调好的设置存成一套，以后开新聊天时在弹窗里选它就行。SOLVE 也会自动记下你最近一次改的设置（「上次的设置」）。存档跟着酒馆账号走，换浏览器也在。</p>
+      <section {...solve('limit-group')}>
+        <h4>把这个聊天的设置存成一套</h4>
+        <div {...solve('pref-list')}>
+          <form {...solve('pref')} onSubmit={e => { e.preventDefault(); const r = p.save(name); report(r, `已存为「${name.trim() || '未命名'}」`); if (r.ok) setName(''); }}>
+            <input {...solve('text-input')} value={name} onChange={e => setName(e.target.value)} placeholder="起个名字，如 日常 · 关闭战斗" aria-label="这套设置的名字" maxLength={40} />
+            <K.Button size="sm" variant="primary" type="submit" disabled={!name.trim()}>保存</K.Button>
+          </form>
+        </div>
+      </section>
+      <section {...solve('limit-group')}>
+        <h4>存好的设置<small>{p.list.length}</small></h4>
+        <div {...solve('pref-list')}>
+          {p.last ? (
+            <div {...solve('pref', { kind: 'action' })} data-preset="last">
+              <span {...part('label')}>上次的设置<small>自动记录 · {day(p.last)}</small></span>
+              <K.Button size="sm" variant="ghost" disabled={!!busy || !!host.locked} onClick={() => void apply('last', '上次的设置')}>{busy === 'last' ? '套用中…' : '套用到这个聊天'}</K.Button>
+            </div>
+          ) : null}
+          {p.list.map(x => (
+            <div key={x.id} {...solve('pref', { kind: 'action' })} data-preset={x.id}>
+              <span {...part('label')}>{x.name}<small>存于 {day(x.savedAt)}</small></span>
+              <span {...part('buttons')}>
+                <K.Button size="sm" variant="ghost" disabled={!!busy || !!host.locked} onClick={() => void apply(x.id, x.name)}>{busy === x.id ? '套用中…' : '套用'}</K.Button>
+                <K.Button size="sm" variant="ghost" onClick={() => report(p.overwrite(x.id), `已用这个聊天的设置覆盖「${x.name}」`)}>覆盖</K.Button>
+                <K.Button size="sm" variant="ghost" onClick={() => { p.remove(x.id); report({ ok: true }, `已删除「${x.name}」`); }} aria-label={`删除 ${x.name}`}>删除</K.Button>
+              </span>
+            </div>
+          ))}
+          {!p.list.length && !p.last ? <p {...part('empty')}>还没有存好的设置。</p> : null}
+        </div>
+      </section>
     </>
   );
 }

@@ -130,5 +130,9 @@ export function installInjection(scope: any, controller: () => SillyTavernContro
   const onReady = (data: { chat?: { role: string; content: string }[] }) => { if (first.length && Array.isArray(data?.chat)) data.chat.unshift(...first.map(m => ({ ...m }))); };
   source.on(event, apply);
   if (ready) source.on(ready, onReady);
-  return { dispose: () => { source.removeListener(event, apply); if (ready) source.removeListener(ready, onReady); clear(); }, report: () => last };
+  return { dispose: () => {
+    source.removeListener(event, apply); if (ready) source.removeListener(ready, onReady); clear();
+    // Leave no empty slots behind in the tavern's prompt list.
+    try { const prompts = host().extensionPrompts; if (prompts) for (const x of INJECTS) delete prompts[KEY(x.key)]; } catch { /* host changed */ }
+  }, report: () => last };
 }

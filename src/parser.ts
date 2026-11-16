@@ -42,6 +42,13 @@ export function extractRawBlocks(text: string): { model?: string; mutual?: strin
   }
   return out;
 }
+/**
+ * Display form of a reply: operation blocks hidden, including one still being streamed (no closing tag yet) and a
+ * tag cut in half at the end of a stream. Display only: what is executed always needs complete blocks.
+ */
+export function hideBlocks(text: string): string {
+  return stripBlocks(text).replace(/<solve_(?:mutual_)?operate>[\s\S]*$/u, '').replace(/<(?:s(?:o(?:l(?:v(?:e(?:_[a-z_]*)?)?)?)?)?)?$/u, '').trimEnd();
+}
 export function stripBlocks(text: string): string {
   // Complete blocks only: an incomplete streaming block must not be treated as executable.
   return text.replace(/<solve_(mutual_)?operate>[\s\S]*?<\/solve_\1operate>/gu, '').trimEnd();

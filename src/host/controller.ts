@@ -6,7 +6,7 @@ import { PerformanceTrace, measure } from '../performance.js';
 import { VerifiedHistory } from '../verified-history.js';
 import { IndexedDbCache } from '../cache.js';
 import { assertJson, canonical, clone, fail, hash, id } from '../json.js';
-import { extractRawBlocks, parseOperations, promptText, stripBlocks } from '../parser.js';
+import { extractRawBlocks, hideBlocks, parseOperations, promptText, stripBlocks } from '../parser.js';
 import { guide, registerMacros, sop, toJson, toToon } from '../projection.js';
 import { archiveFromChat, browserWriteLock, preserveOrphanAncestors, SillyTavern119Adapter } from './sillytavern.js';
 import { DiagnosticJournal, describeError, inspectCapabilities } from '../diagnostics.js';
@@ -45,7 +45,26 @@ export function parseOperatorOutput(output: string): Batch {
   const raw = extractRawBlocks(output).model ?? output;
   return parseOperations(raw.trim().replace(/^```[a-z]*\s*/iu, '').replace(/\s*```\s*$/u, ''));
 }
-const formatterRouters = new WeakMap<object, Set<SillyTavernController>>();
+const HIDE_KEY = Symbol.for('solve.hide-operation-blocks');
+/**
+ * One display hook per page (the tavern's formatter has no way to remove a hook): it hides operation blocks while any
+ * SOLVE part that asked for it is alive. The set of askers lives on the formatter, so a reloaded SOLVE reuses the hook.
+ */
+export function hideOperationBlocks(formatter: { addHook(fn: (text: string) => string, options?: { stage?: string; order?: number }): void }, alive: () => boolean): () => void {
+  const holder = formatter as unknown as Record<symbol, Set<() => boolean> | undefined>;
+  let askers = holder[HIDE_KEY];
+  if (!askers) {
+    askers = holder[HIDE_KEY] = new Set();
+    const set = askers;
+    formatter.addHook((text: string) => {
+      let on = false;
+      for (const ask of set) { try { if (ask()) { on = true; break; } } catch { /* a stale asker counts as gone */ } }
+      return on && typeof text === 'string' ? hideBlocks(text) : text;
+    }, { stage: 'beforeRegex', order: 5 });
+  }
+  askers.add(alive);
+  return () => { askers!.delete(alive); };
+}
 export class SillyTavernController {
   readonly adapter: SillyTavern119Adapter;
   runtime!: SolveRuntime;
@@ -416,17 +435,9 @@ export class SillyTavernController {
         await deleted();
       } catch (error) { this.markDirty(describeError(error).message); onError(error); }
     }, true);
+    // Operation blocks never show in the chat (display only; the reply keeps them for replay and editing).
     const formatter = this.context().messageFormatter;
-    if (formatter) {
-      let controllers = formatterRouters.get(formatter);
-      if (!controllers) {
-        controllers = new Set(); formatterRouters.set(formatter, controllers);
-        const routes = controllers;
-        formatter.addHook((text: string) => [...routes].some(c => c.ready) ? stripBlocks(text) : text, { stage: 'beforeRegex', order: 5 });
-      }
-      controllers.add(this);
-      this.disposers.push(() => controllers!.delete(this));
-    }
+    if (formatter) this.disposers.push(hideOperationBlocks(formatter, () => !this.disposed));
   }
   /**
    * Before a story request goes out (native: the manifest's generate interceptor; script carriers: the fetch guard).

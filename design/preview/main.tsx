@@ -25,7 +25,7 @@ import { StructureBuilder } from '../../src/ui/builder/builder';
 import { xyCss } from '../../src/ui/builder/blueprint';
 import { exampleStructure } from '../../examples/official/example';
 import { createDebugDemo } from '../debug-preview/demo';
-import { AskDefaultDialog, OffLauncher, OtherFrameworkDialog, OwnStructureNotice, detectFrameworks, type CardSnapshot, type ChatGateState } from '../../src/ui/statusbar/gate';
+import { BindDialog, GateBall, detectFrameworks, type CardSnapshot } from '../../src/ui/statusbar/gate';
 
 declare const __BUILD__: string;
 const SKIN = 'suiguang';
@@ -154,20 +154,17 @@ async function single(scheme: string, view: string, embed: boolean, attr: string
     const gate = view.startsWith('gate:') ? view.slice(5) : undefined;
     const card = gate ? SAMPLE_CARDS[gate === 'off' ? 'mvu' : gate] : undefined;
     const detection = card ? { ...detectFrameworks(card.snap), ...(gate === 'own' ? { structure: { label: '灰烬纪元', version: '1.2' } } : {}) } : undefined;
-    const [on, setOn] = React.useState(!gate || gate === 'own');
-    const [dialog, setDialog] = React.useState(gate === 'none' || gate === 'mvu' || gate === 'era');
-    const [notice, setNotice] = React.useState(gate === 'own');
-    const offReason = detection?.framework && detection.framework !== 'solve' ? `这张卡自带 ${detection.framework.toUpperCase()} 变量，SOLVE 自动关闭了。` : gate ? '你选择了这次不用 SOLVE。' : '你在设置里关闭了 SOLVE。';
-    const chat: ChatGateState = on ? { on: true, reason: gate ? '你在这个聊天开启了 SOLVE，使用「官方数据结构」。' : '正在使用「官方数据结构」。' } : { on: false, reason: offReason, ...(detection?.framework ? { framework: detection.framework } : {}) };
+    const [on, setOn] = React.useState(!gate);
+    const [dialog, setDialog] = React.useState(!!gate && gate !== 'off');
+    const candidates = [...(gate === 'own' ? [{ key: 'r:own', id: 'ash', label: '灰烬纪元', version: '1.2', own: true }] : []), { key: 'r:official', id: 'solve-official', label: 'SOLVE 官方数据结构', version: '1.0.0', own: false }];
+    const gateView = card && detection ? { card: card.name, detection, phase: gate === 'off' ? 'off' : 'choose', candidates, initial: candidates[0]!.key,
+      presets: () => ({ options: [{ value: 'last', label: '上次的设置', detail: '11/16 改的' }, { value: 'default', label: '结构默认' }], initial: 'last' }) } : undefined;
     return (
       <KitProvider value={DS as unknown as Kit}>
         {/* Separate stacking contexts: the debug panel stays above the status bar's launcher and panel. */}
-        <div style={{ position: 'relative', zIndex: 1 }}>{state && on ? <Bound key={c.core.definition.fingerprint} scope={scope} controller={c as never} def={c.core.definition} state={state} bgm={bgm} extras={{ initial, openDebug: () => setDebug('overview'), openBuilder: () => setBuilder('fields'), update: fakeUpdate, structure: { chat, setChat: setOn } }} /> : null}
-          {!on && !dialog ? <OffLauncher chat={chat} onEnable={() => setOn(true)} /> : null}
-          {gate && dialog && card && detection ? (detection.framework && detection.framework !== 'solve'
-            ? <OtherFrameworkDialog card={card.name} detection={detection} onClose={() => setDialog(false)} onEnable={() => { setDialog(false); setOn(true); }} />
-            : <AskDefaultDialog card={card.name} structure={{ id: 'official', label: '官方数据结构', detail: '角色、物品、地点、关系、设定等 · SOLVE 自带' }} onUse={() => { setDialog(false); setOn(true); }} onSkip={() => setDialog(false)} />) : null}
-          {notice && card && detection ? <OwnStructureNotice card={card.name} detection={detection} onClose={() => setNotice(false)} /> : null}</div>
+        <div style={{ position: 'relative', zIndex: 1 }}>{state && on ? <Bound key={c.core.definition.fingerprint} scope={scope} controller={c as never} def={c.core.definition} state={state} bgm={bgm} extras={{ initial, openDebug: () => setDebug('overview'), openBuilder: () => setBuilder('fields'), update: fakeUpdate }} /> : null}
+          {!on && !dialog && gateView ? <GateBall tone={gate === 'off' ? 'off' : 'ask'} label="SOLVE" onOpen={() => setDialog(true)} onMove={() => undefined} /> : null}
+          {!on && dialog && gateView ? <BindDialog view={gateView} onBind={() => { setDialog(false); setOn(true); }} onOff={() => setDialog(false)} onLater={() => setDialog(false)} /> : null}</div>
         <div style={{ position: 'relative', zIndex: 3 }}>{builder ? <StructureBuilder key={builder} host={builderHost} onClose={() => setBuilder(undefined)} defaultPage={builder as never} /> : null}</div>
         <div style={{ position: 'relative', zIndex: 2 }}>{debug ? <DebugPanel key={debug} host={host} onClose={() => setDebug(undefined)} defaultPage={debug as never} /> : null}</div>
       </KitProvider>

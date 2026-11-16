@@ -1,17 +1,13 @@
 /**
- * 进入聊天时的变量框架检测（预览）。
+ * 进入聊天时选择数据结构。
  *
- * 进入一个还没有 SOLVE 存档的聊天时，先看这张卡自带什么变量：
- *   · 自带 SOLVE 结构（世界书 [SOLVE:…] 条目、角色脚本注册）→ 用卡自己的，不加载玩家设置的默认结构，轻提示一下；
- *   · 自带 MVU / ERA → 弹窗说明，SOLVE 在这个聊天关闭（玩家可以重新打开）；
- *   · 什么都没有 → 弹窗询问是否用默认数据结构（玩家在设置里选，默认官方数据结构）。
- * 已经有 SOLVE 存档的聊天照旧，不检测、不弹窗。SOLVE 关闭时，启动按钮变成灰色的「SOLVE 已关闭」，点开可以重新开启。
- *
- * 这一版只有界面和检测规则（detectFrameworks 是纯函数），还没有接到进入聊天的流程上。
+ * 打开一个还没有 SOLVE 存档的聊天（新聊天，或从没用过 SOLVE 的旧聊天）时弹窗问：用哪个数据结构、用哪套存好的设置。
+ * 卡自带 SOLVE 结构时它排第一并选好；卡自带 MVU / ERA 时照样询问，并说明两套变量会同时更新（不再静默关闭）。
+ * 错过弹窗（点了「稍后」）或选了「这个聊天不用」后，右下角的悬浮球可以随时再打开它。已经有存档的聊天照旧，不问。
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
-import { part, solve } from './widgets.js';
+import { part, solve, CloseButton } from './widgets.js';
 
 export type Framework = 'solve' | 'mvu' | 'era';
 export const FRAMEWORK_NAME: Record<Framework, string> = { solve: 'SOLVE', mvu: 'MVU', era: 'ERA' };
@@ -72,98 +68,73 @@ export function detectFrameworks(s: CardSnapshot): Detection {
 
 export interface StructureChoice { id: string; label: string; detail?: string }
 export interface GatePrefs {
-  /** Structure used for cards without variables of their own. */
+  /** Structure picked first for cards without one of their own (a definition id). */
   defaultStructure: string;
-  /** Cards without variables: ask every time / use the default / leave SOLVE off. */
+  /** Chats without SOLVE yet: ask every time (default) / bind at once with the card's or the default structure / leave SOLVE off. */
   whenNone: 'ask' | 'use' | 'skip';
-  /** Cards with MVU / ERA: turn SOLVE off and tell, or turn it off quietly. */
-  whenOther: 'notify' | 'silent';
-  /** Per-card answers (「记住这张卡的选择」), keyed by the card's avatar file. */
-  remembered: Record<string, { name: string; choice: 'use' | 'skip' | 'on' }>;
 }
-export const GATE_DEFAULTS: GatePrefs = { defaultStructure: 'official', whenNone: 'ask', whenOther: 'notify', remembered: {} };
-export interface ChatGateState {
-  /** SOLVE in the current chat. */
-  on: boolean;
-  /** One line: why it is on / off. */
-  reason: string;
-  framework?: Framework;
-}
+export const GATE_DEFAULTS: GatePrefs = { defaultStructure: 'solve-official', whenNone: 'ask' };
 export interface StructureHost {
   prefs: GatePrefs; onPrefs(patch: Partial<GatePrefs>): void;
   choices: StructureChoice[];
-  chat?: ChatGateState;
-  /** Turn SOLVE on / off for the current chat. */
-  setChat?(on: boolean): void;
+  /** The current chat's structure, one line. */
+  chat?: { reason: string };
 }
 
 export function StructureSection({ host }: { host: StructureHost }) {
-  const K = useKit();
   const p = host.prefs, set = host.onPrefs;
-  const remembered = Object.entries(p.remembered);
   return (
     <>
-      <p {...part('intro')}>进入一个新聊天时，SOLVE 先看这张卡自带什么变量：自带 SOLVE 结构就用卡自己的；自带 MVU 或 ERA 就在这个聊天关闭自己，避免两套变量同时更新；什么都没有时按下面的设置使用默认数据结构。已经在用 SOLVE 的聊天不受影响。</p>
+      <p {...part('intro')}>打开一个还没用过 SOLVE 的聊天（包括每个新聊天）时，SOLVE 会弹窗问这个聊天用哪个数据结构、用哪套存好的设置。错过了也没关系，点右下角的 ◈ 悬浮球就能重新打开。已经在用 SOLVE 的聊天不受影响。</p>
       {host.chat ? (
         <section {...solve('limit-group')}>
           <h4>当前聊天</h4>
-          <div {...solve('pref-list')}>
-            <div {...solve('pref', { kind: 'action' })}>
-              <span {...part('label')}>{host.chat.on ? 'SOLVE 已开启' : 'SOLVE 已关闭'}<small>{host.chat.reason}</small></span>
-              {host.setChat ? <K.Button size="sm" variant={host.chat.on ? 'ghost' : 'primary'} onClick={() => host.setChat!(!host.chat!.on)}>{host.chat.on ? '在这个聊天关闭' : '在这个聊天开启'}</K.Button> : null}
-            </div>
-            {!host.chat.on && host.chat.framework && host.chat.framework !== 'solve' ? <p {...part('hint')} data-tone="warn">这张卡用 {FRAMEWORK_NAME[host.chat.framework]} 管理变量。开启 SOLVE 后两套变量会各自更新，提示词里也会有两份说明，确定需要再开。</p> : null}
-          </div>
+          <div {...solve('pref-list')}><p {...part('hint')}>{host.chat.reason}</p></div>
         </section>
       ) : null}
       <section {...solve('limit-group')}>
-        <h4>没有自带变量的卡</h4>
+        <h4>新聊天</h4>
         <div {...solve('pref-list')}>
-          <div {...solve('pref')}>
-            <span {...part('label')}>默认数据结构<small>卡没有自带变量时用它；卡自带 SOLVE 结构时不加载</small></span>
-            <select {...solve('select')} aria-label="默认数据结构" value={p.defaultStructure} onChange={e => set({ defaultStructure: e.target.value })}>
-              {host.choices.map(c => <option key={c.id} value={c.id}>{c.label}{c.detail ? ` · ${c.detail}` : ''}</option>)}
-            </select>
-          </div>
           <div {...solve('pref', { kind: 'stack' })}>
-            <span {...part('label')}>进入聊天时</span>
-            <div {...solve('update-modes', { size: 'sm' })} role="radiogroup" aria-label="没有自带变量时">
-              {([['ask', '每次询问', '弹窗问一次，可以记住这张卡的选择'], ['use', '直接使用', '不问，直接用默认数据结构'], ['skip', '不使用', '不问，SOLVE 保持关闭']] as const).map(([v, l, t]) => (
+            <span {...part('label')}>打开还没用 SOLVE 的聊天时</span>
+            <div {...solve('update-modes', { size: 'sm' })} role="radiogroup" aria-label="打开还没用 SOLVE 的聊天时">
+              {([['ask', '每次询问', '弹窗选数据结构和设置（推荐）'], ['use', '直接使用', '不弹窗：卡自带结构优先，否则用下面的默认结构，设置沿用上次选的'], ['skip', '不使用', '不弹窗，SOLVE 保持关闭；需要时点悬浮球']] as const).map(([v, l, t]) => (
                 <button key={v} type="button" role="radio" aria-checked={p.whenNone === v} {...part('mode')} onClick={() => set({ whenNone: v })}><b>{l}</b><small>{t}</small></button>
               ))}
             </div>
           </div>
-        </div>
-      </section>
-      <section {...solve('limit-group')}>
-        <h4>自带 MVU / ERA 的卡</h4>
-        <div {...solve('pref-list')}>
-          <div {...solve('pref', { kind: 'switch' })}>
-            <span {...part('label')}>关闭时提示<small>关掉后 SOLVE 安静地关闭，只在启动按钮上显示「已关闭」</small></span>
-            <K.Switch checked={p.whenOther === 'notify'} aria-label="关闭时提示" onCheckedChange={v => set({ whenOther: v ? 'notify' : 'silent' })} />
+          <div {...solve('pref')}>
+            <span {...part('label')}>默认数据结构<small>卡没有自带结构时，弹窗里先选它</small></span>
+            <select {...solve('select')} aria-label="默认数据结构" value={p.defaultStructure} onChange={e => set({ defaultStructure: e.target.value })}>
+              {host.choices.map(c => <option key={c.id} value={c.id}>{c.label}{c.detail ? ` · ${c.detail}` : ''}</option>)}
+            </select>
           </div>
-          <p {...part('hint')}>识别依据：MVU 看角色世界书里的 [initvar] / [mvu_update] 条目、开场白里的 &lt;initvar&gt;、加载 MVU 的角色脚本；ERA 看开场白里的 &lt;VariableInsert&gt;、加载 ERA 的角色脚本和聊天里 ERA 的记录。只看这张卡自己的东西，你全局开着的脚本和世界书不算。</p>
         </div>
       </section>
       <section {...solve('limit-group')}>
-        <h4>记住的选择<small>{remembered.length}</small></h4>
-        {remembered.length ? (
-          <ul {...solve('tracks')}>
-            {remembered.map(([avatar, r]) => (
-              <li key={avatar} {...solve('track')}>
-                <span {...part('title')}>{r.name}</span>
-                <span {...part('moods')}><K.Badge>{r.choice === 'use' ? '使用默认结构' : r.choice === 'skip' ? '不使用' : '保持开启'}</K.Badge></span>
-                <K.Button size="sm" variant="ghost" onClick={() => { const { [avatar]: _, ...rest } = p.remembered; set({ remembered: rest }); }} aria-label={'忘记 ' + r.name}>忘记</K.Button>
-              </li>
-            ))}
-          </ul>
-        ) : <p {...part('empty')}>还没有记住的卡。弹窗里勾选「记住这张卡的选择」后会出现在这里。</p>}
+        <h4>自带变量的卡</h4>
+        <div {...solve('pref-list')}>
+          <p {...part('hint')}>卡自带 SOLVE 结构（角色脚本注册，或角色世界书里的 [SOLVE:…] 条目）时，弹窗里它排第一并选好。卡自带 MVU 或 ERA 时照样询问，并写明识别依据：同时开启时两套变量会各自更新，提示词里也会有两份说明。识别只看这张卡自己的东西（开场白、角色世界书、角色脚本、聊天变量），你全局开着的脚本和世界书不算。</p>
+        </div>
       </section>
     </>
   );
 }
 
-// ── dialogs ──
+// ── the dialog ──
+
+export interface BindCandidate { key: string; id: string; label: string; version: string; own: boolean }
+export interface PresetOption { value: string; label: string; detail?: string }
+export interface GateView {
+  card: string;
+  detection?: Detection;
+  /** Why SOLVE is not running here: 'choose' (no structure yet), 'off' (the player said no), 'error' / 'unbound' (could not open). */
+  phase: string;
+  reason?: string;
+  candidates: BindCandidate[];
+  initial?: string;
+  presets(structureId: string): { options: PresetOption[]; initial: string };
+}
 
 /** A modal card in the status-bar layer; Esc and the backdrop take the safe choice. */
 function Modal({ title, children, footer, onEscape, label }: { title: React.ReactNode; children: React.ReactNode; footer: React.ReactNode; onEscape: () => void; label: string }) {
@@ -177,7 +148,7 @@ function Modal({ title, children, footer, onEscape, label }: { title: React.Reac
   return (
     <div {...solve('gate')} onClick={e => { if (e.target === e.currentTarget) onEscape(); }}>
       <div ref={box} {...part('card')} role="dialog" aria-modal="true" aria-label={label}>
-        <div {...part('mark')} aria-hidden="true">◈ SOLVE</div>
+        <div {...part('top')}><span {...part('mark')} aria-hidden="true">◈ SOLVE</span><CloseButton size="sm" label="稍后再说" onClick={onEscape} /></div>
         <h3 {...part('title')}>{title}</h3>
         <div {...part('body')}>{children}</div>
         <div {...part('foot')}>{footer}</div>
@@ -185,88 +156,109 @@ function Modal({ title, children, footer, onEscape, label }: { title: React.Reac
     </div>
   );
 }
-function Remember({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return <label {...part('remember')}><input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} />记住这张卡的选择</label>;
-}
 function Evidence({ items }: { items: string[] }) {
   return <ul {...part('evidence')} aria-label="识别依据">{items.map(x => <li key={x}>{x}</li>)}</ul>;
 }
 
-/** The card has MVU / ERA: SOLVE turned itself off in this chat. */
-export function OtherFrameworkDialog({ card, detection, onClose, onEnable }: { card: string; detection: Detection; onClose: (remember: boolean) => void; onEnable: (remember: boolean) => void }) {
+/**
+ * 选择数据结构: which structure this chat uses and which saved settings it starts with. Also the way back for a chat
+ * where SOLVE is off, and where a chat that failed to open says why.
+ */
+export function BindDialog({ view, busy, error, onBind, onOff, onLater, onRetry, onDebug }: {
+  view: GateView; busy?: boolean; error?: string;
+  onBind(key: string, preset: string): void; onOff(): void; onLater(): void; onRetry?(): void; onDebug?(): void;
+}) {
   const K = useKit();
-  const [remember, setRemember] = React.useState(false);
-  const name = FRAMEWORK_NAME[detection.framework!];
+  const [key, setKey] = React.useState(view.initial ?? view.candidates[0]?.key ?? '');
+  const chosen = view.candidates.find(c => c.key === key) ?? view.candidates[0];
+  const presets = chosen ? view.presets(chosen.id) : { options: [], initial: 'default' };
+  const [preset, setPreset] = React.useState(presets.initial);
+  React.useEffect(() => { setPreset(presets.initial); }, [chosen?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const other = view.detection?.framework && view.detection.framework !== 'solve' ? FRAMEWORK_NAME[view.detection.framework] : undefined;
+  if (view.phase === 'error' || view.phase === 'unbound') {
+    return (
+      <Modal label="SOLVE 没能打开这个聊天" onEscape={onLater} title={<>SOLVE 没能打开「{view.card}」的这个聊天</>}
+        footer={<span {...part('buttons')}>
+          {onDebug ? <K.Button size="sm" variant="ghost" onClick={onDebug}>打开调试</K.Button> : null}
+          {onRetry ? <K.Button size="sm" variant="primary" data-autofocus="" onClick={onRetry}>重试</K.Button> : null}
+        </span>}>
+        <p data-tone="error" role="alert">{view.reason || '原因未知'}</p>
+        <p {...part('hint')}>这个聊天已经有 SOLVE 存档，需要原来的数据结构才能继续。常见原因：开局用的结构写在另一张卡的脚本里、结构升级后旧存档对不上，或者第一次保存和酒馆撞车（重试即可）。</p>
+      </Modal>
+    );
+  }
   return (
-    <Modal label={`${card} 自带 ${name} 变量`} onEscape={() => onClose(false)} title={<>「{card}」自带 {name} 变量</>}
+    <Modal label="选择数据结构" onEscape={onLater} title={<>「{view.card}」这个聊天要用哪个数据结构？</>}
       footer={<>
-        <Remember value={remember} onChange={setRemember} />
+        <K.Button size="sm" variant="ghost" disabled={busy} onClick={onOff}>{view.phase === 'off' ? '仍然不用' : '这个聊天不用 SOLVE'}</K.Button>
         <span {...part('buttons')}>
-          <K.Button size="sm" variant="ghost" onClick={() => onEnable(remember)}>仍然开启 SOLVE</K.Button>
-          <K.Button size="sm" variant="primary" data-autofocus="" onClick={() => onClose(remember)}>知道了</K.Button>
+          <K.Button size="sm" variant="ghost" disabled={busy} onClick={onLater}>稍后</K.Button>
+          <K.Button size="sm" variant="primary" data-autofocus="" disabled={busy || !chosen} onClick={() => chosen && onBind(chosen.key, preset)}>{busy ? '正在启用…' : '开始使用'}</K.Button>
         </span>
       </>}>
-      <p>为了不和 {name} 同时更新变量，SOLVE 在这个聊天里已经关闭，不会往提示词里加内容，也不显示状态栏。</p>
-      <Evidence items={detection.evidence} />
-      <p {...part('hint')}>之后想用 SOLVE，点右下角灰色的「SOLVE 已关闭」重新开启。</p>
-    </Modal>
-  );
-}
-
-/** The card has no variables: use the default structure? */
-export function AskDefaultDialog({ card, structure, onUse, onSkip, onChange }: { card: string; structure: StructureChoice; onUse: (remember: boolean) => void; onSkip: (remember: boolean) => void; onChange?: () => void }) {
-  const K = useKit();
-  const [remember, setRemember] = React.useState(false);
-  return (
-    <Modal label="使用 SOLVE 数据结构" onEscape={() => onSkip(false)} title={<>要用 SOLVE 记录「{card}」的变量吗？</>}
-      footer={<>
-        <Remember value={remember} onChange={setRemember} />
-        <span {...part('buttons')}>
-          <K.Button size="sm" variant="ghost" onClick={() => onSkip(remember)}>这次不用</K.Button>
-          <K.Button size="sm" variant="primary" data-autofocus="" onClick={() => onUse(remember)}>使用</K.Button>
-        </span>
-      </>}>
-      <p>这张卡没有自带变量。SOLVE 可以用默认数据结构记录角色、物品、地点、关系等，并在状态栏里显示。</p>
-      <div {...part('structure')}>
-        <span><b>{structure.label}</b>{structure.detail ? <small>{structure.detail}</small> : null}</span>
-        {onChange ? <button type="button" {...part('link')} onClick={onChange}>换一个</button> : null}
-      </div>
-      <p {...part('hint')}>选「这次不用」后，之后也可以点右下角的「SOLVE 已关闭」开启。</p>
-    </Modal>
-  );
-}
-
-/** The card has its own SOLVE structure: a short notice, no question. */
-export function OwnStructureNotice({ card, detection, onClose }: { card: string; detection: Detection; onClose: () => void }) {
-  React.useEffect(() => { const t = setTimeout(onClose, 8000); return () => clearTimeout(t); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div {...solve('gate-notice')} role="status">
-      <span {...part('text')}><b>「{card}」自带 SOLVE 数据结构{detection.structure ? `「${detection.structure.label}${detection.structure.version ? ' ' + detection.structure.version : ''}」` : ''}</b>
-        <small>已使用卡自己的结构，你设置的默认结构这次不加载。</small></span>
-      <button type="button" {...part('close')} onClick={onClose} aria-label="关闭提示">×</button>
-    </div>
-  );
-}
-
-/** Where the launcher sits while SOLVE is off in this chat: a dim pill that opens the way back. */
-export function OffLauncher({ chat, onEnable, onSettings }: { chat: ChatGateState; onEnable: () => void; onSettings?: () => void }) {
-  const K = useKit();
-  const [open, setOpen] = React.useState(false);
-  const other = chat.framework && chat.framework !== 'solve' ? FRAMEWORK_NAME[chat.framework] : undefined;
-  return (
-    <div {...solve('gate-off')}>
-      {open ? (
-        <div {...part('pop')} role="dialog" aria-label="SOLVE 已关闭">
-          <b>SOLVE 在这个聊天已关闭</b>
-          <small>{chat.reason}</small>
-          {other ? <small data-tone="warn">开启后会和 {other} 同时更新变量。</small> : null}
-          <span {...part('buttons')}>
-            {onSettings ? <K.Button size="sm" variant="ghost" onClick={onSettings}>设置</K.Button> : null}
-            <K.Button size="sm" variant="primary" onClick={() => { setOpen(false); onEnable(); }}>开启 SOLVE</K.Button>
-          </span>
+      {other ? (
+        <div {...part('warn')} role="note">
+          <b>这张卡自带 {other} 变量</b>
+          <span>用 SOLVE 时两套变量会同时更新，提示词里也会有两份说明。只想用 {other} 的话，选「这个聊天不用 SOLVE」。</span>
+          <Evidence items={view.detection!.evidence} />
+        </div>
+      ) : view.detection?.framework === 'solve' && view.detection.evidence.length ? (
+        <p {...part('hint')}>这张卡自带 SOLVE 数据结构（{view.detection.evidence[0]}），已经替你选好。</p>
+      ) : view.phase === 'off' ? <p {...part('hint')}>这个聊天之前选了不用 SOLVE。现在开启的话，从最新一条回复开始记录变量。</p> : null}
+      <fieldset {...part('choices')}>
+        <legend>数据结构</legend>
+        {view.candidates.length ? view.candidates.map(c => (
+          <label key={c.key} {...part('choice')} data-checked={c.key === chosen?.key ? '' : undefined}>
+            <input type="radio" name="solve-structure" checked={c.key === chosen?.key} onChange={() => setKey(c.key)} />
+            <span><b>{c.label}</b><small>{c.own ? '这张卡自带 · ' : ''}{c.version}</small></span>
+          </label>
+        )) : <p data-tone="error">没有可用的数据结构。SOLVE 可能还在加载，稍后点悬浮球再试。</p>}
+      </fieldset>
+      {chosen ? (
+        <div {...part('preset')}>
+          <label htmlFor="solve-gate-preset">设置</label>
+          <select id="solve-gate-preset" {...solve('select')} value={preset} onChange={e => setPreset(e.target.value)} aria-label="用哪套设置">
+            {presets.options.map(o => <option key={o.value} value={o.value}>{o.label}{o.detail ? ` · ${o.detail}` : ''}</option>)}
+          </select>
+          <small>模块开关、清单上限、变化上限。在 ⚙ 设置 › 设置存档 里可以把一个聊天的设置存成一套。</small>
         </div>
       ) : null}
-      <button type="button" {...part('pill')} aria-expanded={open} onClick={() => setOpen(v => !v)}>◈ SOLVE 已关闭</button>
-    </div>
+      {error ? <p data-tone="error" role="alert">{error}</p> : null}
+    </Modal>
+  );
+}
+
+/**
+ * The floating button while this chat has no SOLVE running: always reachable, opens 选择数据结构 (or why it failed).
+ * Drag it anywhere; it remembers where (this browser).
+ */
+export function GateBall({ tone, label, onOpen, position, onMove }: {
+  tone: 'ask' | 'off' | 'error'; label: string; onOpen(): void;
+  position?: { x: number; y: number }; onMove(p: { x: number; y: number }): void;
+}) {
+  const ref = React.useRef<HTMLButtonElement>(null);
+  const drag = React.useRef<{ dx: number; dy: number; x0: number; y0: number; moved: boolean } | undefined>(undefined);
+  const dragged = React.useRef(false);
+  const [at, setAt] = React.useState(position);
+  React.useEffect(() => setAt(position), [position?.x, position?.y]); // eslint-disable-line react-hooks/exhaustive-deps
+  const clamp = (x: number, y: number) => ({ x: Math.min(Math.max(4, x), window.innerWidth - 56), y: Math.min(Math.max(4, y), window.innerHeight - 56) });
+  return (
+    <button ref={ref} type="button" {...solve('gate-ball', { tone })} aria-label={label} title={label}
+      style={at ? { left: clamp(at.x, at.y).x, top: clamp(at.x, at.y).y, right: 'auto', bottom: 'auto' } : undefined}
+      onPointerDown={e => {
+        const r = ref.current!.getBoundingClientRect();
+        drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, x0: e.clientX, y0: e.clientY, moved: false };
+        ref.current!.setPointerCapture?.(e.pointerId);
+      }}
+      onPointerMove={e => {
+        const d = drag.current; if (!d) return;
+        if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 6) return;
+        d.moved = true; setAt(clamp(e.clientX - d.dx, e.clientY - d.dy));
+      }}
+      onPointerUp={() => { const d = drag.current; drag.current = undefined; dragged.current = !!d?.moved; if (d?.moved && at) onMove(at); }}
+      onClick={() => { if (dragged.current) { dragged.current = false; return; } onOpen(); }}>
+      <span {...part('glyph')} aria-hidden="true">◈</span>
+      {tone !== 'off' ? <span {...part('dot')} aria-hidden="true" /> : null}
+    </button>
   );
 }

@@ -9,7 +9,7 @@ import { useKit } from '../kit.js';
 import { expand, fill, holds, pick, type ActionSpec, type AskSpec, type CreateSpec, type EditSpec, type Vars } from '../../interact.js';
 import type { Json } from '../../types.js';
 import type { Path, StatusModel } from './model.js';
-import { part, solve } from './widgets.js';
+import { part, solve, CloseButton } from './widgets.js';
 import { ModelContext } from './fields.js';
 
 /** `ops` may be empty: the action only tells the model something (use / train an ability) and changes nothing yet. */
@@ -69,7 +69,7 @@ export function InteractLayer({ host, children }: { host?: Interact; children: R
         <div {...solve('toast', { tone: toast.tone })} role="status">
           <span {...part('text')}>{toast.text}</span>
           {toast.undo ? <button type="button" {...part('undo')} onClick={() => void undo()}>撤销</button> : null}
-          <button type="button" {...part('close')} aria-label="关闭" onClick={() => setToast(undefined)}>×</button>
+          <CloseButton size="sm" onClick={() => setToast(undefined)} />
         </div>
       ) : null}
     </LiveContext.Provider>
@@ -363,7 +363,7 @@ export function TickList({ path, items }: { path: Path; items: { text: string; d
           {listEdit && editing !== i ? (
             <span {...part('tools')}>
               <EditButton label="这一条" disabled={locked} onClick={() => { setDraft(item.text); setEditing(i); }} />
-              <button type="button" {...solve('edit-btn', { tone: 'danger' })} aria-label={`删除：${item.text}`} title="删除" disabled={locked} onClick={() => void saveList(items.filter((_, k) => k !== i))}>×</button>
+              <button type="button" {...solve('edit-btn', { tone: 'danger' })} aria-label={`删除：${item.text}`} title="删除" disabled={locked} onClick={() => void saveList(items.filter((_, k) => k !== i))}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
             </span>
           ) : null}
         </li>

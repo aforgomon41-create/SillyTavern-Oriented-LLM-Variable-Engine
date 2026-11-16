@@ -6,7 +6,7 @@
 
 原生扩展加载后使用 `SOLVE.register(definition, {characters, attach})`。`characters` 是明确绑定的角色头像文件名数组，例如 `['测试角色.png']`；`attach` 接收下方的控制器配置。页面刷新后需要作者脚本再次注册定义。已有聊天按定义指纹选取已注册版本，未绑定的新角色不自动初始化。
 
-也可用 `SOLVE.attach(definition, options)` 手动绑定当前聊天。`SOLVE.controller` 返回当前控制器，未绑定时为 undefined。`SOLVE.sessions.getStatus()` 返回自动绑定状态及缺失定义等原因；`SOLVE.sessions.subscribe(listener)` 观察变化；`SOLVE.detach()` 停止自动绑定并释放实例。
+也可用 `SOLVE.attach(definition, options)` 手动绑定当前聊天。`SOLVE.controller` 返回当前控制器，未绑定时为 undefined。`SOLVE.sessions.getStatus()` 返回自动绑定状态及缺失定义等原因；`SOLVE.sessions.subscribe(listener)` 观察变化；`SOLVE.detach()` 停止自动绑定并释放实例。页面上有 SOLVE 界面时，没有存档的聊天停在 `phase: 'choose'`（等玩家在弹窗里选）或 `'off'`（玩家选了不用），`getStatus().candidates` 列出可选的结构；`SOLVE.sessions.choose(key)` 用其中一个绑定当前聊天，`SOLVE.sessions.turnOff()` 记下这个聊天不用。`SOLVE.uninstall()` 把 SOLVE 从页面上完整卸下（界面、钩子、注入、全局变量）。
 
 缺少原定义时，`await SOLVE.sessions.inspectArchive(commitId?)` 可以只读查看归档和已执行状态；它不运行作者函数，也不允许用其他版本重放。
 

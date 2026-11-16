@@ -12,6 +12,9 @@ export async function install(options: { kind?: Exclude<Carrier, 'native'> } = {
   const cleanup = () => { disposed = true; abort.abort(); void lease?.dispose(); };
   window.addEventListener('pagehide', cleanup, { once: true });
   try {
+    // Loaded before and uninstalled since: the module is still in the page, start it again.
+    const restart = host[Symbol.for('solve.runtime.start')];
+    if (!host.SOLVE && typeof restart === 'function' && restart.url === new URL('./runtime.js', import.meta.url).href) restart();
     if (!host.SOLVE) {
       const key = '__SOLVE_LOADING__';
       host[key] ??= new Promise<void>((resolve, reject) => {

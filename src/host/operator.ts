@@ -24,15 +24,16 @@ export interface OperatorPrefs {
 }
 export type OperatorRequest = (prompt: string, signal: AbortSignal) => Promise<string>;
 export const UPDATE_EVENT = 'solve:update-prefs';
-const DEFAULTS: OperatorPrefs = { source: 'same', api: { url: '', key: '', model: '', temperature: 0.3, maxTokens: 16384 }, format: 'toon', history: 4, preset: 'builtin',
+const DEFAULTS: OperatorPrefs = { source: 'same', api: { url: '', key: '', model: '', temperature: 0.3, maxTokens: 65536 }, format: 'toon', history: 4, preset: 'builtin',
   auto: true, minLength: 0, trigger: '', retries: 1, timeout: 60, notify: { working: true, failed: true } };
 
+export const OLD_DEFAULTS = [2048, 16384];
 export function readOperatorPrefs(scope: any): OperatorPrefs {
   let saved: any = {};
   try { saved = JSON.parse(scope.localStorage?.getItem(UPDATE_PREFS) ?? 'null') ?? {}; } catch { saved = {}; }
   const api = { ...DEFAULTS.api, ...saved.api };
-  // 2048 was the default before 0.9.0-preview.2 and was saved with the rest: too small once reasoning counts against it.
-  if (api.maxTokens === 2048) api.maxTokens = DEFAULTS.api.maxTokens;
+  // Earlier defaults (2048, then 16384 in dev builds) were saved with the rest: they follow the current default.
+  if (OLD_DEFAULTS.includes(api.maxTokens)) api.maxTokens = DEFAULTS.api.maxTokens;
   return { ...DEFAULTS, ...saved, api, notify: { ...DEFAULTS.notify, ...saved.notify } };
 }
 const yamlString = (s: string) => JSON.stringify(s);

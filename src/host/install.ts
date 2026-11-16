@@ -1,5 +1,6 @@
 import * as engine from '../index.js';
 import { SolveSessionManager } from './sessions.js';
+import { hideOperationBlocks } from './controller.js';
 import type { AttachOptions } from './controller.js';
 import type { PublicRegistrationOptions, PublicWorldInfoRegistrationOptions } from './sessions.js';
 import { fail } from '../json.js';
@@ -65,6 +66,8 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
   };
   const sessionWatchers = new Set<() => void>();
   let injection: ReturnType<typeof installInjection> | undefined;
+  /** Set once the page UI is up (it can ask the player): new chats wait for 选择数据结构. */
+  let gate: { auto?: () => string | undefined } | undefined;
   const manager = () => {
     if (!scope.SillyTavern?.getContext) throw new Error('SOLVE需要在SillyTavern 1.19页面内运行');
     if (!sessions) {
@@ -74,6 +77,11 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
       for (const watcher of sessionWatchers) watcher();
       // 随正文输出：生成前把操作说明、指南、变量和反馈注入写正文的模型（按设置 › 变量更新 › 提示词注入）。
       injection ??= installInjection(scope, () => sessions?.controller);
+      // The page's catalog: chats can always be bound to the official structure, whichever card is open (archived
+      // official chats resolve by fingerprint; new ones only when the player picks it in 选择数据结构).
+      void sessions.register(engine.compileStructure(engine.officialStructure), { characters: [], owner: 'catalog', priority: -1 })
+        .catch(error => console.warn('[SOLVE] 官方数据结构注册失败', error));
+      if (gate) sessions.setGate(gate);
     }
     return sessions;
   };
@@ -101,6 +109,8 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     registerWorldInfo(definition: Definition, options: PublicWorldInfoRegistrationOptions = {}) { return manager().registerWorldInfo(definition, { ...publicOptions(options), owner: 'native', priority: 0 }); },
     readWorldInfo(options: WorldInfoSelection = {}) { return readWorldInfoSelection(() => scope.SillyTavern.getContext(), options, scope.fetch.bind(scope)); },
     detach() { sessions?.detach(); },
+    /** Remove SOLVE from the page now (as when its last script is turned off). Loading it again starts fresh. */
+    uninstall() { teardown(); },
     get controller() { return sessions?.controller; },
     get sessions() { return manager(); },
     distribution() { return { native, providers: [...providers].map(([id, kind]) => ({ id, kind })), ...(LOADED_FROM ? { source: LOADED_FROM } : {}) }; },
@@ -132,17 +142,22 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
         async dispose() {
           if (disposed) return; disposed = true; providers.delete(owner);
           if (sessions) await sessions.unregister(owner);
-          if (!native && !providers.size) { unwatchSessions?.(); unwatchController?.(); bgm?.dispose(); bgm = undefined; injection?.dispose(); injection = undefined; sessions?.dispose(); sessions = undefined; for (const watcher of sessionWatchers) watcher(); closeDebugger(); }
+          // The last script that loaded SOLVE is gone (turned off, removed, or its card closed): leave nothing behind.
+          if (!native && !providers.size) teardown();
         }
       });
     }
   });
-  scope.solve_generation_interceptor = (chat: any[], size: number, abort: (immediate: boolean) => void) => sessions?.controller?.intercept(chat, size, abort);
+  const interceptor = (chat: any[], size: number, abort: (immediate: boolean) => void) => sessions?.controller?.intercept(chat, size, abort);
+  scope.solve_generation_interceptor = interceptor;
+  let patchedFetch: unknown, upstreamFetch: unknown, tornDown = false;
   // Script carriers have no manifest. Guard their actual local LLM transport.
   // Internal operator requests pass while busy; native manifest admission is stricter.
   if (scope.fetch && scope.location) {
-    const upstream = scope.fetch;
-    scope.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
+    const upstream = upstreamFetch = scope.fetch;
+    scope.fetch = patchedFetch = function(input: RequestInfo | URL, init?: RequestInit) {
+      // Torn down while another script kept our wrapper inside its own: pass straight through.
+      if (tornDown) return upstream.call(scope, input, init);
       const url = new URL(typeof input === 'string' ? input : 'url' in input ? input.url : input.href, scope.location.href);
       if (url.origin === scope.location.origin && url.pathname === '/api/chats/save' && !(init as any)?.[engineRequest]) {
         return (async () => {
@@ -169,11 +184,20 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
   };
   configure(initial);
   // Status bar in the page (browser only; the declared layout decides whether anything is shown).
+  // Operation blocks stay hidden in the chat whenever SOLVE is on the page (also while a chat is loading or not bound).
+  let unhide: (() => void) | undefined;
+  try {
+    const formatter = scope.SillyTavern?.getContext?.()?.messageFormatter;
+    if (formatter?.addHook) unhide = hideOperationBlocks(formatter, () => scope[registryKey] !== undefined);
+  } catch (error) { console.warn('[SOLVE] 隐藏操作块的显示钩子没有装上', error); }
   let disposeStatusBar: (() => void) | undefined;
   const mountStatusBar = () => {
     if (disposeStatusBar || !scope.document?.body || typeof scope.CSSStyleSheet !== 'function' || !('adoptedStyleSheets' in (scope.Document?.prototype ?? {}))) return;
     disposeStatusBar = () => undefined;
     void import('./statusbar.js').then(m => {
+      if (tornDown) return;
+      gate = {};
+      if (scope.SillyTavern?.getContext) manager().setGate(gate);
       disposeStatusBar = m.installStatusBar(scope, {
         sessions: () => sessions,
         onSessions: (listener: () => void) => { sessionWatchers.add(listener); return () => { sessionWatchers.delete(listener); }; },
@@ -185,5 +209,31 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
   };
   if (scope.document?.readyState === 'loading') scope.document.addEventListener('DOMContentLoaded', mountStatusBar, { once: true }); else mountStatusBar();
   console.info(`[SOLVE] ${engine.VERSION} 共享运行时已加载`);
-  return { api, configure };
+  /**
+   * Remove everything this runtime put into the page: the status bar layer (dialogs, floating button, quick buttons,
+   * wand-menu entries), the debug panel, chat bindings (their event listeners and macros), prompt injections, music,
+   * the fetch guard, the generation interceptor and the globals. Chats, settings and saved presets are the player's
+   * data and stay. The operation-block display hook cannot be removed from the tavern; it turns itself off.
+   */
+  const teardown = () => {
+    if (tornDown) return;
+    tornDown = true;
+    try { disposeStatusBar?.(); } catch (error) { console.warn('[SOLVE] 卸载状态栏出错', error); }
+    disposeStatusBar = undefined;
+    unwatchSessions?.(); unwatchController?.(); unwatchSessions = unwatchController = undefined;
+    bgm?.dispose(); bgm = undefined;
+    injection?.dispose(); injection = undefined;
+    sessions?.dispose(); sessions = undefined;
+    for (const watcher of sessionWatchers) watcher();
+    sessionWatchers.clear();
+    closeDebugger();
+    unhide?.(); unhide = undefined;
+    if (scope.fetch === patchedFetch && upstreamFetch) scope.fetch = upstreamFetch;
+    if (scope.solve_generation_interceptor === interceptor) delete scope.solve_generation_interceptor;
+    if (scope.SOLVE === api) delete scope.SOLVE;
+    if (scope[registryKey]?.api === api) delete scope[registryKey];
+    delete scope.__SOLVE_LOADING__;
+    console.info('[SOLVE] 已卸载，页面上不留 SOLVE 的界面和钩子');
+  };
+  return { api, configure, teardown };
 }

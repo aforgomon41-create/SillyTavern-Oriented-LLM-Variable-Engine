@@ -5,7 +5,7 @@
 | 方式 | 入口 | 放置位置 |
 | --- | --- | --- |
 | 动态 Import | dist/dynamic.js | 整个 dist 放在 HTTP(S) 文件服务，作者脚本导入此入口 |
-| 一行 Import | dist/auto.js | 同上；角色脚本里一行导入，自动给这张卡绑定官方数据结构 |
+| 一行 Import | dist/auto.js | 同上；角色脚本里一行导入，这张卡的新聊天默认选官方数据结构 |
 | 卡内单文件 | dist/embedded.js | 完整文件内容放进角色卡的酒馆助手脚本，再追加作者定义 |
 | 原生扩展 | manifest.json 与 index.js | 整个 dist 复制到独立的酒馆扩展目录 |
 
@@ -35,7 +35,7 @@ await SOLVE.register({
 import 'https://aforgomon41-create.github.io/sillytavern-kami-preset/solve/dist/0.9.0-preview.1/auto.js';
 ```
 
-`auto.js` 加载 SOLVE，并把官方数据结构绑定到脚本运行时打开的那张卡（必须放在角色脚本里，玩家要在酒馆助手里允许这张卡的脚本）。卡的描述或世界书里写上 `{{solve_SOP}}`、`{{solve_schema}}`、`{{solve_guide}}`、`{{solve_toon}}`，模型才能看到操作说明、数据结构和变量（不写时 SOLVE 自动注入，见设置 › 变量更新 › 提示词注入）。要用自己的结构就改用上面的 `dynamic.js`。
+`auto.js` 加载 SOLVE，并把官方数据结构登记为脚本运行时打开的那张卡自带的结构（放在角色脚本里，玩家要在酒馆助手里允许这张卡的脚本）。打开一个还没用过 SOLVE 的聊天（包括每个新聊天）时，SOLVE 弹窗问用哪个数据结构、用哪套存好的设置，卡自带的结构排第一并选好；错过弹窗可以点右下角的 ◈ 悬浮球。玩家可以在 ⚙ 设置 › 数据结构 里改成「直接使用」不弹窗。角色脚本停用、删除或切到别的卡时，SOLVE 会把自己放进页面的界面、菜单、按钮、钩子和提示词注入全部收走；切回来重新启动，不重新下载。卡的描述或世界书里写上 `{{solve_SOP}}`、`{{solve_schema}}`、`{{solve_guide}}`、`{{solve_toon}}`，模型才能看到操作说明、数据结构和变量（不写时 SOLVE 自动注入，见设置 › 变量更新 › 提示词注入）。要用自己的结构就改用上面的 `dynamic.js`。
 
 ## 卡内单文件
 

@@ -34,7 +34,14 @@ export class SolveSessionManager {
   private disposeEvents?: () => void;
   private disposeController?: () => void;
   private listeners = new Set<() => void>();
-  private phase: 'idle' | 'loading' | 'ready' | 'unbound' | 'error' = 'idle';
+  private phase: 'idle' | 'loading' | 'ready' | 'unbound' | 'error' | 'choose' | 'off' = 'idle';
+  /**
+   * Ask before binding a chat that has no SOLVE archive yet (the page's 选择数据结构 dialog). Off by default: scripts and
+   * tests that register a definition for a character get it bound at once, as before.
+   */
+  private gate?: { auto?: () => string | undefined };
+  /** Per chat: the structure the player picked (a candidate key), for chats that have no archive yet. */
+  private chosen = new Map<string, string>();
   private reason = '等待作者定义';
   private task: Promise<void> = Promise.resolve();
   readonly journal = new DiagnosticJournal();
@@ -42,7 +49,47 @@ export class SolveSessionManager {
   get controller(): SillyTavernController | undefined { return this.active; }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private notify(): void { for (const listener of this.listeners) { try { listener(); } catch { /* observer only */ } } }
-  getStatus() { return { chatId: this.context().chatId, phase: this.phase, reason: this.reason, registered: [...this.registrations.values(), ...this.worldRegistrations.values()].map(r => ({ id: r.definition.id, version: r.definition.version, fingerprint: r.definition.fingerprint, characters: [...r.characters] })), controller: this.active?.getStatus() }; }
+  getStatus() { return { chatId: this.context().chatId, phase: this.phase, reason: this.reason, registered: [...this.registrations.values(), ...this.worldRegistrations.values()].map(r => ({ id: r.definition.id, version: r.definition.version, fingerprint: r.definition.fingerprint, characters: [...r.characters] })), controller: this.active?.getStatus(),
+    ...(this.phase === 'choose' || this.phase === 'off' ? { candidates: this.candidates() } : {}) }; }
+  /** Ask before binding chats without an archive. `auto` may name a candidate to bind without asking (设置 › 直接使用). */
+  setGate(gate: { auto?: () => string | undefined } | undefined): void { this.gate = gate; this.start(); void this.reconcile(); }
+  /**
+   * What the current chat can be bound to: the card's own structures first (a character script or its world book),
+   * then the page's catalog (the official structure). One entry per definition.
+   */
+  candidates(): { key: string; id: string; label: string; version: string; fingerprint: string; own: boolean }[] {
+    let avatar: string | undefined;
+    try { const ctx = this.context(); avatar = (ctx.characters as Record<string, any>)[String(ctx.characterId)]?.avatar; } catch { return []; }
+    const all: [string, Registration][] = [...[...this.registrations].map(([k, r]) => ['r:' + k, r] as [string, Registration]), ...[...this.worldRegistrations].map(([k, r]) => ['w:' + k, r] as [string, Registration])];
+    const own = all.filter(([, r]) => avatar && r.characters.includes(avatar)).sort((a, b) => b[1].priority - a[1].priority);
+    const catalog = all.filter(([, r]) => r.owner === 'catalog');
+    const seen = new Set<string>(), out: ReturnType<SolveSessionManager['candidates']> = [];
+    for (const [key, r] of [...own, ...catalog]) {
+      const id = r.definition.fingerprint + ('selection' in r ? ':' + canonical((r as WorldRegistration).selection) : '');
+      if (seen.has(id)) continue; seen.add(id);
+      out.push({ key, id: r.definition.id, label: (r.definition as { label?: string }).label ?? r.definition.id, version: r.definition.version, fingerprint: r.definition.fingerprint, own: own.some(([k]) => k === key) });
+    }
+    return out;
+  }
+  /** Bind the current chat (no archive yet) to a candidate. Resolves once bound; throws why not. */
+  async choose(key: string): Promise<SillyTavernController> {
+    const ctx = this.context();
+    if (!this.candidates().some(c => c.key === key)) fail('UNKNOWN_STRUCTURE', '这个数据结构已经不可用，请重新打开选择');
+    if (ctx.chatMetadata.solve?.definitionHash) fail('ALREADY_BOUND', '这个聊天已经在用 SOLVE');
+    this.chosen.set(ctx.chatId, key);
+    if (ctx.chatMetadata.solve_off) { delete ctx.chatMetadata.solve_off; }
+    await this.reconcile(true); await this.task;
+    if (!this.active) fail(this.phase === 'error' ? 'BIND_FAILED' : 'STATE_NOT_READY', this.reason);
+    return this.active;
+  }
+  /** 这个聊天不用 SOLVE: remembered in the chat (asked again only from the floating button). */
+  async turnOff(): Promise<void> {
+    const ctx = this.context();
+    if (ctx.chatMetadata.solve?.definitionHash) fail('ALREADY_BOUND', '这个聊天已经在用 SOLVE，不能在这里关闭');
+    ctx.chatMetadata.solve_off = true; this.chosen.delete(ctx.chatId);
+    try { await (ctx as { saveMetadata?: () => Promise<void> }).saveMetadata?.(); } catch { /* remembered for this page at least */ }
+    await this.reconcile(true);
+  }
   private start(): void {
     if (this.disposeEvents) return;
     const ctx = this.context(), source = ctx.eventSource, event = ctx.eventTypes?.CHAT_CHANGED;
@@ -105,7 +152,9 @@ export class SolveSessionManager {
         if (!registration && !ctx.chatMetadata.solve?.authoring) {
           // Started under another version (e.g. an older official structure): the definition bound to this character
           // may take it over, but only if the whole history replays identically under it (checked in the controller).
-          const candidates = [...this.registrations.values()].filter(r => r.characters.includes(avatar)).sort((a, b) => b.priority - a.priority);
+          let candidates = [...this.registrations.values()].filter(r => r.characters.includes(avatar)).sort((a, b) => b.priority - a.priority);
+          // No card binding (SOLVE loaded globally): the page's catalog may take it over the same way.
+          if (!candidates.length) candidates = [...this.registrations.values()].filter(r => r.owner === 'catalog');
           const top = candidates.filter(r => r.priority === candidates[0]?.priority);
           const refused = top[0] && this.adoptRefused.get(`${ctx.chatId}|${fingerprint}|${top[0].definition.fingerprint}`);
           if (refused) { this.detachActive(); this.phase = 'error'; this.reason = refused; this.notify(); return Promise.resolve(); }
@@ -116,6 +165,22 @@ export class SolveSessionManager {
           const scoped = candidates.filter(r => r.characters.includes(avatar));
           worldRegistration = (scoped.length ? scoped : candidates).sort((a, b) => b.priority - a.priority)[0];
         }
+      }
+      else if (this.gate) {
+        // A chat without an archive: bound only to what the player picked (or the 直接使用 default).
+        let key = this.chosen.get(ctx.chatId);
+        if (!key && !ctx.chatMetadata.solve_off) {
+          const auto = this.gate.auto?.();
+          if (auto && this.candidates().some(c => c.key === auto)) { key = auto; this.chosen.set(ctx.chatId, key); }
+        }
+        const picked = key?.startsWith('w:') ? this.worldRegistrations.get(key.slice(2)) : key ? this.registrations.get(key.slice(2)) : undefined;
+        if (!picked) {
+          this.detachActive();
+          this.phase = ctx.chatMetadata.solve_off ? 'off' : 'choose';
+          this.reason = ctx.chatMetadata.solve_off ? '这个聊天选了不用 SOLVE' : '这个聊天还没有选择数据结构';
+          this.notify(); return Promise.resolve();
+        }
+        if (key!.startsWith('w:')) worldRegistration = picked as WorldRegistration; else registration = picked;
       }
       else {
         const candidates = [...this.registrations.values(), ...this.worldRegistrations.values()].filter(r => r.characters.includes(avatar)).sort((a, b) => b.priority - a.priority);

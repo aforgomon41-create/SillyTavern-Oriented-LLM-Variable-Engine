@@ -15,8 +15,10 @@ import { StatusModel } from '../ui/statusbar/model.js';
 import type { Interact } from '../ui/statusbar/interact.js';
 import type { LocalPrefs, SettingsHost } from '../ui/statusbar/settings.js';
 import { UPDATE_DEFAULTS, type UpdateHost, type UpdatePrefs, type UpdateRun } from '../ui/statusbar/update.js';
-import { listOperatorModels, testOperator } from './operator.js';
-import { GATE_DEFAULTS, type GatePrefs, type StructureHost } from '../ui/statusbar/gate.js';
+import { listOperatorModels, OLD_DEFAULTS, testOperator } from './operator.js';
+import { type GatePrefs, type StructureHost } from '../ui/statusbar/gate.js';
+import { GATE, GateLayer, OPEN_GATE, gatePrefs as readGatePrefs } from './gate.js';
+import { PRESETS_EVENT, applyPreset, deletePreset, lastSettings, listPresets, recordLast, savePreset } from './presets.js';
 import type { BgmStatus } from './bgm.js';
 import type { BgmTrack, Batch, CompiledDefinition, LogicalState } from '../types.js';
 import tokensCss from '../ui/kit-solve/tokens.css';
@@ -40,7 +42,7 @@ import { BUTTONS, BUTTONS_EVENT, BUTTON_PREFS, buttonPrefs, installButtons, show
 
 const PREFS = 'solve.statusbar.prefs.v1';
 const UPDATE = UPDATE_PREFS;
-export const GATE = 'solve.gate.v1';
+export { GATE };
 const LAYERS = '@layer k.reset, k.tokens, k.base, k.components, k.skin, k.lock;';
 interface ControllerLike {
   core: { definition: CompiledDefinition };
@@ -189,6 +191,10 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
       else if (what === 'builder') setBuilder(true);
       else if (what === 'settings') {
         if (hasBar.current) setSettingsAt(Date.now());
+        else if (!host.sessions()?.controller && ['choose', 'off', 'error', 'unbound'].includes(String((host.sessions()?.getStatus?.() as { phase?: string } | undefined)?.phase))) {
+          // No SOLVE in this chat yet: the way in is 选择数据结构.
+          doc.dispatchEvent(new scope.CustomEvent(OPEN_GATE));
+        }
         else {
           // Say why: the session's own reason (not bound, still loading, an error), not a generic sentence.
           const st = host.sessions()?.getStatus?.() as { phase?: string; reason?: string } | undefined;
@@ -229,16 +235,44 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
       {/* Separate stacking contexts: the builder above the debug panel above the status bar. */}
       <div style={{ position: 'relative', zIndex: 1 }}>{controller && bar
         ? <Bound key={bar.def.fingerprint} scope={scope} controller={controller} def={bar.def} state={bar.state} {...(bgm ? { bgm } : {})} images={images}
-          extras={{ openDebug: () => setDebug(true), openBuilder: () => setBuilder(true), ...(settingsAt ? { openSettings: settingsAt } : {}) }} />
+          extras={{ openDebug: () => setDebug(true), openBuilder: () => setBuilder(true), ...(settingsAt ? { openSettings: settingsAt } : {}), choices: structureChoices(host) }} />
         : null}</div>
+      <div style={{ position: 'relative', zIndex: 1 }}>{controller ? null
+        : <GateLayer scope={scope} sessions={host.sessions as never} onSessions={host.onSessions} openDebug={() => setDebug(true)} />}</div>
       <div style={{ position: 'relative', zIndex: 2 }}>{debug ? <DebugPanel host={debugHost} onClose={() => setDebug(false)} /> : null}</div>
       <div style={{ position: 'relative', zIndex: 3 }}>{builder ? <StructureBuilder host={builderHost} onClose={() => setBuilder(false)} /> : null}</div>
     </>
   );
 }
 
+/** 清除本机数据: SOLVE's keys in localStorage and its IndexedDB cache. */
+export async function clearLocalData(scope: any): Promise<number> {
+  let n = 0;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < scope.localStorage.length; i++) { const k = scope.localStorage.key(i); if (k && /^solve[.:]/u.test(k)) keys.push(k); }
+    for (const k of keys) { scope.localStorage.removeItem(k); n++; }
+  } catch { /* storage unavailable */ }
+  try {
+    const dbs: { name?: string }[] = typeof scope.indexedDB?.databases === 'function' ? await scope.indexedDB.databases() : [{ name: 'solve-cache-v05' }];
+    for (const db of dbs) if (db.name && /^solve/u.test(db.name)) {
+      await new Promise<void>(resolve => { const r = scope.indexedDB.deleteDatabase(db.name); r.onsuccess = r.onerror = r.onblocked = () => resolve(); });
+      n++;
+    }
+  } catch { /* no IndexedDB */ }
+  return n;
+}
+
+/** The structures a chat can start with (for 设置 › 数据结构 › 默认数据结构). */
+function structureChoices(host: StatusBarHost): { id: string; label: string; detail?: string }[] {
+  try {
+    const list = (host.sessions() as { candidates?(): { id: string; label: string; version: string }[] } | undefined)?.candidates?.() ?? [];
+    return [...new Map(list.map(c => [c.id, { id: c.id, label: c.label, detail: c.version }])).values()];
+  } catch { return []; }
+}
+
 /** Opening view (previews) and the debug-panel entry. */
-export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean; section?: string }; openDebug?: () => void; openBuilder?: () => void; openSettings?: number; update?: Partial<UpdateHost>; structure?: Partial<StructureHost> }
+export interface StatusBarExtras { initial?: { mode?: Mode; tab?: string; settings?: boolean; section?: string }; openDebug?: () => void; openBuilder?: () => void; openSettings?: number; update?: Partial<UpdateHost>; structure?: Partial<StructureHost>; choices?: { id: string; label: string; detail?: string }[] }
 /** The status bar for one bound controller (the tavern host and the design preview both render this). */
 export function Bound({ scope, controller, def, state, bgm, images, extras = {} }: { scope: any; controller: ControllerLike; def: CompiledDefinition; state: LogicalState; bgm?: BgmLike; images?: ImageService; extras?: StatusBarExtras }) {
   const status = controller.getStatus();
@@ -314,8 +348,8 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
   // Who writes the operations (this browser). The controller reads it from storage on every reply.
   const [updatePrefs, setUpdatePrefs] = React.useState<UpdatePrefs>(() => {
     const saved = { ...UPDATE_DEFAULTS, ...read<Partial<UpdatePrefs>>(scope, UPDATE, {}) };
-    // The old default (2048) was saved with the rest; the controller reads it as the new one (operator.ts).
-    return saved.api.maxTokens === 2048 ? { ...saved, api: { ...saved.api, maxTokens: UPDATE_DEFAULTS.api.maxTokens } } : saved;
+    // Old defaults were saved with the rest; the controller reads them as the current one (operator.ts).
+    return OLD_DEFAULTS.includes(saved.api.maxTokens) ? { ...saved, api: { ...saved.api, maxTokens: UPDATE_DEFAULTS.api.maxTokens } } : saved;
   });
   React.useEffect(() => { write(scope, UPDATE, updatePrefs); }, [updatePrefs]); // eslint-disable-line react-hooks/exhaustive-deps
   // Macros the card already writes (auto injection skips them); rechecked when the card changes.
@@ -339,20 +373,37 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
     ...(cardMacros ? { cardMacros } : {}),
     ...extras.update,
   };
-  // Default structure and the chat-entry checks (this browser). Read by the settings page; chat entry does not use it yet.
-  const [gatePrefs, setGatePrefs] = React.useState<GatePrefs>(() => ({ ...GATE_DEFAULTS, ...read<Partial<GatePrefs>>(scope, GATE, {}) }));
+  // 选择数据结构 for new chats (this browser).
+  const [gatePrefs, setGatePrefs] = React.useState<GatePrefs>(() => readGatePrefs(scope));
   React.useEffect(() => { write(scope, GATE, gatePrefs); }, [gatePrefs]); // eslint-disable-line react-hooks/exhaustive-deps
   const structure: StructureHost = {
     prefs: gatePrefs, onPrefs: patch => setGatePrefs(p => ({ ...p, ...patch })),
-    choices: [{ id: 'official', label: '官方数据结构', detail: 'SOLVE 自带' }],
-    chat: { on: true, reason: `正在使用「${(def as { label?: string }).label ?? def.id}」${def.version ? ' ' + def.version : ''}` },
+    choices: extras.choices?.length ? extras.choices : [{ id: 'solve-official', label: 'SOLVE 官方数据结构' }],
+    chat: { reason: `这个聊天用「${(def as { label?: string }).label ?? def.id}」${def.version ? ' ' + def.version : ''}。一个聊天开局后不能换数据结构；想换就开一个新聊天。` },
     ...extras.structure,
   };
+  // 设置存档 (the account): named sets of this structure's per-chat settings, and 「上次的设置」 recorded on every change.
+  const [, presetsTick] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => { const doc: Document = scope.document; doc.addEventListener(PRESETS_EVENT, presetsTick); return () => doc.removeEventListener(PRESETS_EVENT, presetsTick); }, [scope]);
+  const andRecord = <T,>(task: () => Promise<T>) => async () => { const r = await task(); recordLast(scope, controller as never); return r; };
   const bgmStatus = bgm?.status();
   const [btnPrefs, setBtnPrefs] = React.useState<ButtonPrefs>(() => buttonPrefs(scope));
   const settings: SettingsHost = {
-    setModule: (name, on) => locked ? Promise.resolve({ ok: false, error: locked }) : guard(() => controller.setModule(name, on)),
-    setSettings: patch => locked ? Promise.resolve({ ok: false, error: locked }) : guard(() => controller.setSettings(patch)),
+    setModule: (name, on) => locked ? Promise.resolve({ ok: false, error: locked }) : guard(andRecord(() => controller.setModule(name, on))),
+    setSettings: patch => locked ? Promise.resolve({ ok: false, error: locked }) : guard(andRecord(() => controller.setSettings(patch))),
+    clearLocal: () => clearLocalData(scope),
+    presets: {
+      list: listPresets(scope, def.id).map(p => ({ id: p.id, name: p.name, savedAt: p.savedAt })),
+      ...(lastSettings(scope, def.id) ? { last: lastSettings(scope, def.id)!.savedAt } : {}),
+      save: name => { try { savePreset(scope, controller as never, name); return { ok: true }; } catch (e) { return { ok: false, error: message(e) }; } },
+      overwrite: id => { try { const p = listPresets(scope, def.id).find(x => x.id === id); savePreset(scope, controller as never, p?.name ?? '未命名', id); return { ok: true }; } catch (e) { return { ok: false, error: message(e) }; } },
+      remove: id => deletePreset(scope, def.id, id),
+      apply: id => locked ? Promise.resolve({ ok: false, error: locked }) : guard(async () => {
+        const values = id === 'last' ? lastSettings(scope, def.id) : listPresets(scope, def.id).find(x => x.id === id);
+        if (!values) throw new Error('这套设置已经不在了');
+        await applyPreset(controller as never, values); recordLast(scope, controller as never);
+      }),
+    },
     prefs, onPrefs: patch => setPrefs(p => ({ ...p, ...patch })),
     ...(scope.KamiRuntimeNext?.hub ? { kami: true } : {}),
     ...(bgm ? { tracks: { list: bgmStatus!.library.player, add: t => bgm.addTracks([{ ...t, id: 'mine_' + Date.now().toString(36) }]), remove: id => bgm.removeTrack(id) } } : {}),

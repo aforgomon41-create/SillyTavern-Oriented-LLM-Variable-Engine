@@ -309,6 +309,8 @@ export function compileStructure(description: StructureDescription): Definition 
   const typedRefs = out.typedRefs;
   const definition: Definition = {
     id: description.id, version: description.version,
+    // Shown to the player (选择数据结构); not part of the fingerprint.
+    ...(description.label ? { label: description.label } : {}),
     schema: root.schema,
     initialData: clone(description.initialData ?? {}),
     ...(out.entities.length ? { entities: out.entities } : {}),

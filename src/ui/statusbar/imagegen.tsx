@@ -8,7 +8,7 @@ import { useKit } from '../kit.js';
 import { useModel } from './fields.js';
 import { useInteract } from './interact.js';
 import { artOf, type Path, type StatusModel } from './model.js';
-import { Art, part, solve } from './widgets.js';
+import { Art, part, solve, CloseButton } from './widgets.js';
 
 export type ImageShape = 'portrait' | 'landscape' | 'square';
 export interface ImageFieldSpec { path: string; owner: string; module: string; label: string; shape: ImageShape }
@@ -81,7 +81,7 @@ function Slot({ path, v, name, spec, gen, variant, children }: { path: Path; v: 
       </div>
       {status ? (
         <p {...part('status')} data-tone={status.tone} role={status.tone === 'error' ? 'alert' : 'status'}>
-          {status.text}{job?.status === 'error' ? <button type="button" aria-label="关闭提示" onClick={() => gen.dismiss(key)}>×</button> : null}
+          {status.text}{job?.status === 'error' ? <CloseButton size="sm" label="关闭提示" onClick={() => gen.dismiss(key)} /> : null}
         </p>
       ) : null}
       {editing ? <PromptEditor path={[...path, field]} prompt={prompt} used={current?.prompt} locked={!live ? '这里不能修改' : live.locked} onDone={() => setEditing(false)} /> : null}

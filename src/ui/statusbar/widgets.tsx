@@ -5,6 +5,14 @@ import { useKit } from '../kit.js';
 
 export const solve = (name: string, extra: Record<string, string | undefined> = {}) => ({ 'data-solve': name, ...Object.fromEntries(Object.entries(extra).filter(([, v]) => v !== undefined).map(([k, v]) => ['data-' + k, v])) });
 export const part = (name: string) => ({ 'data-solve-part': name });
+/** The one close button (×) of SOLVE's own layers: a drawn cross, centred in a round button (tone: on dark backdrops). */
+export function CloseButton({ label = '关闭', tone, size = 'md', ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label?: string; tone?: 'light'; size?: 'sm' | 'md' }) {
+  return (
+    <button type="button" {...rest} {...solve('close', { tone, size })} aria-label={label} title={label}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" /></svg>
+    </button>
+  );
+}
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const fmt = (v: number) => Number.isInteger(v) ? String(v) : v.toFixed(1);
 
@@ -148,7 +156,7 @@ function Lightbox({ src, alt, anchor, onClose }: { src: string; alt: string; anc
     <div {...solve('lightbox')} role="dialog" aria-modal="true" aria-label={alt} onClick={onClose}
       onPointerDown={e => e.stopPropagation()} onPointerDownCapture={e => e.nativeEvent.stopImmediatePropagation?.()} onTouchStart={e => e.stopPropagation()}>
       <img src={src} alt={alt} referrerPolicy="no-referrer" onClick={e => e.stopPropagation()} />
-      <div {...part('bar')}><span>{alt}</span><button type="button" onClick={onClose} aria-label="关闭">✕</button></div>
+      <div {...part('bar')}><span>{alt}</span><CloseButton tone="light" onClick={onClose} /></div>
     </div>, host as unknown as Element);
 }
 
