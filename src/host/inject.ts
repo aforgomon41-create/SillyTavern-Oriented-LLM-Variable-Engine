@@ -6,7 +6,7 @@
  */
 import { guide, sop, toJson, toToon } from '../projection.js';
 import { schemaText } from '../schema-text.js';
-import { INJECT_DEFAULTS, INJECTS, injected, type InjectKey, type InjectPrefs } from '../ui/statusbar/inject.js';
+import { INJECT_DEFAULTS, INJECTS, injected, type InjectKey, type InjectPosition, type InjectPrefs } from '../ui/statusbar/inject.js';
 import type { SillyTavernController } from './controller.js';
 
 export const UPDATE_PREFS = 'solve.update.v1';
@@ -14,6 +14,7 @@ export const UPDATE_PREFS = 'solve.update.v1';
 const KEY = (k: InjectKey) => `solve_inject_${INJECTS.findIndex(x => x.key === k) + 1}_${k}`;
 // SillyTavern extension_prompt_types / extension_prompt_roles
 const POSITION = { before: 2, after: 0, chat: 1 } as const;
+const empty = (): Record<'before' | 'system' | 'user' | 'end', string[]> => ({ before: [], system: [], user: [], end: [] });
 const ROLE = { system: 0, user: 1, assistant: 2 } as const;
 const MACROS: Record<InjectKey, RegExp> = {
   sop: /\{\{\s*solve_SOP\b/iu, schema: /\{\{\s*solve_schema\b/iu, guide: /\{\{\s*solve_guide\b/iu, data: /\{\{\s*solve_(?:toon|json)\b/iu, feedback: /\{\{\s*solve_feedback\b/iu,
@@ -72,7 +73,31 @@ export interface InjectionReport {
   skipped?: string;
   items: { key: InjectKey; label: string; on: boolean; why?: string; where?: string; chars?: number }[];
 }
-const PLACE = { before: '最前面', after: '聊天记录之前', chat: '聊天记录中' } as const;
+const PLACE: Record<InjectPosition, string> = { before: '最前面', system: '系统提示末尾', after: '聊天记录之前', chat: '聊天记录中', user: '玩家最后一句', end: '最末尾' };
+/** Positions the tavern has no slot for: placed in the finished chat-completion request. */
+type Placed = 'before' | 'system' | 'user' | 'end';
+type Msg = { role: string; content: unknown };
+const append = (m: Msg, text: string) => {
+  if (typeof m.content === 'string') m.content = m.content ? `${m.content}\n\n${text}` : text;
+  else if (Array.isArray(m.content)) m.content.push({ type: 'text', text });
+  else m.content = text;
+};
+/** Puts the placed prompts into the finished request (each list keeps the INJECTS order). */
+export function placeInChat(chat: Msg[], placed: Record<Placed, string[]>, said = ''): void {
+  if (placed.system.length) {
+    const sys = chat.find(m => m.role === 'system');
+    if (sys) append(sys, placed.system.join('\n\n')); else chat.unshift({ role: 'system', content: placed.system.join('\n\n') });
+  }
+  if (placed.before.length) chat.unshift(...placed.before.map(content => ({ role: 'system', content })));
+  if (placed.user.length) {
+    // The player's line (presets often add their own user messages after the history), else the last user message.
+    const users = chat.filter(m => m.role === 'user').reverse(), text = (m: Msg) => typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+    // The history message itself (trimmed text equal) before preset wrappers that quote it.
+    const user = (said && (users.find(m => text(m).trim() === said) ?? users.find(m => text(m).includes(said)))) || users[0];
+    if (user) append(user, placed.user.join('\n\n')); else chat.push({ role: 'user', content: placed.user.join('\n\n') });
+  }
+  if (placed.end.length) chat.push(...placed.end.map(content => ({ role: 'system', content })));
+}
 const ROLE_LABEL = { system: '系统', user: '用户', assistant: 'AI' } as const;
 
 /**
@@ -80,7 +105,8 @@ const ROLE_LABEL = { system: '系统', user: '用户', assistant: 'AI' } as cons
  *
  * Chat Completion attaches 「before / after」 extension prompts to the preset's Main Prompt, and drops them when a
  * preset disables it (the Kami preset does). So there: 「after」 goes in at the top of the chat history (in-chat,
- * depth = history length), 「before」 is put first in the finished request. Text Completion keeps the native positions.
+ * depth = history length); 「before」, 「system」 (end of the first system message), 「user」 (appended to the last user
+ * message) and 「end」 (after everything) are placed in the finished request. Text Completion uses the nearest native slot.
  */
 export function installInjection(scope: any, controller: () => SillyTavernController | undefined): { dispose(): void; report(): InjectionReport | undefined } {
   let ctx: any; try { ctx = scope.SillyTavern?.getContext?.(); } catch { return { dispose: () => undefined, report: () => undefined }; }
@@ -91,8 +117,10 @@ export function installInjection(scope: any, controller: () => SillyTavernContro
   const set = (k: InjectKey, text: string, position: number, depth: number, role: number) => {
     try { host().setExtensionPrompt(KEY(k), text, position, depth, false, role); } catch { /* host changed */ }
   };
-  let first: { role: string; content: string }[] = [];
-  const clear = () => { first = []; for (const x of INJECTS) set(x.key, '', POSITION.after, 0, ROLE.system); };
+  let placed = empty();
+  // The player's newest line; read when the prompt is ready (at GENERATION_AFTER_COMMANDS the new message is not in the chat yet).
+  const said = () => { try { return String([...(host().chat ?? [])].reverse().find((m: any) => m?.is_user && !m.is_system)?.mes ?? '').trim(); } catch { return ''; } };
+  const clear = () => { placed = empty(); for (const x of INJECTS) set(x.key, '', POSITION.after, 0, ROLE.system); };
   const skip = (type: string, dryRun: boolean, why: string) => {
     clear();
     last = { at: Date.now(), type, dryRun, skipped: why, items: INJECTS.map(x => ({ key: x.key, label: x.label, on: false, why })) };
@@ -113,21 +141,25 @@ export function installInjection(scope: any, controller: () => SillyTavernContro
     try { texts = injectTexts(c, prefs.format); } catch (error) { return skip(type, dryRun, `读取变量失败：${error instanceof Error ? error.message : String(error)}`); }
     const chatCompletion = host().mainApi === 'openai';
     const top = (host().chat?.length ?? 0) + 1;
-    first = [];
+    placed = empty();
     const items: InjectionReport['items'] = [];
     for (const x of INJECTS) {
       const item = prefs.items[x.key], st = injected(prefs, x.key, macros), on = st.on && !!texts[x.key];
       const where = item.position === 'chat' ? `${PLACE.chat} · 深度 ${item.depth} · ${ROLE_LABEL[item.role]}` : PLACE[item.position];
       items.push({ key: x.key, label: x.label, on, ...(on ? { where, chars: texts[x.key].length } : { why: st.why ?? '现在是空的' }) });
       if (!on) { set(x.key, '', POSITION.after, 0, ROLE.system); continue; }
-      if (chatCompletion && item.position === 'before') { set(x.key, '', POSITION.after, 0, ROLE.system); first.push({ role: 'system', content: texts[x.key] }); continue; }
-      if (chatCompletion && item.position === 'after') { set(x.key, texts[x.key], POSITION.chat, top, ROLE.system); continue; }
-      set(x.key, texts[x.key], POSITION[item.position], item.depth, ROLE[item.role]);
+      const pos = item.position in PLACE ? item.position : 'after';
+      if (chatCompletion && (pos === 'before' || pos === 'system' || pos === 'user' || pos === 'end')) { set(x.key, '', POSITION.after, 0, ROLE.system); placed[pos].push(texts[x.key]); continue; }
+      if (chatCompletion && pos === 'after') { set(x.key, texts[x.key], POSITION.chat, top, ROLE.system); continue; }
+      // Text completion: the tavern's own slots (system → after the story string, last user message / end → newest in-chat).
+      if (pos === 'system' || pos === 'after') { set(x.key, texts[x.key], POSITION.after, 0, ROLE.system); continue; }
+      if (pos === 'user' || pos === 'end') { set(x.key, texts[x.key], POSITION.chat, 0, pos === 'user' ? ROLE.user : ROLE.system); continue; }
+      set(x.key, texts[x.key], POSITION[pos], item.depth, ROLE[item.role]);
     }
     last = { at: Date.now(), type, dryRun, items };
     console.info('[SOLVE] 本轮注入：' + items.map(i => i.on ? `${i.label} ${i.chars} 字 @${i.where}` : `${i.label}（${i.why}）`).join('；'));
   };
-  const onReady = (data: { chat?: { role: string; content: string }[] }) => { if (first.length && Array.isArray(data?.chat)) data.chat.unshift(...first.map(m => ({ ...m }))); };
+  const onReady = (data: { chat?: Msg[] }) => { if (Array.isArray(data?.chat)) placeInChat(data.chat, placed, placed.user.length ? said() : ''); };
   source.on(event, apply);
   if (ready) source.on(ready, onReady);
   return { dispose: () => {

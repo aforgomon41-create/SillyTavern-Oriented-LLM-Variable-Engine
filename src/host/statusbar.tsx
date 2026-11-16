@@ -15,7 +15,7 @@ import { StatusModel } from '../ui/statusbar/model.js';
 import type { Interact } from '../ui/statusbar/interact.js';
 import type { LocalPrefs, SettingsHost } from '../ui/statusbar/settings.js';
 import { UPDATE_DEFAULTS, type UpdateHost, type UpdatePrefs, type UpdateRun } from '../ui/statusbar/update.js';
-import { listOperatorModels, OLD_DEFAULTS, testOperator } from './operator.js';
+import { listOperatorModels, migrateApi, PREFS_REV, testOperator } from './operator.js';
 import { type GatePrefs, type StructureHost } from '../ui/statusbar/gate.js';
 import { GATE, GateLayer, OPEN_GATE, gatePrefs as readGatePrefs } from './gate.js';
 import { PRESETS_EVENT, applyPreset, deletePreset, lastSettings, listPresets, recordLast, savePreset } from './presets.js';
@@ -349,7 +349,7 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
   const [updatePrefs, setUpdatePrefs] = React.useState<UpdatePrefs>(() => {
     const saved = { ...UPDATE_DEFAULTS, ...read<Partial<UpdatePrefs>>(scope, UPDATE, {}) };
     // Old defaults were saved with the rest; the controller reads them as the current one (operator.ts).
-    return OLD_DEFAULTS.includes(saved.api.maxTokens) ? { ...saved, api: { ...saved.api, maxTokens: UPDATE_DEFAULTS.api.maxTokens } } : saved;
+    return { ...saved, api: migrateApi({ ...UPDATE_DEFAULTS.api, ...saved.api }, saved.rev), rev: PREFS_REV };
   });
   React.useEffect(() => { write(scope, UPDATE, updatePrefs); }, [updatePrefs]); // eslint-disable-line react-hooks/exhaustive-deps
   // Macros the card already writes (auto injection skips them); rechecked when the card changes.

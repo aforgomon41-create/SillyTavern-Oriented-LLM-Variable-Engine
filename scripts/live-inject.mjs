@@ -110,6 +110,18 @@ try {
   check('关掉的指南不再注入', count(m, GUIDE) === 0);
   check('改位置：变量数据放到最前面（系统提示之前）', indexOf(m, DATA) === 0 && m[0].role === 'system', `第 ${indexOf(m, DATA) + 1} 条`);
 
+  phase = 'more-positions';
+  // 酒馆没有的位置：并入系统提示末尾、并入最后一条用户消息、最末尾。
+  await setPrefs({ ...DEFAULT, items: { ...DEFAULT.items, sop: { on: true, position: 'system', depth: 4, role: 'system' }, guide: { ...DEFAULT.items.guide, on: false }, schema: { on: true, position: 'user', depth: 4, role: 'system' }, data: { ...DEFAULT.items.data, position: 'end' } } });
+  m = await turn('我结账离开。');
+  { const sys = m.findIndex(x => x.role === 'system'), sopAt = indexOf(m, SOP);
+    check('并入系统提示末尾：操作说明接在第一条系统消息后面，不单独成条', sopAt === sys && !String(m[sys].content).trimStart().startsWith('## SOLVE') && String(m[sys].content).trimEnd().endsWith(String(m[sys].content).trimEnd().split('\n').at(-1)) && count(m, SOP) === 1, `第 ${sopAt + 1} 条 · 第一条系统消息第 ${sys + 1} 条`);
+    const u = m.findLastIndex(x => x.role === 'user' && String(x.content).trimStart().startsWith('我结账离开。')), uc = String(m[u]?.content ?? '');
+    check('并入玩家最后一句：玩家这句后面接着数据结构（不是预设后面加的用户消息）', uc.includes('我结账离开。') && uc.indexOf(SCHEMA) > uc.indexOf('我结账离开。'), `第 ${u + 1} 条`);
+    check('最末尾：变量数据是整个请求的最后一条', indexOf(m, DATA) === m.length - 1, `第 ${indexOf(m, DATA) + 1}/${m.length} 条`);
+    const report = await page.evaluate(() => SOLVE.injection());
+    check('SOLVE.injection() 写出新位置', report?.items.some(i => i.where === '系统提示末尾') && report.items.some(i => i.where === '玩家最后一句') && report.items.some(i => i.where === '最末尾'), report?.items.map(i => `${i.label}@${i.where ?? i.why}`).join(' ')); }
+
   phase = 'viewer';
   // 酒馆助手的「提示词查看器」：它伪造一次请求拿到实际发送的提示词，SOLVE 的内容也要在里面。
   await setPrefs(DEFAULT);

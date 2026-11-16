@@ -24,16 +24,21 @@ export interface OperatorPrefs {
 }
 export type OperatorRequest = (prompt: string, signal: AbortSignal) => Promise<string>;
 export const UPDATE_EVENT = 'solve:update-prefs';
-const DEFAULTS: OperatorPrefs = { source: 'same', api: { url: '', key: '', model: '', temperature: 0.3, maxTokens: 65536 }, format: 'toon', history: 4, preset: 'builtin',
+const DEFAULTS: OperatorPrefs = { source: 'same', api: { url: '', key: '', model: '', temperature: 1, maxTokens: 65536 }, format: 'toon', history: 4, preset: 'builtin',
   auto: true, minLength: 0, trigger: '', retries: 1, timeout: 60, notify: { working: true, failed: true } };
 
 export const OLD_DEFAULTS = [2048, 16384];
+/** Version of the saved settings: below 2, the old defaults (max tokens 2048 / 16384, temperature 0.3) were saved with the rest. */
+export const PREFS_REV = 2;
+/** Saved settings written before PREFS_REV follow the current defaults where they still hold an old one. */
+export function migrateApi<T extends { maxTokens: number; temperature: number }>(api: T, rev: unknown): T {
+  if (typeof rev === 'number' && rev >= PREFS_REV) return api;
+  return { ...api, ...(OLD_DEFAULTS.includes(api.maxTokens) ? { maxTokens: DEFAULTS.api.maxTokens } : {}), ...(api.temperature === 0.3 ? { temperature: DEFAULTS.api.temperature } : {}) };
+}
 export function readOperatorPrefs(scope: any): OperatorPrefs {
   let saved: any = {};
   try { saved = JSON.parse(scope.localStorage?.getItem(UPDATE_PREFS) ?? 'null') ?? {}; } catch { saved = {}; }
-  const api = { ...DEFAULTS.api, ...saved.api };
-  // Earlier defaults (2048, then 16384 in dev builds) were saved with the rest: they follow the current default.
-  if (OLD_DEFAULTS.includes(api.maxTokens)) api.maxTokens = DEFAULTS.api.maxTokens;
+  const api = migrateApi({ ...DEFAULTS.api, ...saved.api }, saved.rev);
   return { ...DEFAULTS, ...saved, api, notify: { ...DEFAULTS.notify, ...saved.notify } };
 }
 const yamlString = (s: string) => JSON.stringify(s);

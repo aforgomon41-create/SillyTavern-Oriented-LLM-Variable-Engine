@@ -28,6 +28,8 @@ import { computeAll, listLimit, nextRound } from '../features.js';
 import { UPDATE_PREFS } from './inject.js';
 import { operatorRequest as prefsRequest, readOperatorPrefs, type OperatorPrefs } from './operator.js';
 
+/** Added to the operator prompt while the chat has no data yet (out-of-band). */
+export const INIT_NOTE = '（执行变量初始化：现在还没有任何变量。按数据结构，根据设定和目前的剧情，一次建好开局需要的实体并填好字段。）';
 export interface AttachOptions {
   mode?: 'in-band' | 'out-of-band';
   operatorFormat?: 'json' | 'toon';
@@ -566,8 +568,13 @@ export class SillyTavernController {
   private operatorPrompt(index: number): string {
     const state = this.runtime.getState(), def = this.core.definition, prefs = this.updatePrefs();
     const history = Math.max(1, prefs?.history ?? 4);
-    const lines = this.context().chat.slice(Math.max(0, index - history + 1), index + 1)
-      .map((m, i, all) => `${i === all.length - 1 ? '【最新回复】' : ''}${m.is_user ? '玩家' : (m.name || '角色')}：${stripBlocks(m.mes ?? '').trim()}`);
+    const recent = this.context().chat.slice(Math.max(0, index - history + 1), index + 1);
+    const lines = recent.map((m, i, all) => `${i === all.length - 1 ? '【最新回复】' : ''}${m.is_user ? '玩家' : (m.name || '角色')}：${stripBlocks(m.mes ?? '').trim()}`);
+    // Nothing written yet: ask for the opening set-up, alongside the player's message (before the reply when there is none).
+    if (this.noData()) {
+      const at = recent.map(m => !!m.is_user).lastIndexOf(true);
+      if (at >= 0) lines[at] += `\n${INIT_NOTE}`; else lines.splice(lines.length - 1, 0, INIT_NOTE);
+    }
     const format = prefs?.format ?? this.options.operatorFormat;
     const encoded = format === 'toon' ? toToon(def, state, { view: 'operator' }) : toJson(def, state, { view: 'operator' });
     const feedback = this.runtime.getCommit()?.feedback ?? [];
@@ -580,6 +587,15 @@ export class SillyTavernController {
       `# 最近的对话\n${lines.join('\n\n')}`,
       '# 现在输出\n只输出 <solve_operate> 块。',
     ].join('\n\n');
+  }
+  /** No operation has changed the data in this chat yet (only the structure's defaults). */
+  private noData(): boolean {
+    let commit = this.runtime.getCommit(), seen = 0;
+    while (commit && seen++ < 10000) {
+      if (commit.dataPatch.length) return false;
+      commit = commit.parentId ? this.runtime.getCommit(commit.parentId) : undefined;
+    }
+    return true;
   }
   /** The request for the operator model: the player's settings, else the card's attach options. */
   private operatorRequestFn(): (prompt: string, signal: AbortSignal) => Promise<string> {

@@ -1,7 +1,7 @@
 /**
  * 设置 · 变量更新 · 提示词注入（预览）。随正文输出时，主模型要知道怎么写操作、现在的变量是什么。
  * 卡片自己写了 {{solve_SOP}} 等宏就不用管；没写（比如卡没有自带变量、用的是默认数据结构）时，由 SOLVE 注入。
- * 每段提示词可以单独开关，选位置（最前面 / 聊天记录之前 / 聊天记录中某个深度）和角色。
+ * 每段提示词可以单独开关，选位置（最前面 / 并入系统提示 / 聊天记录之前 / 聊天记录中某个深度 / 并入玩家最后一句 / 最末尾）和角色。
  * 对应酒馆的扩展提示词（setExtensionPrompt）；对话补全模式下不依赖预设的 Main Prompt，见 src/host/inject.ts。
  * 酒馆里由 src/host/inject.ts 在每次生成前按这些设置注入（独立操作模型时不注入）。
  */
@@ -10,7 +10,7 @@ import { useKit } from '../kit.js';
 import { part, solve } from './widgets.js';
 
 export type InjectKey = 'sop' | 'schema' | 'guide' | 'data' | 'feedback';
-export type InjectPosition = 'before' | 'after' | 'chat';
+export type InjectPosition = 'before' | 'system' | 'after' | 'chat' | 'user' | 'end';
 export type InjectRole = 'system' | 'user' | 'assistant';
 export interface InjectItem { on: boolean; position: InjectPosition; depth: number; role: InjectRole }
 export interface InjectPrefs {
@@ -38,7 +38,8 @@ export const INJECTS: { key: InjectKey; label: string; macro: string; text: stri
   { key: 'feedback', label: '上轮反馈', macro: '{{solve_feedback}}', text: '上一轮被修正或失败的操作；没有时不注入' },
 ];
 const POSITIONS: { value: InjectPosition; label: string }[] = [
-  { value: 'before', label: '最前面（系统提示之前）' }, { value: 'after', label: '聊天记录之前（角色设定之后）' }, { value: 'chat', label: '聊天记录中（按深度）' },
+  { value: 'before', label: '最前面' }, { value: 'system', label: '并入系统提示末尾' }, { value: 'after', label: '聊天记录之前' },
+  { value: 'chat', label: '聊天记录中（按深度）' }, { value: 'user', label: '并入玩家最后一句' }, { value: 'end', label: '最末尾' },
 ];
 const ROLES: { value: InjectRole; label: string }[] = [{ value: 'system', label: '系统' }, { value: 'user', label: '用户' }, { value: 'assistant', label: 'AI' }];
 
@@ -132,7 +133,8 @@ function Stack({ prefs, macros }: { prefs: InjectPrefs; macros: InjectKey[] }) {
     <div {...solve('inject-stack')} aria-label="注入位置示意">
       <small {...part('title')}>发给模型的顺序</small>
       {at('before').length ? <div {...part('slot')}>{at('before').map(chip)}</div> : null}
-      <div {...part('fixed')}>系统提示 · 角色设定 · 世界书</div>
+      <div {...part('fixed')}>系统提示{at('system').length ? <> + {at('system').map(chip)}</> : null}</div>
+      <div {...part('fixed')}>角色设定 · 世界书</div>
       {at('after').length ? <div {...part('slot')}>{at('after').map(chip)}</div> : null}
       <div {...part('fixed')}>聊天记录</div>
       {depths.filter(d => d > 0).map((d, i, list) => {
@@ -144,7 +146,9 @@ function Stack({ prefs, macros }: { prefs: InjectPrefs; macros: InjectKey[] }) {
           </React.Fragment>
         );
       })}
+      {at('user').length ? <div {...part('fixed')}>玩家最后一句 + {at('user').map(chip)}</div> : null}
       {depths.includes(0) ? <div {...part('slot')}>{chat.filter(x => prefs.items[x.key].depth === 0).map(chip)}</div> : null}
+      {at('end').length ? <><div {...part('fixed')}>预设里聊天记录之后的内容</div><div {...part('slot')}>{at('end').map(chip)}</div></> : null}
     </div>
   );
 }
