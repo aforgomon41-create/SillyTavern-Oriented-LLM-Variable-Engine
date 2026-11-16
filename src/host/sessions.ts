@@ -21,6 +21,7 @@ interface WorldRegistration extends Registration { selection: WorldInfoSelection
 export class SolveSessionManager {
   private registrations = new Map<string, Registration>();
   private adoptRefused = new Map<string, string>();
+  private bindRetries = new Map<string, number>();
   private worldRegistrations = new Map<string, WorldRegistration>();
   private active?: SillyTavernController;
   private activeRegistration?: Registration;
@@ -165,6 +166,7 @@ export class SolveSessionManager {
         if (epoch !== this.epoch) { controller.dispose(); return; }
         this.active = controller; this.activeRegistration = registration; this.activeWorldRegistration = worldRegistration; this.disposeController = controller.subscribe(() => this.notify());
         if (adopt) this.journal.add('info', 'ADOPTED', `聊天 ${chatId} 由另一版结构开局，历史在 ${registration.definition.id}@${registration.definition.version} 下逐条重算一致，已换用它继续`);
+        if (this.bindRetries.delete(chatId)) this.journal.add('info', 'BIND_RETRY', '自动重试后绑定成功');
         this.phase = 'ready'; this.reason = ''; this.journal.add('info', 'SESSION_ATTACHED', `聊天 ${chatId} 已绑定 ${registration.definition.id}@${registration.definition.version}`); this.notify();
       } catch (error) {
         controller?.dispose();
@@ -175,7 +177,19 @@ export class SolveSessionManager {
           if (epoch === this.epoch) { this.detachActive(); this.phase = 'error'; this.reason = this.adoptRefused.get(`${chatId}|${archived}|${input.definition.fingerprint}`)!; this.journal.add('error', 'ADOPT_REFUSED', this.reason); this.notify(); }
           return;
         }
-        if (epoch === this.epoch) this.setError(error);
+        if (epoch !== this.epoch) return;
+        // Opening a chat (a new one especially) can collide with the tavern's own save: retry quietly before reporting.
+        const code = describeError(error).code, tries = this.bindRetries.get(chatId) ?? 0;
+        // Only races with the tavern's own writes (or a dropped request) are retried; a broken archive or a missing book is reported at once.
+        const transient = ['HOST_SAVE_FAILED', 'REMOTE_HEAD_CHANGED', 'SAVE_VERIFY_FAILED', 'VARIABLES_VERIFY_FAILED', 'COMMIT_COLLISION'].includes(code) || error instanceof TypeError && /fetch/iu.test(error.message);
+        if (tries < 2 && transient) {
+          this.bindRetries.set(chatId, tries + 1);
+          this.journal.add('warning', 'BIND_RETRY', `绑定聊天没有成功（${describeError(error).message}），${tries ? 3 : 1} 秒后自动重试`);
+          this.reason = '第一次没有绑定成功，正在重试'; this.notify();
+          setTimeout(() => { if (epoch === this.epoch && this.context().chatId === chatId) void this.reconcile(true); }, tries ? 3000 : 1000);
+          return;
+        }
+        this.setError(error);
       }
       finally { if (epoch === this.epoch) { this.loadingChatId = undefined; this.loadingWorldRegistration = undefined; this.loadingRegistration = undefined; this.loadingAbort = undefined; } }
     })();

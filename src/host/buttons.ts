@@ -101,9 +101,11 @@ export function installButtons(scope: any, host: ButtonsHost): () => void {
     const c = host.controller();
     if (c !== current) { unsub?.(); unsub = c?.subscribe(render); current = c; }
     const prefs = buttonPrefs(scope);
-    const status = c?.getStatus();
+    // A controller left behind by a chat switch throws on every read until the new one is attached: show nothing meanwhile.
+    let status: ReturnType<ControllerLike['getStatus']> | undefined;
+    try { status = c?.getStatus(); } catch { status = undefined; }
     // 重试保存 only while something is unsaved, and then first: it is the one that matters.
-    const list = c ? BUTTONS.filter(b => shown(prefs, b) && (b.id !== 'retry' || !!status?.pendingCount)).sort((x, y) => Number(y.id === 'retry') - Number(x.id === 'retry')) : [];
+    const list = c && status ? BUTTONS.filter(b => shown(prefs, b) && (b.id !== 'retry' || !!status?.pendingCount)).sort((x, y) => Number(y.id === 'retry') - Number(x.id === 'retry')) : [];
     if (!list.length) { bar?.remove(); bar = undefined; return; }
     if (!bar || !bar.isConnected) {
       bar = doc.createElement('div'); bar.id = 'solve_buttons'; bar.className = 'flex-container flexGap5';

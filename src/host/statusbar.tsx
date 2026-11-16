@@ -188,7 +188,18 @@ function Live({ scope, host }: { scope: any; host: StatusBarHost }) {
       else if (what === 'builder') setBuilder(true);
       else if (what === 'settings') {
         if (hasBar.current) setSettingsAt(Date.now());
-        else { const why = '当前聊天没有启用 SOLVE（或这个结构没有状态栏），没有可设置的内容。可以在「SOLVE 调试」里查看原因。'; if (scope.toastr?.info) scope.toastr.info(why, 'SOLVE'); else scope.alert?.(why); }
+        else {
+          // Say why: the session's own reason (not bound, still loading, an error), not a generic sentence.
+          const st = host.sessions()?.getStatus?.() as { phase?: string; reason?: string } | undefined;
+          const ctl = host.sessions()?.controller;
+          let detail: string;
+          if (!host.sessions()) detail = '这张角色卡没有加载 SOLVE（SOLVE 写在角色脚本里时，只在那张卡上生效；也可能还在加载）。';
+          else if (ctl && !(ctl.core.definition.display as { layout?: unknown[] } | undefined)?.layout?.length) detail = '这张卡的数据结构没有状态栏。';
+          else if (st?.phase === 'loading') detail = `SOLVE 正在恢复这个聊天（${st.reason || '请稍等'}），稍后再试。`;
+          else if (st?.phase === 'error') detail = `SOLVE 绑定这个聊天时出错：${st.reason || '原因未知'}。可以刷新页面，或在「SOLVE 调试 › 概览」里查看。`;
+          else detail = `当前聊天没有启用 SOLVE：${st?.reason || '原因未知'}。`;
+          if (scope.toastr?.info) scope.toastr[st?.phase === 'error' ? 'error' : 'info'](detail, 'SOLVE', { timeOut: 12000 }); else scope.alert?.(detail);
+        }
       }
     };
     doc.addEventListener(OPEN_EVENT, onOpen);
