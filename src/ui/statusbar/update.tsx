@@ -1,7 +1,7 @@
 /**
  * 设置 · 变量更新（预览）。谁来写 <solve_operate>：写正文的模型顺带写（随正文输出），还是正文写完后另请一个模型来写（独立操作模型）。
  * 参考 MVU 的「变量更新方式」：更新方式、模型来源、请求内容、请求策略、通知；角色卡可以指定默认方式，玩家可以改。
- * 只保存在这台设备上（API 密钥也是）。其中「提示词注入」已生效；更新方式和独立操作模型的设置控制器还没读取。
+ * 只保存在这台设备上（API 密钥也是）。改动立即生效：控制器每处理一条回复都读一次。
  */
 import * as React from 'react';
 import { useKit } from '../kit.js';
@@ -29,7 +29,7 @@ export interface UpdatePrefs {
   inject: InjectPrefs;
 }
 export const UPDATE_DEFAULTS: UpdatePrefs = {
-  source: 'same', api: { url: '', key: '', model: '', temperature: 0.3, maxTokens: 2048 },
+  source: 'same', api: { url: '', key: '', model: '', temperature: 0.3, maxTokens: 16384 },
   format: 'toon', history: 4, preset: 'builtin', auto: true, minLength: 0, trigger: '', retries: 1, timeout: 60,
   notify: { working: true, failed: true },
   inject: INJECT_DEFAULTS,
@@ -141,7 +141,7 @@ export function UpdateSection({ host }: { host: UpdateHost }) {
                 <span {...part('label')}>温度<small>写操作要稳定，建议 0.2–0.5</small></span>
                 <K.Slider value={Math.round(p.api.temperature * 10)} min={0} max={20} onValueChange={v => api({ temperature: v / 10 })} format={v => (v / 10).toFixed(1)} aria-label="温度" />
               </div>
-              <Num label="最大回复长度" unit="token" value={p.api.maxTokens} min={256} step={256} onChange={n => api({ maxTokens: n })} />
+              <Num label="最大回复长度" unit="token" hint="推理模型的思考也算在内；开局一次建好几个实体时，思考加输出常到 6000–9000" value={p.api.maxTokens} min={256} step={256} onChange={n => api({ maxTokens: n })} />
             </> : null}
             {host.test ? (
               <div {...solve('pref', { kind: 'action' })}>
@@ -177,7 +177,7 @@ export function UpdateSection({ host }: { host: UpdateHost }) {
           <h4>请求策略</h4>
           <div {...solve('pref-list')}>
             <div {...solve('pref', { kind: 'switch' })}>
-              <span {...part('label')}>自动请求<small>关闭后，每楼回复下面会出现「更新变量」按钮，点了才请求</small></span>
+              <span {...part('label')}>自动请求<small>关闭后，点输入框上方的「单独生成变量」才请求</small></span>
               <K.Switch checked={p.auto} aria-label="自动请求" onCheckedChange={v => set({ auto: v })} />
             </div>
             {p.auto ? <>
@@ -186,7 +186,7 @@ export function UpdateSection({ host }: { host: UpdateHost }) {
             </> : null}
             <Num label="失败后重试" unit="次" value={p.retries} min={0} max={5} onChange={n => set({ retries: n })} />
             <Num label="超时" unit="秒" value={p.timeout} min={10} max={600} step={10} onChange={n => set({ timeout: n })} />
-            <p {...part('hint')}>请求失败时正文照常保留，变量不变；可以在状态栏或这里重新请求。生成被停止、切换聊天或改写这一楼时，进行中的请求会自动取消。</p>
+            <p {...part('hint')}>请求失败时正文照常保留，变量不变；可以点输入框上方的「单独生成变量」或这里的「重新请求最近一楼」。生成被停止、切换聊天或改写这一楼时，进行中的请求会自动取消。</p>
           </div>
         </section>
         <section {...solve('limit-group')}>

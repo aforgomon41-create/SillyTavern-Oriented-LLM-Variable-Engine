@@ -25,6 +25,8 @@ import { adoptArchive, checkAdopted, verifyAdoption } from '../adopt.js';
 import type { HostContext } from './sillytavern.js';
 import type { Action, Batch, Commit, Definition, Json, SettingsPatch } from '../types.js';
 import { computeAll, listLimit, nextRound } from '../features.js';
+import { UPDATE_PREFS } from './inject.js';
+import { operatorRequest as prefsRequest, readOperatorPrefs, type OperatorPrefs } from './operator.js';
 
 export interface AttachOptions {
   mode?: 'in-band' | 'out-of-band';
@@ -37,6 +39,11 @@ export interface AttachOptions {
   adopt?: boolean;
   cache?: IndexedDbCache | false;
   onError?: (error: unknown) => void;
+}
+/** The operations in an operator model's answer: its <solve_operate> block, or the bare JSON (code fences allowed). */
+export function parseOperatorOutput(output: string): Batch {
+  const raw = extractRawBlocks(output).model ?? output;
+  return parseOperations(raw.trim().replace(/^```[a-z]*\s*/iu, '').replace(/\s*```\s*$/u, ''));
 }
 const formatterRouters = new WeakMap<object, Set<SillyTavernController>>();
 export class SillyTavernController {
@@ -201,7 +208,7 @@ export class SillyTavernController {
       this.assertReady();
       if (this.findParent(this.context().chat.length) !== this.runtime.headId) fail('STATE_NOT_ALIGNED', '模型输入尚未对齐当前选中的历史');
       return { definition: this.core.definition, state: this.runtime.getState(), feedback: this.runtime.getCommit()!.feedback };
-    }));
+    }, () => this.mode() === 'out-of-band'));
     await this.syncVariableViews();
     this.installEvents();
     for (const capability of inspectCapabilities(ctx, this.hostVersion).filter(c => !c.available)) this.record('CAPABILITY_MISSING', `${capability.label}：${capability.detail}`, 'warning');
@@ -318,7 +325,7 @@ export class SillyTavernController {
           if (epoch !== this.generationEpoch || this.disposed) return;
           this.assertBound(); await this.context().saveChat?.();
         }
-        if (epoch === this.generationEpoch && !this.disposed && this.runtime.pendingCount && (this.options.mode ?? 'in-band') === 'in-band') {
+        if (epoch === this.generationEpoch && !this.disposed && this.runtime.pendingCount && this.mode() === 'in-band') {
           // A draft left from an earlier failed save would block this reply: rebuild, redo that reply, then go on.
           const messageId = this.runtime.exportPending()[0]?.binding.messageId;
           await this.enqueue(() => this.dropStalePending('新回复到达时还有上次没保存的草稿'));
@@ -382,7 +389,7 @@ export class SillyTavernController {
     const deleted = async () => {
       this.operator?.abort(); this.adapter.invalidate(); this.nativeHistoryChanged = true;
       const gap = preserveOrphanAncestors(this.runtime.archive, this.context().chat);
-      if ((this.runtime.pendingCount || this.pendingImportError) && (this.options.mode ?? 'in-band') === 'in-band') {
+      if ((this.runtime.pendingCount || this.pendingImportError) && this.mode() === 'in-band') {
         // The draft was made before the deletion: rebuild instead of leaving the chat stuck.
         const messageId = this.runtime.exportPending()[0]?.binding.messageId;
         try {
@@ -454,7 +461,7 @@ export class SillyTavernController {
       if (!this.ready) return this.reason || 'SOLVE 状态未就绪';
       if (this.pendingImportError) return this.pendingImportError;
       // In-band drafts heal themselves when the next reply arrives (dropStalePending / redoReply).
-      if (this.runtime.pendingCount) return (this.options.mode ?? 'in-band') === 'in-band' ? undefined : '有一次操作没有保存成功';
+      if (this.runtime.pendingCount) return this.mode() === 'in-band' ? undefined : '有一次操作没有保存成功';
       if (this.findParent(this.context().chat.length) !== this.runtime.headId) return '选中历史尚未对齐，请重放后续楼层';
     } catch (error) { return describeError(error).message; }
     return undefined;
@@ -494,17 +501,21 @@ export class SillyTavernController {
       }
       let operations: Batch;
       let finalText = text!;
-      if ((this.options.mode ?? 'in-band') === 'in-band') {
+      if (this.mode() === 'in-band') {
         // A reply without operations still advances the engine round.
         if (!raw.model && !this.core.definition.round) { await this.syncVariableViews(); return undefined; }
         operations = raw.model ? parseOperations(raw.model) : [];
+      } else if (raw.model) {
+        // Written earlier (by the operator model, 单独生成变量 or by hand): the reply carries its operations.
+        operations = parseOperations(raw.model);
       } else {
+        const skip = this.operatorSkip(text!);
+        if (skip) { this.record('OPERATOR_SKIPPED', `楼层 ${index} 没有请求操作模型：${skip}`); await this.syncVariableViews(); return undefined; }
         const prompt = this.operatorPrompt(index);
-        const output = await this.requestOperator(prompt);
+        const output = await this.requestOperator(prompt, index);
         this.adapter.assertCurrent(binding);
-        const returned = extractRawBlocks(output);
-        operations = parseOperations(returned.model ?? output);
-        finalText = stripBlocks(text!) + `\n<solve_operate>\n${JSON.stringify(operations)}\n</solve_operate>`;
+        operations = parseOperatorOutput(output);
+        finalText = text!.trimEnd() + `\n<solve_operate>\n${JSON.stringify(operations)}\n</solve_operate>`;
       }
       const actionId = 'model:' + await hash({ messageId: binding.messageId, swipeId: binding.swipeId, parent, sourceText: text!, operations });
       // The round is fixed in the action, so Replay and Restore reproduce it exactly.
@@ -518,34 +529,116 @@ export class SillyTavernController {
     this.processing = promise;
     return promise.finally(() => { this.queued--; this.notify(); });
   }
-  private operatorPrompt(index: number): string {
-    const state = this.runtime.getState(), def = this.core.definition;
-    const context = this.context().chat.slice(Math.max(0, index - 3), index + 1).map(m => stripBlocks(m.mes)).join('\n');
-    const encoded = this.options.operatorFormat === 'toon' ? toToon(def, state, { view: 'operator' }) : toJson(def, state, { view: 'operator' });
-    return [sop(), schemaText(def, state), guide(def, state), encoded, JSON.stringify(this.runtime.getCommit()?.feedback ?? []), context].join('\n\n');
+  /** ⚙ 设置 › 变量更新 of this browser, once the player saved any (otherwise the card's attach options decide). */
+  private updatePrefs(): OperatorPrefs | undefined {
+    const scope = globalThis as any;
+    try { if (!scope.localStorage?.getItem(UPDATE_PREFS)) return undefined; } catch { return undefined; }
+    return readOperatorPrefs(scope);
   }
-  private async requestOperator(prompt: string): Promise<string> {
-    if (this.operator) fail('OPERATOR_BUSY', '操作模型任务正在运行');
-    const controller = new AbortController(); this.operator = controller;
-    const started = performance.now(); this.record('OPERATOR_STARTED', '独立操作模型请求开始');
-    const timer = setTimeout(() => controller.abort(new Error('操作模型超时')), this.options.operatorTimeoutMs ?? 60_000);
-    try {
-      const request = async (): Promise<string> => {
-        if (this.options.operatorRequest) return this.options.operatorRequest(prompt, controller.signal);
+  /** Who writes the operations: the story model (in-band) or a separate request (out-of-band). The player's choice wins. */
+  mode(): 'in-band' | 'out-of-band' { return this.updatePrefs()?.mode ?? this.options.mode ?? 'in-band'; }
+  /** Why the operator model is not asked automatically for this reply (undefined: ask). */
+  private operatorSkip(text: string): string | undefined {
+    const body = stripBlocks(text).trim();
+    if (!body) return '回复是空的（可能被截断，或只有被正则去掉的思考内容）';
+    const p = this.updatePrefs(); if (!p) return undefined;
+    if (!p.auto) return '设置里关掉了自动请求，可以点「单独生成变量」';
+    if (p.minLength > 0 && body.length < p.minLength) return `回复不到 ${p.minLength} 字`;
+    const trigger = p.trigger.trim(), re = /^\/(.+)\/([a-z]*)$/u.exec(trigger);
+    if (trigger) {
+      let hit: boolean;
+      try { hit = re ? new RegExp(re[1]!, re[2]).test(text) : text.includes(trigger); } catch { hit = text.includes(trigger); }
+      if (!hit) return `回复里没有触发标签 ${trigger}`;
+    }
+    return undefined;
+  }
+  private operatorPrompt(index: number): string {
+    const state = this.runtime.getState(), def = this.core.definition, prefs = this.updatePrefs();
+    const history = Math.max(1, prefs?.history ?? 4);
+    const lines = this.context().chat.slice(Math.max(0, index - history + 1), index + 1)
+      .map((m, i, all) => `${i === all.length - 1 ? '【最新回复】' : ''}${m.is_user ? '玩家' : (m.name || '角色')}：${stripBlocks(m.mes ?? '').trim()}`);
+    const format = prefs?.format ?? this.options.operatorFormat;
+    const encoded = format === 'toon' ? toToon(def, state, { view: 'operator' }) : toJson(def, state, { view: 'operator' });
+    const feedback = this.runtime.getCommit()?.feedback ?? [];
+    return [
+      '# 任务\n你是变量更新器，不写故事。读下面的说明、当前变量和最近的对话，只根据【最新回复】里发生的事，写出这一轮要做的变量操作。'
+        + '\n只输出一个 <solve_operate> 块（里面是操作的 JSON 数组），不要输出别的文字；这一轮没有变化就输出 <solve_operate>[]</solve_operate>。',
+      sop(), schemaText(def, state), guide(def, state),
+      `# 当前变量（${format === 'toon' ? 'TOON' : 'JSON'}）\n${encoded}`,
+      ...(feedback.length ? [`# 上一轮的反馈\n${JSON.stringify(feedback)}`] : []),
+      `# 最近的对话\n${lines.join('\n\n')}`,
+      '# 现在输出\n只输出 <solve_operate> 块。',
+    ].join('\n\n');
+  }
+  /** The request for the operator model: the player's settings, else the card's attach options. */
+  private operatorRequestFn(): (prompt: string, signal: AbortSignal) => Promise<string> {
+    const prefs = this.updatePrefs();
+    if (prefs && prefs.source !== 'same') return prefsRequest(globalThis, prefs);
+    if (this.options.operatorRequest) return this.options.operatorRequest;
+    if (this.options.operatorProfileId) {
+      const profileId = this.options.operatorProfileId;
+      return async (prompt, signal) => {
         const service = this.context().ConnectionManagerRequestService;
-        if (!service || !this.options.operatorProfileId) fail('OPERATOR_NOT_CONFIGURED', '需要操作模型的独立连接预设或请求函数');
-        const result = await service.sendRequest(this.options.operatorProfileId, prompt, 2048, { stream: false, signal: controller.signal, extractData: true, includePreset: true });
+        if (!service) fail('OPERATOR_NOT_CONFIGURED', '需要操作模型的独立连接预设或请求函数');
+        const result = await service.sendRequest(profileId, prompt, 2048, { stream: false, signal, extractData: true, includePreset: true });
         return typeof result === 'string' ? result : result?.content;
       };
-      const aborted = new Promise<never>((_resolve, reject) => {
-        controller.signal.addEventListener('abort', () => reject(controller.signal.reason ?? new Error('操作模型已取消')), { once: true });
-      });
-      const text = await Promise.race([request(), aborted]);
-      controller.signal.throwIfAborted();
-      if (typeof text !== 'string') fail('OPERATOR_RESPONSE', '操作模型没有返回文本');
-      this.record('OPERATOR_COMPLETED', `操作模型返回 ${text.length} 字符`, 'info', performance.now() - started);
-      return text;
-    } finally { clearTimeout(timer); if (this.operator === controller) this.operator = undefined; }
+    }
+    if ((globalThis as any).SillyTavern?.getContext) return prefsRequest(globalThis, prefs ?? readOperatorPrefs(globalThis));
+    fail('OPERATOR_NOT_CONFIGURED', '需要操作模型的独立连接预设或请求函数');
+  }
+  /** Last operator request (⚙ 设置 › 变量更新 › 最近一次). */
+  lastOperator?: { ok: boolean; at: number; ms?: number; chars?: number; error?: string };
+  private toastOperator(kind: 'info' | 'error' | 'clear', text = ''): void {
+    const t = (globalThis as any).toastr, prefs = this.updatePrefs();
+    try {
+      if (kind === 'clear') { if (this.operatorToast) t?.clear(this.operatorToast); this.operatorToast = undefined; return; }
+      if (kind === 'info' && prefs?.notify.working === false) return;
+      if (kind === 'error' && prefs?.notify.failed === false) return;
+      const el = kind === 'info' ? t?.info(text, 'SOLVE', { timeOut: 0, extendedTimeOut: 0 }) : t?.error(text, 'SOLVE', { timeOut: 15000 });
+      if (kind === 'info') this.operatorToast = el;
+    } catch { /* no toasts */ }
+  }
+  private operatorToast: unknown;
+  private async requestOperator(prompt: string, index?: number): Promise<string> {
+    if (this.operator) fail('OPERATOR_BUSY', '操作模型任务正在运行');
+    const prefs = this.updatePrefs();
+    const tries = 1 + Math.max(0, prefs?.retries ?? 0);
+    const timeoutMs = prefs ? prefs.timeout * 1000 : this.options.operatorTimeoutMs ?? 60_000;
+    const request = this.operatorRequestFn();
+    const started = performance.now(); this.record('OPERATOR_STARTED', `独立操作模型请求开始${index === undefined ? '' : `（楼层 ${index}）`}`);
+    this.toastOperator('info', '正在更新变量…');
+    let lastError: unknown, cancelled = false;
+    try {
+      for (let attempt = 1; attempt <= tries; attempt++) {
+        const controller = new AbortController(); this.operator = controller;
+        const timer = setTimeout(() => controller.abort(new Error(`操作模型超时（${Math.round(timeoutMs / 1000)} 秒）`)), timeoutMs);
+        try {
+          const aborted = new Promise<never>((_resolve, reject) => {
+            controller.signal.addEventListener('abort', () => reject(controller.signal.reason ?? new Error('操作模型已取消')), { once: true });
+          });
+          const text = await Promise.race([request(prompt, controller.signal), aborted]);
+          controller.signal.throwIfAborted();
+          if (typeof text !== 'string' || !text.trim()) fail('OPERATOR_RESPONSE', '操作模型没有返回文本');
+          parseOperatorOutput(text); // a reply that cannot be read counts as a failed try
+          this.record('OPERATOR_COMPLETED', `操作模型返回 ${text.length} 字符${attempt > 1 ? `（第 ${attempt} 次）` : ''}`, 'info', performance.now() - started);
+          this.lastOperator = { ok: true, at: Date.now(), ms: performance.now() - started, chars: text.length };
+          return text;
+        } catch (error) {
+          lastError = error;
+          // Cancelled by the player, a swipe or a chat switch: do not try again.
+          if (controller.signal.aborted && !String((controller.signal.reason as Error | undefined)?.message ?? '').includes('超时')) { cancelled = true; break; }
+          // The same limit would cut it again.
+          if ((error as { code?: string } | undefined)?.code === 'OPERATOR_TRUNCATED') break;
+          if (attempt < tries) this.record('OPERATOR_RETRY', `操作模型第 ${attempt} 次没有成功（${describeError(error).message}），重试`, 'warning');
+        } finally { clearTimeout(timer); if (this.operator === controller) this.operator = undefined; }
+      }
+      const why = describeError(lastError).message;
+      this.lastOperator = { ok: false, at: Date.now(), ms: performance.now() - started, error: why };
+      this.toastOperator('clear');
+      if (!cancelled) this.toastOperator('error', `变量没有更新：${why}。可以点输入框上方的「单独生成变量」再试。`);
+      throw lastError;
+    } finally { this.toastOperator('clear'); this.notify(); }
   }
   private async persist<T>(task: () => Promise<T>, align = true): Promise<T> {
     try {
@@ -712,7 +805,7 @@ export class SillyTavernController {
       sessionId: this.runtime?.sessionId, headId: this.runtime?.headId, pendingCount: (this.runtime?.pendingCount ?? 0) + (this.pendingImportError ? 1 : 0), pendingImportError: this.pendingImportError,
       cache: { enabled: Boolean(this.cache), error: this.cacheError, source: this.cache?.lastRestoreSource ?? 'archive' },
       facetHooksPending: this.runtime?.pendingHookCount ?? 0,
-      capabilities: inspectCapabilities(this.context(), this.hostVersion), mode: this.options.mode ?? 'in-band', operatorBusy: Boolean(this.operator),
+      capabilities: inspectCapabilities(this.context(), this.hostVersion), mode: this.mode(), cardMode: this.options.mode ?? 'in-band', operatorBusy: Boolean(this.operator),
       generating: this.generated || this.finalizingGeneration,
     };
   }
@@ -821,7 +914,7 @@ export class SillyTavernController {
    * 单独生成变量: ask a model for the operations of one reply (when the story model left them out), write them into
    * the reply as its operation block, then process it (and replay the floors after it).
    */
-  async generateOperations(request: (prompt: string, signal: AbortSignal) => Promise<string>, index = this.lastAssistantIndex()): Promise<{ operations: number }> {
+  async generateOperations(request?: (prompt: string, signal: AbortSignal) => Promise<string>, index = this.lastAssistantIndex()): Promise<{ operations: number }> {
     this.assertBound();
     if (index < 0) fail('NO_REPLY', '还没有可处理的回复');
     if (this.runtime.pendingCount || this.pendingImportError) await this.enqueue(() => this.dropStalePending('单独生成变量前还有没保存的草稿'));
@@ -831,19 +924,21 @@ export class SillyTavernController {
       await this.runtime.select(this.findParent(index));
       return this.operatorPrompt(index);
     });
-    if (this.operator) fail('OPERATOR_BUSY', '操作模型任务正在运行');
-    const controller = new AbortController(); this.operator = controller;
-    const started = performance.now(); this.record('OPERATOR_STARTED', `单独生成楼层 ${index} 的变量`);
     let output: string;
-    try {
-      const timer = setTimeout(() => controller.abort(new Error('生成变量超时')), this.options.operatorTimeoutMs ?? 120_000);
-      try { output = await request(prompt, controller.signal); } finally { clearTimeout(timer); }
-    } finally { if (this.operator === controller) this.operator = undefined; }
-    controller.signal.throwIfAborted();
-    if (typeof output !== 'string' || !output.trim()) fail('OPERATOR_RESPONSE', '模型没有返回内容');
-    this.record('OPERATOR_COMPLETED', `返回 ${output.length} 字符`, 'info', performance.now() - started);
-    const returned = extractRawBlocks(output);
-    const operations = parseOperations(returned.model ?? output.replace(/^```(?:json)?\s*|\s*```\s*$/gu, ''));
+    if (!request) output = await this.requestOperator(prompt, index);
+    else {
+      if (this.operator) fail('OPERATOR_BUSY', '操作模型任务正在运行');
+      const controller = new AbortController(); this.operator = controller;
+      const started = performance.now(); this.record('OPERATOR_STARTED', `单独生成楼层 ${index} 的变量`);
+      try {
+        const timer = setTimeout(() => controller.abort(new Error('生成变量超时')), this.options.operatorTimeoutMs ?? 120_000);
+        try { output = await request(prompt, controller.signal); } finally { clearTimeout(timer); }
+      } finally { if (this.operator === controller) this.operator = undefined; }
+      controller.signal.throwIfAborted();
+      if (typeof output !== 'string' || !output.trim()) fail('OPERATOR_RESPONSE', '模型没有返回内容');
+      this.record('OPERATOR_COMPLETED', `返回 ${output.length} 字符`, 'info', performance.now() - started);
+    }
+    const operations = parseOperatorOutput(output);
     this.adapter.assertCurrent(binding);
     const ctx = this.context(), message = ctx.chat[index]!;
     // Keep the player's block; replace (or add) the model's.
@@ -888,7 +983,7 @@ export class SillyTavernController {
    * (swipes, deletions, regeneration, a half-written save) is dropped and its reply processed again on the current history.
    */
   private canRedoPending(error: unknown): boolean {
-    if ((this.options.mode ?? 'in-band') !== 'in-band') return false;
+    if (this.mode() !== 'in-band') return false;
     return ['ARCHIVE_OWNERSHIP', 'PENDING_CONFLICT', 'PENDING_TEXT_CHANGED', 'PENDING_INVALID', 'STATE_NOT_ALIGNED', 'STALE_ACTION', 'HEAD_CHANGED', 'STALE_BINDING', 'SOURCE_TEXT_CHANGED']
       .includes(describeError(error).code);
   }

@@ -149,7 +149,7 @@ test('停止生成与独立连接预设路径可观察，渲染过滤不修改�
   const { controller, ctx, emit, addReply, hooks } = await setup({ mode: 'out-of-band', operatorProfileId: 'test-profile' });
   let seen = false;
   ctx.ConnectionManagerRequestService = { sendRequest: async (...args: any[]) => { seen = args[0] === 'test-profile' && args[3].signal instanceof AbortSignal; return { content: '{"$inc":{"@alice.hp":-2}}' }; } };
-  await emit('start', 'normal', {}, false); addReply(); await emit('stop'); await emit('end'); assert.equal(controller.getValue('@alice.hp'), 100);
+  await emit('start', 'normal', {}, false); ctx.chat.push({ mes: '剧情。', extra: {} }); await emit('stop'); await emit('end'); assert.equal(controller.getValue('@alice.hp'), 100);
   await controller.processMessage(1); assert.equal(seen, true); assert.equal(controller.getValue('@alice.hp'), 98);
   assert.ok(ctx.chat[1]!.mes.includes('<solve_operate>')); assert.ok(!hooks[0]!(ctx.chat[1]!.mes).includes('<solve_operate>'));
   assert.ok(controller.journal.read().some(e => e.code === 'OPERATOR_COMPLETED'));

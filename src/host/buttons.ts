@@ -2,7 +2,6 @@
  * Quick buttons above the tavern's input (where 酒馆助手 puts script buttons, as MVU does): repair actions for the
  * current chat. Which ones show is a preference of this browser (⚙ 设置 › 快捷按钮).
  */
-import { UPDATE_PREFS } from './inject.js';
 
 export type ButtonId = 'reprocess' | 'replay' | 'rebuild' | 'generate' | 'retry' | 'debug';
 export interface ButtonSpec { id: ButtonId; label: string; icon: string; desc: string; on: boolean }
@@ -25,7 +24,7 @@ interface ControllerLike {
   replayFrom(index: number): Promise<void>;
   rebuild(): Promise<void>;
   retryPending(): Promise<unknown>;
-  generateOperations(request: (prompt: string, signal: AbortSignal) => Promise<string>, index?: number): Promise<{ operations: number }>;
+  generateOperations(request?: (prompt: string, signal: AbortSignal) => Promise<string>, index?: number): Promise<{ operations: number }>;
 }
 export interface ButtonsHost { controller(): ControllerLike | undefined; onSessions(listener: () => void): () => void; openDebug(): void }
 
@@ -33,38 +32,6 @@ const read = <T,>(scope: any, key: string, fallback: T): T => { try { return JSO
 export const buttonPrefs = (scope: any): ButtonPrefs => read<ButtonPrefs>(scope, BUTTON_PREFS, {});
 export const shown = (prefs: ButtonPrefs, b: ButtonSpec) => prefs[b.id] ?? b.on;
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
-
-/** The model request for 单独生成变量, from ⚙ 设置 › 变量更新 (this browser). */
-export function operatorRequest(scope: any): (prompt: string, signal: AbortSignal) => Promise<string> {
-  const prefs = read<any>(scope, UPDATE_PREFS, {});
-  const ctx = scope.SillyTavern.getContext();
-  const maxTokens = prefs.api?.maxTokens ?? 2048;
-  if (prefs.source === 'profile' && prefs.profileId) {
-    return async (prompt, signal) => {
-      const service = ctx.ConnectionManagerRequestService;
-      if (!service) throw new Error('酒馆的连接配置管理不可用');
-      const r = await service.sendRequest(prefs.profileId, prompt, maxTokens, { stream: false, signal, extractData: true, includePreset: true });
-      return typeof r === 'string' ? r : r?.content ?? '';
-    };
-  }
-  if (prefs.source === 'custom' && prefs.api?.url) {
-    return async (prompt, signal) => {
-      const url = String(prefs.api.url).replace(/\/+$/u, '') + (/\/chat\/completions$/u.test(prefs.api.url) ? '' : '/chat/completions');
-      const res = await scope.fetch(url, { method: 'POST', signal, headers: { 'content-type': 'application/json', ...(prefs.api.key ? { authorization: 'Bearer ' + prefs.api.key } : {}) },
-        body: JSON.stringify({ model: prefs.api.model, temperature: prefs.api.temperature ?? 0.3, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }) });
-      if (!res.ok) throw new Error(`操作模型请求失败（${res.status}）`);
-      const json = await res.json();
-      return json?.choices?.[0]?.message?.content ?? '';
-    };
-  }
-  // 与正文相同: the tavern's current connection.
-  return async (prompt, signal) => {
-    if (!ctx.generateRaw) throw new Error('这个版本的酒馆不支持单独请求');
-    const run = ctx.generateRaw({ prompt, responseLength: maxTokens });
-    const stop = new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason ?? new Error('已取消')), { once: true }));
-    return String(await Promise.race([run, stop]) ?? '');
-  };
-}
 
 /** Mount the button row; follows the bound controller and the preferences. Returns a disposer. */
 export function installButtons(scope: any, host: ButtonsHost): () => void {
@@ -91,7 +58,7 @@ export function installButtons(scope: any, host: ButtonsHost): () => void {
       else if (id === 'replay') { await c.replayFrom(index!); toast('success', `已从第 ${index} 楼重放`); }
       else if (id === 'rebuild') { await c.rebuild(); const s = c.getStatus(); s.ready ? toast('success', '已按聊天记录重建变量') : toast('info', `已重建，但还需要处理：${s.reason}`); }
       else if (id === 'retry') { await c.retryPending(); toast('success', '已保存'); }
-      else if (id === 'generate') { toast('info', '正在让模型生成变量…'); const r = await c.generateOperations(operatorRequest(scope)); toast('success', `已生成并写入 ${r.operations} 组变量操作`); }
+      else if (id === 'generate') { const r = await c.generateOperations(); toast('success', `已生成并写入 ${r.operations} 组变量操作`); }
     } catch (e) { toast('error', `${BUTTONS.find(b => b.id === id)!.label}没有完成：${message(e)}`); }
     finally { busy.delete(id); render(); }
   };

@@ -14,7 +14,8 @@ import { StatusBar, type BgmView, type Mode } from '../ui/statusbar/views.js';
 import { StatusModel } from '../ui/statusbar/model.js';
 import type { Interact } from '../ui/statusbar/interact.js';
 import type { LocalPrefs, SettingsHost } from '../ui/statusbar/settings.js';
-import { UPDATE_DEFAULTS, type UpdateHost, type UpdatePrefs } from '../ui/statusbar/update.js';
+import { UPDATE_DEFAULTS, type UpdateHost, type UpdatePrefs, type UpdateRun } from '../ui/statusbar/update.js';
+import { listOperatorModels, testOperator } from './operator.js';
 import { GATE_DEFAULTS, type GatePrefs, type StructureHost } from '../ui/statusbar/gate.js';
 import type { BgmStatus } from './bgm.js';
 import type { BgmTrack, Batch, CompiledDefinition, LogicalState } from '../types.js';
@@ -310,8 +311,12 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
     ...(locked ? { locked } : {}),
     pending,
   };
-  // Who writes the operations (this browser). Read by the settings page; the controller does not use it yet.
-  const [updatePrefs, setUpdatePrefs] = React.useState<UpdatePrefs>(() => ({ ...UPDATE_DEFAULTS, ...read<Partial<UpdatePrefs>>(scope, UPDATE, {}) }));
+  // Who writes the operations (this browser). The controller reads it from storage on every reply.
+  const [updatePrefs, setUpdatePrefs] = React.useState<UpdatePrefs>(() => {
+    const saved = { ...UPDATE_DEFAULTS, ...read<Partial<UpdatePrefs>>(scope, UPDATE, {}) };
+    // The old default (2048) was saved with the rest; the controller reads it as the new one (operator.ts).
+    return saved.api.maxTokens === 2048 ? { ...saved, api: { ...saved.api, maxTokens: UPDATE_DEFAULTS.api.maxTokens } } : saved;
+  });
   React.useEffect(() => { write(scope, UPDATE, updatePrefs); }, [updatePrefs]); // eslint-disable-line react-hooks/exhaustive-deps
   // Macros the card already writes (auto injection skips them); rechecked when the card changes.
   const [cardMacros, setCardMacros] = React.useState<InjectKey[] | undefined>();
@@ -320,7 +325,14 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
   const savedProfiles = (ctx?.extensionSettings?.connectionManager?.profiles ?? []) as { id: string; name: string; model?: string }[];
   const update: UpdateHost = {
     prefs: updatePrefs, onPrefs: patch => setUpdatePrefs(p => ({ ...p, ...patch })),
-    cardMode: (status as { mode?: 'in-band' | 'out-of-band' }).mode ?? 'in-band',
+    cardMode: (status as { cardMode?: 'in-band' | 'out-of-band'; mode?: 'in-band' | 'out-of-band' }).cardMode ?? (status as { mode?: 'in-band' | 'out-of-band' }).mode ?? 'in-band',
+    test: () => testOperator(scope),
+    ...(updatePrefs.source === 'custom' ? { models: () => listOperatorModels(scope) } : {}),
+    ...((controller as { lastOperator?: UpdateRun }).lastOperator ? { last: (controller as { lastOperator?: UpdateRun }).lastOperator! } : {}),
+    ...((controller as { generateOperations?: unknown }).generateOperations ? { rerun: async (): Promise<UpdateRun> => {
+      try { await (controller as any).generateOperations(); } catch (error) { return (controller as any).lastOperator ?? { ok: false, at: Date.now(), error: message(error) }; }
+      return (controller as any).lastOperator ?? { ok: true, at: Date.now() };
+    } } : {}),
     ...(savedProfiles.length ? { profiles: savedProfiles.map(x => ({ id: x.id, name: x.name, ...(x.model ? { detail: x.model } : {}) })) } : {}),
     ...((controller as { getContextPreview?: () => { operatorPrompt?: string } }).getContextPreview ? { prompt: () => (controller as any).getContextPreview().operatorPrompt ?? '' } : {}),
     ...((controller as { runtime?: unknown }).runtime ? { injectTexts: () => { try { return injectTexts(controller as never, updatePrefs.inject?.format ?? 'toon'); } catch { return {}; } } } : {}),

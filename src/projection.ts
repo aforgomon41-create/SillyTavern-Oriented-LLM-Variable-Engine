@@ -110,13 +110,15 @@ export function sop(): string {
   ].join('\n');
 }
 export interface MacroRegistry { registerMacro(name: string, options: Record<string, unknown>): unknown; unregisterMacro?(name: string): unknown }
-export function registerMacros(registry: MacroRegistry, read: () => { definition: CompiledDefinition; state: LogicalState; feedback: Feedback[] }): () => void {
+/** `silent`: another model writes the operations (out-of-band), so the instructions for writing them stay empty. */
+export function registerMacros(registry: MacroRegistry, read: () => { definition: CompiledDefinition; state: LogicalState; feedback: Feedback[] }, silent: () => boolean = () => false): () => void {
   const names = ['solve_toon', 'solve_json', 'solve_val', 'solve_SOP', 'solve_schema', 'solve_guide', 'solve_feedback'];
   for (const name of names) {
     const registered = registry.registerMacro(name, {
       category: 'solve', unnamedArgs: [{ name: 'selector', optional: true }],
       description: 'SOLVE 已归档状态',
       handler: (ctx: any) => {
+        if (['solve_SOP', 'solve_schema', 'solve_guide', 'solve_feedback'].includes(name) && silent()) return '';
         // The operation guide does not depend on the state.
         if (name === 'solve_SOP') return sop();
         // Not ready (history needs a replay, chat switching…): output nothing rather than stale state or a broken prompt.

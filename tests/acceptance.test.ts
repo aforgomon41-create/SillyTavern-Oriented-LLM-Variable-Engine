@@ -55,7 +55,7 @@ test('独立模型被取消后忽略不合作的迟到响应，后续请求可�
     calls++; if (calls === 1) { started(); return new Promise<string>(done => { resolve = done; }); }
     return '{"$inc":{"@alice.hp":-10}}';
   } });
-  const index = env.addReply(); const first = env.controller.processMessage(index); await waiting;
+  env.ctx.chat.push({ mes: '剧情受伤。', extra: {} }); const index = env.ctx.chat.length - 1; const first = env.controller.processMessage(index); await waiting;
   env.controller.cancelOperator(); await assert.rejects(first, /取消/u);
   resolve('{"$inc":{"@alice.hp":-99}}'); await Promise.resolve();
   assert.equal(env.controller.getValue('@alice.hp'), 100); assert.equal(env.controller.busy, false);

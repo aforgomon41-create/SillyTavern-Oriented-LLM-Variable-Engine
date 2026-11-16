@@ -75,6 +75,14 @@ test('操作模型使用独立请求，写回指令后执行，可超时释放�
   await assert.rejects(slow.controller.processMessage(1), /超时/u);
   assert.equal(slow.controller.busy, false); slow.controller.dispose();
 });
+test('独立请求：回复里已经有操作块（生成过或手写）时直接用，不再请求操作模型', async () => {
+  let calls = 0;
+  const { controller, addReply } = await setup({ mode: 'out-of-band', operatorRequest: async () => { calls++; return '{"$inc":{"@alice.hp":-50}}'; } });
+  const index = addReply('{"$inc":{"@alice.hp":-15}}'); await controller.processMessage(index);
+  assert.equal(calls, 0); assert.equal(controller.getValue('@alice.hp'), 85);
+  await controller.replayFrom(index); assert.equal(calls, 0); assert.equal(controller.getValue('@alice.hp'), 85);
+  controller.dispose();
+});
 test('操作模型迟到响应在切聊天后不写入', async () => {
   let finish!: (text: string) => void;
   const { controller, ctx, emit } = await setup({ mode: 'out-of-band', operatorRequest: () => new Promise(r => { finish = r; }) });
