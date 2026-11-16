@@ -57,13 +57,15 @@ export interface SettingsHost {
   update?: UpdateHost;
   /** Which structure new chats use, and what happens with cards that bring MVU / ERA (this browser). */
   structure?: StructureHost;
+  /** Quick buttons above the tavern's input (this browser). */
+  buttons?: { list: { id: string; label: string; desc: string; on: boolean }[]; onToggle(id: string, on: boolean): void };
   /** 生图: plugin and timing (this browser). */
   images?: ImageSettingsHost;
   /** Section to open first (previews). */
   section?: string;
 }
 
-type Section = 'modules' | 'images' | 'lists' | 'delta' | 'structure' | 'update' | 'display' | 'music';
+type Section = 'modules' | 'images' | 'lists' | 'delta' | 'structure' | 'update' | 'buttons' | 'display' | 'music';
 const SECTIONS: { id: Section; label: string; note: string }[] = [
   { id: 'modules', label: '模块', note: '按聊天保存' },
   { id: 'images', label: '生图', note: '开关按聊天' },
@@ -71,6 +73,7 @@ const SECTIONS: { id: Section; label: string; note: string }[] = [
   { id: 'delta', label: '变化上限', note: '按聊天保存' },
   { id: 'structure', label: '数据结构', note: '本机' },
   { id: 'update', label: '变量更新', note: '本机' },
+  { id: 'buttons', label: '快捷按钮', note: '本机' },
   { id: 'display', label: '显示', note: '本机' },
   { id: 'music', label: '音乐', note: '本机' },
 ];
@@ -78,7 +81,7 @@ const SECTIONS: { id: Section; label: string; note: string }[] = [
 export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: BgmView; onBack: () => void }) {
   const K = useKit(), m = useModel();
   const [box, wide] = useWide(900);
-  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure)
+  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure).filter(s => s.id !== 'buttons' || host.buttons)
     .filter(s => s.id !== 'images' || (host.images && imageFields(m).length));
   const [current, setCurrent] = React.useState<Section>(() => sections.some(x => x.id === host.section) ? host.section as Section : 'modules');
   const [status, setStatus] = React.useState<{ text: string; tone?: 'error' } | undefined>();
@@ -91,6 +94,7 @@ export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: 
         : id === 'delta' ? <Limits host={host} report={report} kind="delta" />
         : id === 'structure' ? <StructureSection host={host.structure!} />
         : id === 'update' ? <UpdateSection host={host.update!} />
+        : id === 'buttons' ? <Buttons host={host} />
         : id === 'display' ? <Display host={host} />
         : <Music host={host} {...(bgm ? { bgm } : {})} />}
     </div>
@@ -359,6 +363,25 @@ function Stepper({ value, min, label, onChange, unit }: { value: number; min: nu
       {unit === '不限' ? <span {...part('unit')}>不限</span> : null}
       <button type="button" aria-label={label + ' 加 1'} onClick={() => onChange(value + 1)}>+</button>
     </span>
+  );
+}
+
+// ── 快捷按钮 ──
+
+function Buttons({ host }: { host: SettingsHost }) {
+  const K = useKit(), b = host.buttons!;
+  return (
+    <>
+      <p {...part('intro')}>显示在酒馆输入框上方的一排按钮，用来处理变量没算对、卡住或报错的情况。只影响这台设备。</p>
+      <div {...solve('pref-list')}>
+        {b.list.map(x => (
+          <div key={x.id} {...solve('pref', { kind: 'switch' })}>
+            <span {...part('label')}>{x.label}<small>{x.desc}</small></span>
+            <K.Switch checked={x.on} aria-label={`显示「${x.label}」按钮`} onCheckedChange={v => b.onToggle(x.id, v)} />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 

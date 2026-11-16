@@ -38,6 +38,7 @@ export interface HostContext {
   chatMetadata: Record<string, any>;
   getRequestHeaders(): Record<string, string>;
   saveChat?(): Promise<void>;
+  updateMessageBlock?(index: number, message: unknown): void;
   updateChatMetadata?(metadata: Record<string, any>, reset?: boolean): void;
   macros?: { registry: any };
   messageFormatter?: { addHook(fn: (text: string, ctx: any) => string, options: any): void; removeHook?(fn: unknown): void };

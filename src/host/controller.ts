@@ -256,12 +256,13 @@ export class SillyTavernController {
     }, error => {
       // Overtaken by a generation or a chat switch: nothing went wrong, the next turn sees it again.
       if (['STALE_BINDING', 'STALE_ACTION', 'STATE_NOT_ALIGNED'].includes(describeError(error).code)) { this.record('CATCH_UP', `楼层 ${index} 的补处理被新的生成打断，稍后再补`); return; }
-      this.tellUnprocessed(index, describeError(error).message);
+      void this.retrySilently(error).then(ok => { if (!ok) this.tellUnprocessed(index, describeError(error).message); });
     });
   }
   private tellUnprocessed(index: number, why: string): void {
     this.record('REPLY_UNPROCESSED', `楼层 ${index} 回复里的变量操作没有处理：${why}`, 'warning');
-    try { (globalThis as any).toastr?.warning(`SOLVE 没有处理第 ${index} 楼回复里的变量操作：${why}。可以在 魔法棒 › SOLVE 调试 › 日志 里查看。`, 'SOLVE', { timeOut: 15000 }); } catch { /* no toasts */ }
+    const fix = this.runtime.pendingCount ? '可以点输入框上方的「重试保存」' : '可以点输入框上方的「重新处理变量」或「重建」';
+    try { (globalThis as any).toastr?.warning(`SOLVE 没有处理第 ${index} 楼回复里的变量操作：${why}。${fix}，详情见 魔法棒 › SOLVE 调试 › 日志。`, 'SOLVE', { timeOut: 15000 }); } catch { /* no toasts */ }
   }
   private findParent(beforeIndex: number, archive?: import('../types.js').Archive): string {
     const links = archive ? new Map(Object.values(archive.commits).map(commit => [commit.id, commit.parentId])) : this.runtime.historyLinks();
@@ -329,6 +330,8 @@ export class SillyTavernController {
         if (left !== undefined && left === this.context().chat.length - 1) this.tellUnprocessed(left, '原因未知，见调试日志');
       } catch (error) {
         if (!this.disposed) {
+          // A save that failed once (often a race with the tavern's own save around swipes) usually goes through on retry.
+          if (await this.retrySilently(error)) return;
           onError(error);
           const left = this.unprocessedReply();
           if (left !== undefined) this.tellUnprocessed(left, describeError(error).message);
@@ -339,12 +342,21 @@ export class SillyTavernController {
     this.listen('MESSAGE_SWIPED', async (index: number) => {
       if (!this.ready) return;
       this.operator?.abort(); this.adapter.invalidate();
-      try {
-        const binding = this.adapter.binding(index);
-        const head = await this.adapter.selectedHead(binding);
-        await this.runtime.select(head ?? this.findParent(index));
-        this.record('SWIPE_SELECTED', `已恢复楼层 ${index} 当前回复的变量状态`);
-      } catch (error) { this.readyState = false; onError(error); return; }
+      // Selecting can lose a race with the tavern's own save right after a swipe: try again quietly before reporting.
+      let failure: unknown;
+      for (const wait of [0, 500, 1500]) {
+        if (wait) { await new Promise(resolve => setTimeout(resolve, wait)); if (this.disposed) return; this.adapter.invalidate(); }
+        try {
+          const binding = this.adapter.binding(index);
+          const head = await this.adapter.selectedHead(binding);
+          await this.runtime.select(head ?? this.findParent(index));
+          if (failure) this.record('AUTO_RETRY_SWIPE', `切换回复后恢复变量第一次失败（${describeError(failure).message}），重试成功`);
+          failure = undefined;
+          this.record('SWIPE_SELECTED', `已恢复楼层 ${index} 当前回复的变量状态`);
+          break;
+        } catch (error) { failure = error; }
+      }
+      if (failure) { this.readyState = false; onError(failure); return; }
       // Writing the variable snapshot back is secondary: the state is already selected; the next save writes it again.
       try { await this.syncVariableViews(); } catch (error) { this.record('SWIPE_SYNC_FAILED', `切换回复后写回变量快照失败（${describeError(error).message}），变量照常可用，下次保存时一并写入`, 'warning'); }
       // A swipe that carries operations but was never processed (its save failed earlier, SOLVE was off…): process it now.
@@ -755,6 +767,100 @@ export class SillyTavernController {
     return { beforeId, afterId, dataPatch: jsonpatch.compare(before.data, after.data), enginePatch: jsonpatch.compare(before.engineState, after.engineState) };
   }
   getPending() { return this.runtime.exportPending(); }
+  /**
+   * After a failed save: retry quietly a few times before telling the player. Returns true once nothing is left
+   * unsaved and the latest reply is processed.
+   */
+  private async retrySilently(error: unknown): Promise<boolean> {
+    if (!this.runtime.pendingCount && !this.pendingImportError) return false;
+    const why = describeError(error).message;
+    for (const wait of [400, 1200, 3000]) {
+      await new Promise(resolve => setTimeout(resolve, wait));
+      if (this.disposed) return false;
+      if (!this.runtime.pendingCount && !this.pendingImportError) break;
+      try { await this.retryPending(); }
+      catch (again) { this.record('AUTO_RETRY_FAILED', `自动重试保存没有成功：${describeError(again).message}`, 'warning'); continue; }
+    }
+    if (this.runtime.pendingCount || this.pendingImportError) return false;
+    this.record('AUTO_RETRY_SAVED', `保存失败（${why}），已自动重试保存成功`);
+    this.notify();
+    return this.unprocessedReply() === undefined;
+  }
+  /** 重新处理变量: read the latest reply's operations again (a draft left unsaved is retried first). */
+  async reprocessLatest(): Promise<Commit | undefined> {
+    this.assertBound();
+    if (this.runtime.pendingCount || this.pendingImportError) {
+      const commit = await this.retryPending();
+      if (this.unprocessedReply() === undefined) return commit;
+    }
+    const index = this.lastAssistantIndex();
+    if (index < 0) fail('NO_REPLY', '还没有可处理的回复');
+    if (!this.ready) fail('STATE_NOT_READY', this.reason || 'SOLVE 状态尚未就绪，可以先试「重建」');
+    const message = this.context().chat[index]!;
+    const commit = message.extra?.solve?.headId && this.runtime.archive.commits[message.extra.solve.headId]
+      ? await this.replayMessage(index) : await this.processMessage(index);
+    this.record('REPROCESSED', `已重新处理楼层 ${index} 的变量操作`);
+    return commit;
+  }
+  /**
+   * 重建: forget any unsaved draft and rebuild the variables from what the chat file holds, then process the latest
+   * reply if it was never processed. For a chat stuck after an error.
+   */
+  async rebuild(): Promise<void> {
+    this.assertBound();
+    this.operator?.abort();
+    await this.enqueue(() => this.dropStalePending('玩家要求重建'));
+    this.checkAlignment();
+    await this.syncVariableViews().catch(() => undefined);
+    const left = this.unprocessedReply();
+    if (left !== undefined) await this.processMessage(left);
+    this.record('REBUILT', this.ready ? '已按聊天记录重建变量' : `已重建，但后续楼层还需要重放：${this.reason}`, this.ready ? 'info' : 'warning');
+    this.notify();
+  }
+  /**
+   * 单独生成变量: ask a model for the operations of one reply (when the story model left them out), write them into
+   * the reply as its operation block, then process it (and replay the floors after it).
+   */
+  async generateOperations(request: (prompt: string, signal: AbortSignal) => Promise<string>, index = this.lastAssistantIndex()): Promise<{ operations: number }> {
+    this.assertBound();
+    if (index < 0) fail('NO_REPLY', '还没有可处理的回复');
+    if (this.runtime.pendingCount || this.pendingImportError) await this.enqueue(() => this.dropStalePending('单独生成变量前还有没保存的草稿'));
+    const binding = this.adapter.binding(index);
+    const prompt = await this.enqueue(async () => {
+      this.assertReady(); this.adapter.assertCurrent(binding);
+      await this.runtime.select(this.findParent(index));
+      return this.operatorPrompt(index);
+    });
+    if (this.operator) fail('OPERATOR_BUSY', '操作模型任务正在运行');
+    const controller = new AbortController(); this.operator = controller;
+    const started = performance.now(); this.record('OPERATOR_STARTED', `单独生成楼层 ${index} 的变量`);
+    let output: string;
+    try {
+      const timer = setTimeout(() => controller.abort(new Error('生成变量超时')), this.options.operatorTimeoutMs ?? 120_000);
+      try { output = await request(prompt, controller.signal); } finally { clearTimeout(timer); }
+    } finally { if (this.operator === controller) this.operator = undefined; }
+    controller.signal.throwIfAborted();
+    if (typeof output !== 'string' || !output.trim()) fail('OPERATOR_RESPONSE', '模型没有返回内容');
+    this.record('OPERATOR_COMPLETED', `返回 ${output.length} 字符`, 'info', performance.now() - started);
+    const returned = extractRawBlocks(output);
+    const operations = parseOperations(returned.model ?? output.replace(/^```(?:json)?\s*|\s*```\s*$/gu, ''));
+    this.adapter.assertCurrent(binding);
+    const ctx = this.context(), message = ctx.chat[index]!;
+    // Keep the player's block; replace (or add) the model's.
+    const mutual = /<solve_mutual_operate>[\s\S]*?<\/solve_mutual_operate>/u.exec(message.mes)?.[0];
+    const body = message.mes.replace(/<solve_(mutual_)?operate>[\s\S]*?<\/solve_\1operate>/gu, '').trimEnd();
+    message.mes = body + `\n<solve_operate>\n${JSON.stringify(operations)}\n</solve_operate>` + (mutual ? '\n' + mutual : '');
+    if (Array.isArray(message.swipes) && typeof message.swipe_id === 'number') message.swipes[message.swipe_id] = message.mes;
+    try { ctx.updateMessageBlock?.(index, message); } catch { /* the text is saved either way */ }
+    await ctx.saveChat?.();
+    if (message.extra?.solve?.headId && this.runtime.archive.commits[message.extra.solve.headId]) await this.replayFrom(index);
+    else {
+      await this.processMessage(index);
+      if (index < ctx.chat.length - 1) await this.replayFrom(index + 1);
+    }
+    this.record('OPERATIONS_GENERATED', `楼层 ${index} 已写入 ${Array.isArray(operations) ? operations.length : 1} 组生成的变量操作`);
+    return { operations: Array.isArray(operations) ? operations.length : 1 };
+  }
   retryPending(): Promise<Commit | undefined> {
     let redo: string | undefined;
     return this.enqueue(async () => {

@@ -35,6 +35,7 @@ import type { InjectKey } from '../ui/statusbar/inject.js';
 import { ImageGenContext, imageFields, imageSpec, type ImageGenView } from '../ui/statusbar/imagegen.js';
 import { IMAGE_DEFAULTS, IMAGE_PREFS, ImageService, PLUGIN_LABELS, type ImagePrefs } from './images.js';
 import { dormant } from '../schema.js';
+import { BUTTONS, BUTTONS_EVENT, BUTTON_PREFS, buttonPrefs, installButtons, shown as buttonShown, type ButtonPrefs } from './buttons.js';
 
 const PREFS = 'solve.statusbar.prefs.v1';
 const UPDATE = UPDATE_PREFS;
@@ -118,9 +119,11 @@ export function installStatusBar(scope: any, host: StatusBarHost): () => void {
   const root: Root = createRoot(app);
   root.render(<PortalContext.Provider value={portal}><KitProvider value={solveKit}><Live scope={scope} host={host} /></KitProvider></PortalContext.Provider>);
   const removeMenu = installWandMenu(scope);
+  const removeButtons = installButtons(scope, { controller: () => host.sessions()?.controller as never, onSessions: host.onSessions,
+    openDebug: () => doc.dispatchEvent(new scope.CustomEvent(OPEN_EVENT, { detail: 'debug' })) });
   return () => {
     doc.removeEventListener('kami:skin-changed', onSkin); doc.removeEventListener('kami-runtime-ready', onSkin); doc.removeEventListener('solve:statusbar-prefs', onSkin);
-    removeMenu(); detachKami?.(); root.unmount(); el.remove();
+    removeMenu(); removeButtons(); detachKami?.(); root.unmount(); el.remove();
   };
 }
 
@@ -323,6 +326,7 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
     ...extras.structure,
   };
   const bgmStatus = bgm?.status();
+  const [btnPrefs, setBtnPrefs] = React.useState<ButtonPrefs>(() => buttonPrefs(scope));
   const settings: SettingsHost = {
     setModule: (name, on) => locked ? Promise.resolve({ ok: false, error: locked }) : guard(() => controller.setModule(name, on)),
     setSettings: patch => locked ? Promise.resolve({ ok: false, error: locked }) : guard(() => controller.setSettings(patch)),
@@ -334,6 +338,14 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
     ...(extras.openBuilder ? { openBuilder: extras.openBuilder } : {}),
     update,
     structure,
+    buttons: {
+      list: BUTTONS.map(b => ({ id: b.id, label: b.label, desc: b.desc, on: buttonShown(btnPrefs, b) })),
+      onToggle: (id, on) => {
+        const next = { ...btnPrefs, [id]: on };
+        setBtnPrefs(next); write(scope, BUTTON_PREFS, next);
+        try { scope.document.dispatchEvent(new scope.CustomEvent(BUTTONS_EVENT)); } catch { /* old browser */ }
+      },
+    },
     ...(gen ? { images: {
       prefs: imgPrefs, onPrefs: patch => setImgPrefs(p => ({ ...p, ...patch } as ImagePrefs)),
       plugins: gen.plugins(), ...(picked ? { active: PLUGIN_LABELS[picked] } : {}), usage: gen.usage(),
