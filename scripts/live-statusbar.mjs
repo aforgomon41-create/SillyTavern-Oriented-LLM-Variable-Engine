@@ -163,7 +163,7 @@ try {
     const r = document.querySelector('solve-statusbar').shadowRoot, g = r.querySelector('[data-k="panel"] [data-solve="stat-groups"]');
     if (!g) return null;
     const groups = [...g.querySelectorAll('[data-solve-part="group"]')].map(x => ({ title: x.querySelector('[data-solve-part="title"]')?.textContent, top: Math.round(x.getBoundingClientRect().top), tiles: [...x.querySelectorAll(':is([data-solve="stat"], [data-solve="ladder"])')].map(t => { const b = t.getBoundingClientRect(); return { top: Math.round(b.top), w: Math.round(b.width), text: t.textContent }; }) }));
-    const first = groups[0]?.tiles ?? [];
+    const first = groups.find(x => x.tiles.length)?.tiles ?? [];
     return { groups: groups.map(x => x.title), sameRow: new Set(groups.map(x => x.top)).size === 1, perRow: first.filter(t => t.top === first[0]?.top).length, tiles: groups.reduce((n, x) => n + x.tiles.length, 0), minW: Math.min(...groups.flatMap(x => x.tiles.map(t => t.w))), sample: groups.flatMap(x => x.tiles.map(t => t.text)).slice(0, 3) };
   });
   await page.evaluate(() => SOLVE.controller.setModule('attr_fate', true)); await settle(400);
@@ -175,11 +175,15 @@ try {
   else check('FATE 电脑：一行至少四格（够宽时四类并排）', fateLayout?.perRow >= 4 || fateLayout?.sameRow, `一行 ${fateLayout?.perRow} 格 · 并排 ${fateLayout?.sameRow}`);
   await shot('page-属性-fate');
   await page.evaluate(() => SOLVE.controller.setModule('attr_coc', true)); await settle(400);
-  await page.evaluate(() => SOLVE.controller.submit([{ $set: { '@erin.attributes_coc': { str: 75, con: 70, siz: 80, dex: 45, app: 50, int: 40, pow: 55, edu: 35, luck: null } } }], { actionId: 'coc-' + Date.now() })); await settle(600);
+  await page.evaluate(() => SOLVE.controller.submit([{ $set: { '@erin.attributes_coc': { str: 75, con: 70, siz: 80, dex: 45, app: 50, int: 40, pow: 55, edu: 35, luck: null, hp: 12, mp: 11, san: 50, sanMod: -5 } } }], { actionId: 'coc-' + Date.now() })); await settle(600);
   await pages.filter({ hasText: '属性' }).first().click(); await settle();
   const cocLayout = await layout();
-  const str = cocLayout?.sample[0] ?? '';
-  check('COC：身体 / 心智两类、9 项，力量显示困难（÷2）和极难（÷5）', cocLayout?.groups.join('/') === '身体/心智' && cocLayout.tiles === 9 && /困难\s*37/u.test(str) && /极难\s*15/u.test(str), str);
+  const cocText = await page.evaluate(() => document.querySelector('solve-statusbar').shadowRoot.querySelector('[data-k="panel"] [data-solve="stat-groups"]').textContent);
+  const pools = await page.evaluate(() => [...document.querySelector('solve-statusbar').shadowRoot.querySelectorAll('[data-k="panel"] [data-solve="stat-groups"] [data-solve="pool"]')].map(x => x.textContent.replace(/\s+/g, '')));
+  check('COC：状态 / 身体 / 心智三类，生命 12/15、魔法 11/11、理智 50/94（上限按第七版算，加修正）', cocLayout?.groups.join('/') === '状态/身体/心智' && pools.join(' ') === '生命12/15 魔法11/11 理智50/94', `${cocLayout?.groups.join('/')} · ${pools.join(' ')}`);
+  check('COC：不再显示困难 / 极难，修正值不单独成格', !/困难|极难|修正/u.test(cocText), cocText.slice(0, 60));
+  const proj = await page.evaluate(() => String(SOLVE.controller.getContextPreview({ view: 'operator' }).json));
+  check('给模型的变量里有算好的上限：hp(上限) 15、san(上限) 94', /"hp\(上限\)":\s*15/u.test(proj) && /"san\(上限\)":\s*94/u.test(proj), (proj.match(/"(?:hp|mp|san)\(上限\)":\s*\d+/gu) ?? []).join(' '));
   if (mobile) check('COC 手机：一行三格', cocLayout?.perRow === 3, `一行 ${cocLayout?.perRow} 格`);
   await shot('page-属性-coc');
   if (attrBefore) await page.evaluate(n => SOLVE.controller.setModule(n, true), attrBefore); await settle(600);

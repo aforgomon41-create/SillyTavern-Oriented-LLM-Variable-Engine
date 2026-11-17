@@ -56,7 +56,7 @@ const WIDGETS: [string, string][] = [
   ['paragraph', '段落'], ['tags', '标签'], ['chips', '小标签'], ['meters', '进度条组'], ['meter-center', '居中进度（−/+）'], ['stage', '阶段'], ['levels', '等级表'],
   ['checklist', '勾选清单'], ['timeline', '时间线'], ['quests', '任务日志'], ['inventory', '背包'], ['abilities', '能力'], ['datetime', '日期时间'], ['image', '图片'], ['bgm', '音乐'],
 ];
-const FORMULAS: [string, string][] = [['wodTranscend', 'WOD 超凡（每 5 点一级）'], ['dndModifier', 'DND 调整值（(值−10)÷2）'], ['cocHard', 'COC 困难（值÷2，状态栏另显示极难 ÷5）']];
+const FORMULAS: [string, string][] = [['wodTranscend', 'WOD 超凡（每 5 点一级）'], ['dndModifier', 'DND 调整值（(值−10)÷2）']];
 const ON_DELETE: [string, string][] = [['', '默认（可空就置空，可省略就去掉，否则阻止）'], ['null', '置为空缺'], ['unset', '去掉这个字段'], ['remove', '移除这一条'], ['restrict', '阻止删除目标']];
 
 export const solve = (name: string, extra: Record<string, string | undefined> = {}) => ({ 'data-solve': name, ...Object.fromEntries(Object.entries(extra).filter(([, v]) => v !== undefined).map(([k, v]) => ['data-' + k, v])) });

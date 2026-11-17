@@ -241,11 +241,14 @@ export function Mixed({ entries }: { entries: [string, unknown][] }) {
 /** An attribute block: grouped into its declared sections (WOD 身体 / 心智 / 社交), with a note on derived values. */
 function StatGroups({ path }: { path: Path }) {
   const m = useModel();
-  const keys = m.children(path);
+  // Modifier fields (COC hpMod …) only feed a computed maximum: no tile of their own.
+  const keys = m.children(path).filter(k => m.widget([...path, k]) !== 'modifier');
   const sections = (m.meta(path)?.sections ?? []).map(s => ({ ...s, keys: s.keys.filter(k => keys.includes(k)) })).filter(s => s.keys.length);
   const rest = keys.filter(k => !sections.some(s => s.keys.includes(k)));
   const formulas = new Set(keys.flatMap(k => m.computed([...path, k], m.value([...path, k])).map(c => c.formula)));
-  const grid = (ks: string[]) => <div {...solve('stats')}>{ks.map(k => <Field key={k} path={[...path, k]} />)}</div>;
+  // A value with a computed maximum (COC 生命 / 魔法 / 理智) reads as a bar: current / maximum.
+  const pool = (k: string) => { const p = [...path, k], v = m.value(p), max = typeof v === 'number' ? m.computed(p, v).find(c => c.label === '上限')?.value : undefined; return max === undefined ? undefined : { v: v as number, max }; };
+  const grid = (ks: string[]) => <div {...solve('stats', { kind: ks.some(k => pool(k)) ? 'pools' : undefined })}>{ks.map(k => { const g = pool(k); return g ? <div key={k} {...solve('pool')}><Meter label={m.label([...path, k])} value={g.v} max={g.max} /></div> : <Field key={k} path={[...path, k]} />; })}</div>;
   return (
     <div {...solve('stat-groups', { sections: sections.length ? String(sections.length) : undefined })}>
       {sections.length ? (
@@ -256,7 +259,6 @@ function StatGroups({ path }: { path: Path }) {
       ) : grid(keys)}
       {formulas.has('wodTranscend') ? <p {...part('note')}><b>✦ 超凡</b>：属性每满 5 点获得 1 点超凡（由引擎计算）；圆点是距离下一点超凡的进度。</p> : null}
       {formulas.has('dndModifier') ? <p {...part('note')}><b>调整值</b>：（属性 − 10）÷ 2 向下取整，用于检定加减。</p> : null}
-      {formulas.has('cocHard') ? <p {...part('note')}><b>困难 / 极难</b>：属性的一半 / 五分之一（向下取整），检定骰出不高于它算困难 / 极难成功。</p> : null}
     </div>
   );
 }

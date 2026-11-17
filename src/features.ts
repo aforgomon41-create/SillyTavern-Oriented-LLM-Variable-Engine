@@ -4,31 +4,41 @@ import type { BgmTrack, CompiledDefinition, ComputedFormula, Data, Definition, F
 
 /* ---------- computed fields ---------- */
 
-const FORMULAS: Record<string, (value: number) => number> = {
+type Siblings = Record<string, unknown> | undefined;
+const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+/** COC 7e maximum from sibling characteristics plus the sibling modifier `<key>Mod` (undefined while an input is unset). */
+const cocMax = (key: string, base: (p: Record<string, unknown>) => number | undefined) => (_value: number, p: Siblings) => {
+  if (!p) return NaN;
+  const b = base(p);
+  return b === undefined ? NaN : b + (num(p[key + 'Mod']) ?? 0);
+};
+const FORMULAS: Record<string, (value: number, parent?: Siblings) => number> = {
   /** WOD / Infinite-horror transcendence: one point per five beyond the first five (5→0, 6→1, 11→2). */
   wodTranscend: value => value >= 1 ? Math.floor((value - 1) / 5) : 0,
   dndModifier: value => Math.floor((value - 10) / 2),
-  /** Call of Cthulhu: hard success target (half); the extreme one (a fifth) is shown by the status bar. */
-  cocHard: value => Math.floor(value / 2),
+  /** Call of Cthulhu 7e maxima: HP ⌊(CON+SIZ)/10⌋, MP ⌊POW/5⌋, SAN 99 (− Cthulhu Mythos, kept in sanMod); each + its modifier. */
+  cocHpMax: cocMax('hp', p => { const con = num(p.con), siz = num(p.siz); return con === undefined || siz === undefined ? undefined : Math.floor((con + siz) / 10); }),
+  cocMpMax: cocMax('mp', p => { const pow = num(p.pow); return pow === undefined ? undefined : Math.floor(pow / 5); }),
+  cocSanMax: cocMax('san', () => 99),
 };
 export function formulaName(formula: ComputedFormula): string {
   if (typeof formula === 'function') return 'runtime-bound-by-definition-version';
   if (!Object.hasOwn(FORMULAS, formula)) fail('COMPUTED_FORMULA', `未知计算公式：${formula}`);
   return formula;
 }
-export function runFormula(formula: ComputedFormula, value: number): number | undefined {
+export function runFormula(formula: ComputedFormula, value: number, parent?: Siblings): number | undefined {
   const fn = typeof formula === 'function' ? formula : FORMULAS[formula];
   if (!fn) return undefined;
-  const result = fn(value);
+  const result = fn(value, parent);
   return typeof result === 'number' && Number.isFinite(result) ? result : undefined;
 }
-/** Computed values for one concrete path, as projection siblings `key(label)`. */
-export function computedFor(def: CompiledDefinition, parts: string[], value: unknown): { label: string; value: number }[] {
+/** Computed values for one concrete path, as projection siblings `key(label)`; `parent` is the object holding it (formulas may read siblings). */
+export function computedFor(def: CompiledDefinition, parts: string[], value: unknown, parent?: Siblings): { label: string; value: number }[] {
   if (typeof value !== 'number' || !def.computed) return [];
   const out: { label: string; value: number }[] = [];
   for (const [pattern, rule] of Object.entries(def.computed)) {
     if (!matches(pattern, parts)) continue;
-    const result = runFormula(rule.formula, value);
+    const result = runFormula(rule.formula, value, parent);
     if (result !== undefined) out.push({ label: rule.label, value: result });
   }
   return out;
@@ -38,7 +48,8 @@ export function computeAll(def: CompiledDefinition, state: LogicalState): Record
   const out: Record<string, { label: string; value: number }[]> = {};
   for (const pattern of Object.keys(def.computed ?? {})) {
     for (const found of expand(state.data, pattern)) {
-      const values = computedFor(def, found.parts, found.value);
+      const parent = found.parts.slice(0, -1).reduce<any>((v, k) => v?.[k], state.data);
+      const values = computedFor(def, found.parts, found.value, parent && typeof parent === 'object' ? parent : undefined);
       if (values.length) out[pointer(found.parts)] = values;
     }
   }

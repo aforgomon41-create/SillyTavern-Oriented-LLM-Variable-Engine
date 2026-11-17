@@ -1329,3 +1329,10 @@ button[data-solve="gate-ball"][data-tone="error"] > [data-solve-part="dot"] { ba
 [data-solve="bgm"] > [data-solve-part="row"] > span:first-child { flex: none; font-size: var(--k-fs-sm); }
 [data-solve="bgm"] > [data-solve-part="row"] > :last-child:not(:first-child) { flex: none; }
 [data-solve="bgm"] > [data-solve-part="row"] > :last-child:not(:first-child):has([role="slider"]) { flex: 0 1 200px; min-width: 0; }
+/* COC 生命 / 魔法 / 理智: bars of current / computed maximum */
+[data-solve="stats"][data-kind="pools"] { grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); }
+[data-solve="pool"] { min-width: 0; padding: var(--k-space-2) var(--k-space-3); border-radius: var(--k-r-md); background: var(--k-sunken); color: var(--k-on-sunken); box-shadow: inset 0 0 0 1px var(--k-divider-sunken, var(--k-divider)); }
+@container (max-width: 560px) {
+  [data-solve="stat-groups"] [data-solve="stats"][data-kind="pools"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  [data-solve="pool"] { padding: 6px var(--k-space-2); }
+}

@@ -51,7 +51,8 @@ export class StatusModel {
   computed(parts: Path, value: unknown) {
     const pattern = this.pattern(parts);
     const rule = this.def.computed?.[pattern];
-    return computedFor(this.def, parts, value).map(c => ({ ...c, formula: typeof rule?.formula === 'string' ? rule.formula : 'custom' }));
+    const parent = this.value(parts.slice(0, -1));
+    return computedFor(this.def, parts, value, parent && typeof parent === 'object' ? parent : undefined).map(c => ({ ...c, formula: typeof rule?.formula === 'string' ? rule.formula : 'custom' }));
   }
   /** Spoiler level for a path; the player's own character is always public. */
   spoiler(parts: Path): Spoiler {

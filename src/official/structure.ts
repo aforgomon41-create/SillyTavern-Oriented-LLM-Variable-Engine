@@ -19,8 +19,11 @@ const wod = (label: string): FieldNode => attribute(label, { min: 0, computed: [
 const dnd = (label: string): FieldNode => attribute(label, { min: 0, max: 30, computed: [{ label: '调整', formula: 'dndModifier' }] });
 const fate = (label: string): FieldNode => ladder(label, FATE);
 const fu = (label: string): FieldNode => ladder(label, FU);
-/** COC characteristic (常人 15–90): the hard target (½) is computed by the engine; the status bar adds extreme (⅕). */
-const coc = (label: string): FieldNode => attribute(label, { min: 0, computed: [{ label: '困难', formula: 'cocHard' }] });
+/** COC characteristic (常人 15–90). */
+const coc = (label: string): FieldNode => attribute(label, { min: 0 });
+/** COC 生命 / 魔法 / 理智: the current value; the maximum is computed (COC 7e) plus the `<key>Mod` the model may adjust. */
+const cocPool = (label: string, formula: 'cocHpMax' | 'cocMpMax' | 'cocSanMax', hint: string): FieldNode => ({ type: 'int', label, nullable: true, min: 0, hint, computed: [{ label: '上限', formula }] } as FieldNode);
+const cocMod = (label: string, hint: string): FieldNode => ({ type: 'int', label, optional: true, as: 'modifier', hint } as FieldNode);
 /**
  * Media link (image / music): shown by the status bar, kept out of both model views (it is not the model's to write).
  * Pictures come in pairs — `thumb` (avatars; may carry a `#xywh=percent:x,y,w,h` crop) and `image` (立绘 / full view);
@@ -149,11 +152,17 @@ const character: FieldNode = {
       notice: fate('察觉'), investigate: fate('调查'), lore: fate('学识'), will: fate('意志'),
       empathy: fate('共情'), rapport: fate('交际'), deceive: fate('欺诈'), provoke: fate('挑衅'),
       stealth: fate('潜行'), burglary: fate('盗窃'), crafts: fate('工艺'), medicine: fate('医术') } },
-    // Call of Cthulhu 7th edition characteristics; 理智 / 生命 / 魔法 are gauges.
+    // Call of Cthulhu 7th edition: characteristics, and 生命 / 魔法 / 理智 whose maxima the engine computes.
     attributes_coc: { type: 'object', label: 'COC 属性', module: 'attr_coc',
-      sections: [{ label: '身体', keys: ['str', 'con', 'siz', 'dex', 'app'] }, { label: '心智', keys: ['int', 'pow', 'edu', 'luck'] }], fields: {
+      sections: [{ label: '状态', keys: ['hp', 'mp', 'san'] }, { label: '身体', keys: ['str', 'con', 'siz', 'dex', 'app'] }, { label: '心智', keys: ['int', 'pow', 'edu', 'luck'] }], fields: {
       str: coc('力量'), con: coc('体质'), siz: coc('体型'), dex: coc('敏捷'), app: coc('外貌'),
-      int: coc('智力'), pow: coc('意志'), edu: coc('教育'), luck: coc('幸运') } },
+      int: coc('智力'), pow: coc('意志'), edu: coc('教育'), luck: coc('幸运'),
+      hp: cocPool('生命', 'cocHpMax', '当前生命；上限 =（体质+体型）÷10 + hpMod，由引擎计算'),
+      mp: cocPool('魔法', 'cocMpMax', '当前魔法；上限 = 意志÷5 + mpMod，由引擎计算'),
+      san: cocPool('理智', 'cocSanMax', '当前理智；上限 = 99 + sanMod，由引擎计算；开局等于意志'),
+      hpMod: cocMod('生命上限修正', '剧情让生命上限变化时写（如 永久伤残 -2），平时不写'),
+      mpMod: cocMod('魔法上限修正', '剧情让魔法上限变化时写，平时不写'),
+      sanMod: cocMod('理智上限修正', '理智上限 = 99 − 克苏鲁神话技能：习得神话知识时减少（如 -5）') } },
     attributes_fu: { type: 'object', label: 'FU 属性', module: 'attr_fu', fields: {
       might: fu('力量'), dex: fu('敏捷'), insight: fu('洞察'), will: fu('意志') } },
     special: { type: 'record', label: '特殊属性', module: 'rp_attributes', hint: '世界观特有的属性（如 魔力、灵根），键是属性名；和 attributes_* 同级，不要放进属性体系里', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
@@ -332,7 +341,7 @@ export const officialStructure: StructureDescription = {
     attr_fate: { label: 'FATE', parent: 'rp_attributes', exclusive: 'attributes', enabled: false },
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false },
     attr_coc: { label: 'COC', parent: 'rp_attributes', exclusive: 'attributes', enabled: false,
-      guide: 'COC：属性按克苏鲁的呼唤第七版，常人 15～90；困难值（÷2）由引擎计算、极难值是属性÷5，都不要写入。理智、生命、魔法写在量表里（如 理智 {value, max}，起始理智等于意志）。' },
+      guide: 'COC：属性按克苏鲁的呼唤第七版，常人 15～90。生命、魔法、理智写在 attributes_coc 的 hp、mp、san（当前值），不要再写进量表；它们的上限由引擎按规则计算（hp(上限) 等），不要写，剧情让上限变化时改 hpMod、mpMod、sanMod。新建角色时 hp、mp 写满上限，san 等于意志；当前值不能超过上限。' },
     rp_abilities: { label: '能力', parent: 'rp', guide: '能力：新能力先在 abilities 建实体，再加到角色的 abilities 下。玩家说要「开发」能力时，依剧情决定成果：为该能力补充更高等级的效果，或新建一个衍生能力。' },
     rp_status: { label: '状态', parent: 'rp', guide: '状态：新建角色时写上他主要的量表（如 生命）。' },
     scale_num: { label: '数值', parent: 'rp', exclusive: 'scales' },

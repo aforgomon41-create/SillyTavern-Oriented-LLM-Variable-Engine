@@ -490,3 +490,15 @@ test('配图：imagePrompt 字段自动归入配图模块，总开关默认关�
   assert.ok(place.feedback.some(f => f.level === 'L3'), '字段级开关关掉后不能写');
   assert.throws(() => compileStructure({ id: 'x', version: '1', fields: { imagePrompt: { type: 'int' } } }), /只能是文字/u);
 });
+
+test('COC：生命 / 魔法 / 理智的上限按第七版由引擎计算，加上模型可改的修正', async () => {
+  const { def } = await official();
+  const state = { data: { characters: { a: { attributes_coc: { con: 70, siz: 80, pow: 55, hp: 12, mp: 11, san: 50, sanMod: -5 } } } }, engineState: { activeModules: {}, prefabLifecycle: {} } } as any;
+  const all = computeAll(def, state);
+  const max = (k: string) => all[`/characters/a/attributes_coc/${k}`]?.find(c => c.label === '上限')?.value;
+  assert.equal(max('hp'), 15, '（70+80）÷10');
+  assert.equal(max('mp'), 11, '55÷5');
+  assert.equal(max('san'), 94, '99 − 5');
+  state.data.characters.a.attributes_coc.con = null;
+  assert.equal(computeAll(def, state)['/characters/a/attributes_coc/hp'], undefined, '体质未定时不算生命上限');
+});

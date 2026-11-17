@@ -65,7 +65,7 @@ export interface DefinitionSnapshot {
   books: string[];
   digest: string;
 }
-export type ComputedFormula = 'wodTranscend' | 'dndModifier' | 'cocHard' | ((value: number) => number);
+export type ComputedFormula = 'wodTranscend' | 'dndModifier' | 'cocHpMax' | 'cocMpMax' | 'cocSanMax' | ((value: number, parent?: Record<string, unknown>) => number);
 export interface ComputedRule { label: string; formula: ComputedFormula }
 export interface StampRule { field: string; text: string }
 export type ProjectionRule =

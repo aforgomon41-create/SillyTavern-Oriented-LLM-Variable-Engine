@@ -36,7 +36,7 @@ export function project(def: CompiledDefinition, state: LogicalState, options: P
         const outputKey = entity ? `@${entity.id}` : key;
         if (Object.hasOwn(out, outputKey)) fail('PROJECTION_KEY_COLLISION', `实体标记导致键冲突：${outputKey}`);
         out[outputKey] = result;
-        for (const computed of computedFor(def, p, child)) {
+        for (const computed of computedFor(def, p, child, value as Record<string, unknown>)) {
           const computedKey = `${outputKey}(${computed.label})`;
           if (!Object.hasOwn(value, computedKey)) out[computedKey] = computed.value;
         }
