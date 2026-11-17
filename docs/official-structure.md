@@ -240,7 +240,7 @@ SOLVE 引擎本来就有两种现成实体，由世界书 `[SOLVE:PREFABS]` / `[
 | 6.6 | 轮次 | `meta.round` = 该次模型回复所在的酒馆楼层号；保险规则：不小于上一提交的轮次 + 1（防止用 `/cut` 删中间楼层后编号回退）。切换回复版本、重新生成不改变轮次。`keyEvents` 等条目的 `round` 在写入时由引擎自动填写 |
 | 6.7 | 声明式投影 | 默认规则：在场角色输出全部字段；不在场角色只输出核心字段；社交只输出与用户角色和在场角色有关的条目；地点只输出当前位置、上级路径与相邻地点的全部字段，其余只输出名称 |
 | 6.8 | 剧透等级 | 前端能力，按字段读取等级，模型侧不受影响 |
-| 6.9 | 背景音乐 | 引擎负责播放。曲库由卡作者附带和玩家自行添加，两者都支持，每首标注情绪。选曲顺序：当前地点 `bgm` → 上级区域 `bgm` → 曲库中符合 `meta.mood` 的曲目。换曲淡入淡出；播放、暂停、音量在状态栏，设置存在玩家本机；浏览器要求首次播放前用户点击一次页面 |
+| 6.9 | 背景音乐 | 引擎负责播放。曲库有三部分：SOLVE 的默认曲库（外链，47 首 CC0 古典录音，见 gh-pages `solve/music/v1/`）、卡作者附带、玩家自行添加；每首带标签，和场景情绪同名的标签用来选曲。玩家可以建合集，选「播放来源」（默认曲库 / 全部 / 某个合集）。选曲顺序：当前地点 `bgm` → 上级区域 `bgm` → 播放来源里带 `meta.mood` 标签的曲目（一首放完换同情绪的下一首）。换曲淡入淡出；播放、暂停、音量在状态栏，设置存在玩家本机；浏览器要求首次播放前用户点击一次页面 |
 
 ## 7. 清单默认上限（玩家可改）
 
@@ -396,7 +396,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | `SOLVE.controller.getComputed()` | 全部计算值（按 JSON 指针），给状态栏用 |
 | `SOLVE.controller.getDisplay()` | 显示名、剧透等级、控件、布局 |
 | `SOLVE.controller.getMigration()` | 待发送的迁移指令（没有时为 `undefined`） |
-| `SOLVE.bgm.status()` / `setEnabled()` / `setVolume()` / `addTracks()` / `removeTrack()` / `subscribe()` | 背景音乐状态与玩家曲库（存于本机浏览器） |
+| `SOLVE.bgm.status()` / `setEnabled()` / `setVolume()` / `addTracks()` / `removeTrack()` / `subscribe()` / `setActive()` / `setUseDefaults()` / `next()` / `createCollection()` / `setInCollection()` | 背景音乐状态、玩家曲库与合集（存于本机浏览器） |
 
 ### 11.5 行为细节
 
@@ -454,7 +454,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | 清单上限 | 每个声明的清单一行：预警线、上限，可恢复默认；按根集合分组（角色 / 设定 / 势力），名称前缀所在的记录（如「社交 · 约定」）。所属模块关闭的清单不显示。改动先暂存，「保存」一次提交为一个玩家动作；预警线高于上限时不能保存 | 聊天（玩家动作 `setSettings`） |
 | 变化上限 | 声明了 `maxDelta` 的字段，0 表示不限 | 聊天（同上） |
 | 显示 | 「直接显示剧透」：剧透内容直接展开（`StatusModel` 的 `revealSpoilers` 选项），隐藏字段仍不显示 | 本机 |
-| 音乐 | 播放、音量；玩家自己的曲目（名称、链接、情绪），与作者曲库一起参与按情绪选曲；作者曲库只读列出 | 本机 |
+| 音乐 | 播放、音量、换一首；播放来源（默认曲库 / 全部曲目 / 合集）与合集管理；所有曲目一个列表，按名称或 #标签搜索、标签筛选、试听；添加曲目（名称、链接、标签，可同时放进合集），勾选后批量加入 / 移出合集 | 本机 |
 
 **宿主接口**（`StatusBar` 的 `settings` 属性，见 `src/ui/statusbar/settings.tsx`）：`setModule(name, on)`、`setSettings(patch)` → `{ ok } | { ok: false, error }`；`prefs` / `onPrefs(patch)`（本机偏好）；`tracks?: { list, add, remove }`（本机曲目）；`locked?`。`defaultSettings` 让面板直接打开设置页。设计预览与酒馆宿主（§11.8）都已接上真引擎。显示区另有「跟随卡密预设的皮肤」（只在页面上有卡密预设时出现，`prefs.skin`）。
 

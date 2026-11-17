@@ -179,35 +179,40 @@
 
 /* overview content (bar and panel title) */
 [data-solve="overview"] { display: flex; align-items: center; flex-wrap: wrap; gap: 4px var(--k-space-3); min-width: 0; font-size: var(--k-fs-sm); line-height: 1.3; }
-[data-solve="overview"][data-where="bar"] { flex-wrap: nowrap; overflow: hidden; }
-[data-solve="overview"] > [data-solve-part="place"] { font-family: var(--k-font-heading); font-weight: var(--k-fw-strong); font-size: var(--k-fs-md); white-space: nowrap; }
-[data-solve="overview"] > [data-solve-part="time"], [data-solve="overview"] > [data-solve-part="round"] { color: var(--k-on-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-[data-solve="overview"] > [data-solve-part="round"] { font-size: var(--k-fs-xs); padding: 1px var(--k-space-2); border-radius: var(--k-r-pill); box-shadow: inset 0 0 0 1px var(--k-divider); }
-[data-solve="overview"] > [data-solve-part="chip"] { padding: 1px var(--k-space-2); border-radius: var(--k-r-pill); background: var(--k-accent-soft); color: var(--k-on-accent-soft); white-space: nowrap; font-size: var(--k-fs-xs); }
-[data-solve="overview"] > [data-solve-part="vitals"] { display: inline-flex; gap: var(--k-space-3); }
+[data-solve="overview"][data-where="bar"] { flex-direction: column; align-items: stretch; gap: 2px; flex-wrap: nowrap; overflow: hidden; }
+/* Two rows: time · weather · mood above, place · people below. */
+[data-solve="overview"][data-where="bar"] > [data-solve-part="row"] { display: flex; align-items: center; gap: 4px var(--k-space-3); min-width: 0; overflow: hidden; white-space: nowrap; }
+[data-solve="overview"][data-where="bar"] > [data-solve-part="row"] > * { flex: none; }
+[data-solve="overview"][data-where="bar"] > [data-solve-part="row"] > [data-solve-part="place"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+[data-solve="overview"][data-where="bar"] > [data-solve-part="row"] > [data-solve-part="time"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+[data-solve="overview"][data-where="bar"][data-rows="2"] > [data-solve-part="row"][data-row="when"] { font-size: var(--k-fs-xs); }
+[data-solve="bar"]:has(> [data-solve="overview"][data-rows="2"]) { border-radius: var(--k-r-lg, 16px); padding-block: 6px; }
+[data-solve="overview"] [data-solve-part="place"] { font-family: var(--k-font-heading); font-weight: var(--k-fw-strong); font-size: var(--k-fs-md); white-space: nowrap; }
+[data-solve="overview"] [data-solve-part="time"], [data-solve="overview"] [data-solve-part="round"] { color: var(--k-on-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+[data-solve="overview"] [data-solve-part="round"] { font-size: var(--k-fs-xs); padding: 1px var(--k-space-2); border-radius: var(--k-r-pill); box-shadow: inset 0 0 0 1px var(--k-divider); }
+[data-solve="overview"] [data-solve-part="chip"] { padding: 1px var(--k-space-2); border-radius: var(--k-r-pill); background: var(--k-accent-soft); color: var(--k-on-accent-soft); white-space: nowrap; font-size: var(--k-fs-xs); }
+[data-solve="overview"] [data-solve-part="vitals"] { display: inline-flex; gap: var(--k-space-3); }
 [data-solve="overview"] [data-solve-part="vital"] { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 [data-solve="overview"] [data-solve-part="vital"] > [data-solve-part="label"] { color: var(--k-on-muted); font-size: var(--k-fs-xs); }
 [data-solve="overview"] [data-solve-part="vital"] > [data-solve-part="track"] { width: 44px; height: 6px; border-radius: var(--k-r-pill); background: var(--k-sunken); box-shadow: inset 0 0 0 1px var(--k-divider); overflow: hidden; }
 [data-solve="overview"] [data-solve-part="vital"] > [data-solve-part="track"] > i { display: block; height: 100%; background: var(--solve-slot, var(--k-accent)); }
 [data-solve="overview"] [data-solve-part="vital"] > [data-solve-part="value"] { font-variant-numeric: tabular-nums; font-weight: var(--k-fw-strong); font-size: var(--k-fs-xs); }
-[data-solve="overview"] > [data-solve-part="people"] { display: inline-flex; align-items: center; }
-[data-solve="overview"] > [data-solve-part="people"] > i, [data-solve="entity-head"] > [data-solve-part="avatar"] {
+[data-solve="overview"] [data-solve-part="people"] { display: inline-flex; align-items: center; }
+[data-solve="overview"] [data-solve-part="people"] > i, [data-solve="entity-head"] > [data-solve-part="avatar"] {
   font-style: normal; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 12px; font-weight: var(--k-fw-strong);
   background: var(--k-accent-soft); color: var(--k-on-accent-soft); box-shadow: 0 0 0 2px var(--k-surface-1);
 }
-[data-solve="overview"] > [data-solve-part="people"] > i + i { margin-inline-start: -6px; }
-[data-solve="overview"] > [data-solve-part="people"] > small { margin-inline-start: 4px; color: var(--k-on-muted); }
+[data-solve="overview"] [data-solve-part="people"] > i + i { margin-inline-start: -6px; }
+[data-solve="overview"] [data-solve-part="people"] > small { margin-inline-start: 4px; color: var(--k-on-muted); }
 /* vitals colours: games read HP / stamina / mana by colour */
 [data-slot="0"] { --solve-slot: var(--k-danger); }
 [data-slot="1"] { --solve-slot: var(--k-success, var(--k-accent)); }
 [data-slot="2"] { --solve-slot: var(--k-info, var(--k-accent)); }
 [data-slot="3"] { --solve-slot: var(--k-warning, var(--k-accent)); }
 @media (max-width: 600px) {
-  /* phones keep place · time · weather; the rest is in the panel */
-  [data-solve="overview"][data-where="bar"] > [data-solve-part="people"],
-  [data-solve="overview"][data-where="bar"] > [data-solve-part="round"] { display: none; }
-  [data-solve="overview"][data-where="bar"] { gap: 4px var(--k-space-2); }
-  [data-solve="overview"][data-where="bar"] > [data-solve-part="place"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--k-fs-sm); }
+  [data-solve="overview"][data-where="bar"] [data-solve-part="round"] { display: none; }
+  [data-solve="overview"][data-where="bar"] > [data-solve-part="row"] { gap: 4px var(--k-space-2); }
+  [data-solve="overview"][data-where="bar"] [data-solve-part="place"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--k-fs-sm); }
   [data-solve="overview"][data-where="bar"] [data-solve-part="vital"] > [data-solve-part="track"] { width: 32px; }
   [data-solve="overview"][data-where="title"] > [data-solve-part="vitals"], [data-solve="overview"][data-where="title"] > [data-solve-part="people"] { display: none; }
 }
@@ -341,7 +346,6 @@
 [data-solve-part="legend"] > [data-solve-part="hint"] { margin-inline-start: auto; }
 [data-solve="relation-graph"] > [data-solve-part="selected"] { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-2); }
 @media (max-width: 600px) {
-  [data-solve="overview"][data-where="bar"] > [data-solve-part="chip"] ~ [data-solve-part="chip"],
   [data-solve="overview"][data-where="bar"] [data-solve-part="vital"] + [data-solve-part="vital"] { display: none; }
 }
 [data-page="quests"] [data-solve="fields"] { grid-template-columns: minmax(0, 1fr); }
@@ -428,13 +432,13 @@
 /* bar hint & title avatars */
 [data-solve="bar"] > [data-solve-part="open"] { flex: none; color: var(--k-on-subtle); font-size: 11px; margin-inline-start: -2px; }
 [data-solve="bar"]:hover > [data-solve-part="open"] { color: var(--k-accent); }
-[data-solve="overview"] > [data-solve-part="people"] > button {
+[data-solve="overview"] [data-solve-part="people"] > button {
   font: inherit; font-size: 12px; font-weight: var(--k-fw-strong); display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 50%;
   border: 0; cursor: pointer; background: var(--k-accent-soft); color: var(--k-on-accent-soft); box-shadow: 0 0 0 2px var(--k-surface-1);
 }
-[data-solve="overview"] > [data-solve-part="people"] > button + button { margin-inline-start: -5px; }
-[data-solve="overview"] > [data-solve-part="people"] > button:hover { position: relative; z-index: 1; background: var(--k-accent); color: var(--k-on-accent); }
-[data-solve="overview"] > [data-solve-part="people"] > button:focus-visible { outline: 2px solid var(--k-focus-ring); outline-offset: 1px; position: relative; z-index: 1; }
+[data-solve="overview"] [data-solve-part="people"] > button + button { margin-inline-start: -5px; }
+[data-solve="overview"] [data-solve-part="people"] > button:hover { position: relative; z-index: 1; background: var(--k-accent); color: var(--k-on-accent); }
+[data-solve="overview"] [data-solve-part="people"] > button:focus-visible { outline: 2px solid var(--k-focus-ring); outline-offset: 1px; position: relative; z-index: 1; }
 
 /* inventory detail */
 [data-solve="inventory"] [data-solve-part="title"] small { font-weight: var(--k-fw); }
@@ -1252,3 +1256,40 @@ button[data-solve="gate-ball"][data-tone="error"] > [data-solve-part="dot"] { ba
 [data-solve="settings-section"][data-section="presets"] form[data-solve="pref"] > input { flex: 1 1 auto; min-width: 0; }
 [data-solve="settings-section"][data-section="presets"] form[data-solve="pref"] > :last-child { flex: 0 0 auto; }
 [data-solve="settings-section"][data-section="presets"] [data-solve="pref"] > [data-solve-part="buttons"] { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; flex: 0 0 auto; }
+/* 设置 · 音乐：搜索、标签筛选、曲目列表、合集 */
+[data-solve="music-find"] { display: flex; flex-direction: column; gap: var(--k-space-2); margin-bottom: var(--k-space-2); }
+[data-solve="music-find"] > input, [data-solve="music-edit"] > input, [data-solve="track-add"] [data-solve-part="moods"] > input {
+  min-height: 36px; box-sizing: border-box; width: 100%; padding: var(--k-space-1) var(--k-space-2); font: inherit; font-size: 16px;
+  color: var(--k-on); background: var(--k-surface-1); border: var(--k-border-w, 1px) solid var(--k-divider); border-radius: var(--k-r-md);
+}
+[data-solve="music-find"] > [data-solve-part="tags"] { display: flex; flex-wrap: wrap; gap: 4px; }
+[data-solve="music-find"] > [data-solve-part="tags"] > button {
+  min-height: 28px; padding: 0 var(--k-space-2); border-radius: var(--k-r-pill); cursor: pointer; font: inherit; font-size: var(--k-fs-xs);
+  background: var(--k-surface-1); color: var(--k-on-muted); border: var(--k-border-w, 1px) solid var(--k-divider);
+}
+[data-solve="music-find"] > [data-solve-part="tags"] > button[data-mood] { color: var(--k-on); font-weight: var(--k-fw-strong); }
+[data-solve="music-find"] > [data-solve-part="tags"] > button[aria-pressed="true"] { background: var(--k-accent); color: var(--k-on-accent); border-color: transparent; }
+[data-solve="music-bulk"] {
+  position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-2); margin-bottom: var(--k-space-2);
+  padding: var(--k-space-2) var(--k-space-3); border-radius: var(--k-r-md); background: var(--k-surface-1); box-shadow: var(--k-shadow-2, 0 2px 10px rgba(0,0,0,.15)); font-size: var(--k-fs-sm);
+}
+[data-solve="music-bulk"] > [data-solve="select"] { width: auto; max-width: 12em; min-height: 32px; }
+[data-solve="music-list"] { list-style: none; margin: 0 0 var(--k-space-2); padding: var(--k-space-1) 0; display: flex; flex-direction: column; border-radius: var(--k-r-md); background: var(--k-sunken); color: var(--k-on-sunken); max-height: 60dvh; overflow: auto; }
+[data-solve="music-list"] > [data-solve-part="empty"] { padding: var(--k-space-3); color: var(--k-on-sunken-muted); font-size: var(--k-fs-sm); }
+[data-solve="music-track"] { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--k-space-2); padding: var(--k-space-2) var(--k-space-3); }
+[data-solve="music-track"] + [data-solve="music-track"] { border-top: var(--k-border-w, 1px) solid var(--k-divider); }
+[data-solve="music-track"][data-playing] { background: color-mix(in srgb, var(--k-accent) 10%, transparent); }
+[data-solve="music-track"] > input[type="checkbox"] { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--k-accent); }
+[data-solve="music-track"] > [data-solve-part="main"] { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+[data-solve="music-track"] > [data-solve-part="main"] > b { font-weight: var(--k-fw-strong); overflow-wrap: anywhere; }
+[data-solve="music-track"] > [data-solve-part="main"] > small { font-size: var(--k-fs-xs); color: var(--k-on-sunken-muted); }
+[data-solve="music-track"] > [data-solve-part="main"] > [data-solve-part="tags"] { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+[data-solve="music-track"] > [data-solve-part="main"] > [data-solve-part="tags"] > small { font-size: var(--k-fs-xs); color: var(--k-on-sunken-muted); }
+[data-solve="music-track"] > [data-solve-part="actions"] { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
+[data-solve="music-edit"] { display: flex; flex-direction: column; gap: var(--k-space-2); margin-top: var(--k-space-2); }
+[data-solve="music-edit"] > span { display: inline-flex; gap: var(--k-space-2); }
+[data-solve="track-add"] [data-solve-part="moods"] > small { align-self: center; font-size: var(--k-fs-xs); color: var(--k-on-muted); }
+[data-solve="track-add"] [data-solve-part="moods"] > input { flex: 1 1 10em; min-height: 30px; width: auto; }
+[data-solve="track-add"] > [data-solve-part="buttons"] { grid-column: 1 / -1; display: inline-flex; gap: var(--k-space-2); }
+[data-solve="track-add"] > input[aria-label="其他标签"] { grid-column: 1 / -1; }
+[data-solve="music-find"] > [data-solve-part="tags"] > button[data-kind="more"] { border-style: dashed; color: var(--k-accent); }

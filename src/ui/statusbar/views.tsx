@@ -222,10 +222,24 @@ function resolve(m: StatusModel, s: string): Path | undefined {
 }
 function Overview({ model: m, where }: { model: StatusModel; where: 'bar' | 'title' }) {
   const round = m.def.round ? m.value(rel(m.def.round)) : undefined;
+  const roundTag = typeof round === 'number' ? <span key="$round" {...part('round')}>第 {round} 轮</span> : null;
+  const items = barItems(m);
+  if (where === 'bar') {
+    // Floating bar in two rows: when and how it feels (time, weather, mood, round) above; where and who (place, people, gauges) below.
+    const lower = (i: BarItem) => { const meta = m.meta(resolve(m, i.path)!); return meta?.type === 'ref' || meta?.type === 'refs' || meta?.type === 'record'; };
+    const top = items.filter(i => !lower(i)), bottom = items.filter(lower);
+    const piece = (item: BarItem) => <BarPiece key={item.path} item={item} path={resolve(m, item.path)!} where={where} />;
+    return (
+      <span {...solve('overview', { where, rows: top.length && bottom.length ? '2' : '1' })}>
+        {top.length || roundTag ? <span {...part('row')} data-row="when">{top.map(piece)}{roundTag}</span> : null}
+        {bottom.length ? <span {...part('row')} data-row="where">{bottom.map(piece)}</span> : null}
+      </span>
+    );
+  }
   return (
     <span {...solve('overview', { where })}>
-      {barItems(m).map(item => <BarPiece key={item.path} item={item} path={resolve(m, item.path)!} where={where} />)}
-      {typeof round === 'number' ? <span {...part('round')}>第 {round} 轮</span> : null}
+      {items.map(item => <BarPiece key={item.path} item={item} path={resolve(m, item.path)!} where={where} />)}
+      {roundTag}
     </span>
   );
 }
@@ -236,7 +250,7 @@ function BarPiece({ item, path, where }: { item: BarItem; path: Path; where: 'ba
     for (let c: any = value, n = 0; typeof c === 'string' && n < 8; n++) { chain.unshift(m.entityName(c)); const p = m.locate(c); c = p ? m.value(p)?.parent : undefined; }
     return <span {...part('place')}>{chain.slice(-2).join(' › ')}</span>;
   }
-  if (m.widget(path) === 'datetime' || item.as === 'datetime') return <span {...part('time')}>{formatTime(value, true)}</span>;
+  if (m.widget(path) === 'datetime' || item.as === 'datetime') return <span {...part('time')}>{formatTime(value, where === 'title')}</span>;
   if (meta?.type === 'record' && Object.values(value).every((g: any) => typeof g?.value === 'number' && typeof g?.max === 'number')) {
     return <span {...part('vitals')}>{Object.entries(value).slice(0, item.limit ?? 3).map(([k, g]: any, i) => (
       <span key={k} {...part('vital')} data-slot={i % 4} title={`${k} ${g.value}/${g.max}`}>
@@ -262,7 +276,8 @@ function People({ ids, label, where }: { ids: string[]; label: string; where: 'b
 }
 function formatTime(t: any, short = false): string {
   if (!t || typeof t !== 'object') return '';
-  const date = [!short && t.year !== undefined ? `${t.year}年` : '', t.month !== undefined ? `${t.month}月` : '', t.day !== undefined ? `${t.day}日` : ''].join('');
+  // Year 0 without an era: the opening has not set the date yet.
+  const date = [!short && t.year !== undefined && (t.year !== 0 || t.era) ? `${t.year}年` : '', t.month !== undefined ? `${t.month}月` : '', t.day !== undefined ? `${t.day}日` : ''].join('');
   return [short ? '' : t.era, date, t.clock].filter(Boolean).join(' ');
 }
 

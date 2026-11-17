@@ -92,6 +92,11 @@ function createRuntime(scope: any, initial: { debugger?: DebugTarget; native?: b
     setVolume: (volume: number) => music().setVolume(volume),
     addTracks: (tracks: BgmTrack[]) => music().addTracks(tracks),
     removeTrack: (id: string) => music().removeTrack(id),
+    setActive: (id: string) => music().setActive(id),
+    setUseDefaults: (on: boolean) => music().setUseDefaults(on),
+    next: () => music().next(),
+    createCollection: (name: string, tracks?: string[]) => music().createCollection(name, tracks),
+    setInCollection: (id: string, tracks: string[], remove?: boolean) => music().setInCollection(id, tracks, remove),
     subscribe: (listener: () => void) => music().subscribe(listener),
   });
   const launch = () => { if (target) openDebugger(target, scope.document); };

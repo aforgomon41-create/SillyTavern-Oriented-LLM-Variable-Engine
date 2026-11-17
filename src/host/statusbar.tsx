@@ -13,7 +13,7 @@ import { PortalContext, solveKit } from '../ui/kit-solve/index.js';
 import { StatusBar, type BgmView, type Mode } from '../ui/statusbar/views.js';
 import { StatusModel } from '../ui/statusbar/model.js';
 import type { Interact } from '../ui/statusbar/interact.js';
-import type { LocalPrefs, SettingsHost } from '../ui/statusbar/settings.js';
+import type { LocalPrefs, MusicHost, MusicTrack, SettingsHost } from '../ui/statusbar/settings.js';
 import { UPDATE_DEFAULTS, type UpdateHost, type UpdatePrefs, type UpdateRun } from '../ui/statusbar/update.js';
 import { listOperatorModels, migrateApi, PREFS_REV, testOperator } from './operator.js';
 import { type GatePrefs, type StructureHost } from '../ui/statusbar/gate.js';
@@ -57,12 +57,42 @@ interface ControllerLike {
   setSettings(patch: any): Promise<unknown>;
 }
 interface SessionsLike { controller?: ControllerLike; subscribe(listener: () => void): () => void; getStatus?(): any; inspectArchive?(commitId?: string): Promise<any> }
-interface BgmLike { status(): BgmStatus; setEnabled(v: boolean): void; setVolume(v: number): void; addTracks(t: BgmTrack[]): void; removeTrack(id: string): void; subscribe(l: () => void): () => void }
+interface BgmLike {
+  status(): BgmStatus; setEnabled(v: boolean): void; setVolume(v: number): void; addTracks(t: BgmTrack[], into?: string[]): void; removeTrack(id: string): void; subscribe(l: () => void): () => void;
+  setUseDefaults?(on: boolean): void; setActive?(id: string): void; next?(): void; preview?(id: string): void; updateTrack?(id: string, patch: { title?: string; moods?: string[] }): void;
+  createCollection?(name: string, tracks?: string[]): string; renameCollection?(id: string, name: string): void; deleteCollection?(id: string): void; setInCollection?(id: string, tracks: string[], remove?: boolean): void;
+  failed?: string;
+}
 export interface StatusBarHost { sessions(): SessionsLike | undefined; onSessions(listener: () => void): () => void; bgm(): BgmLike | undefined; injection?(): InjectionReport | undefined; source?: string }
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const read = <T,>(scope: any, key: string, fallback: T): T => { try { return JSON.parse(scope.localStorage?.getItem(key) ?? 'null') ?? fallback; } catch { return fallback; } };
 const write = (scope: any, key: string, value: unknown) => { try { scope.localStorage?.setItem(key, JSON.stringify(value)); } catch { /* private mode */ } };
+
+/** ⚙ 设置 › 音乐 over the player (default library, the player's tracks, the card author's, collections). */
+function musicHost(bgm: BgmLike, st: BgmStatus, model: StatusModel): MusicHost {
+  const spec = (model.def as { bgm?: { mood?: string } }).bgm;
+  const moodField = spec?.mood ? model.meta(spec.mood.split('.')) : undefined;
+  const moods = moodField?.values ?? [...new Set(st.library.defaults.flatMap(t => t.moods))];
+  const tracks: MusicTrack[] = [
+    ...(st.library.defaults ?? []).map(t => ({ id: t.id, title: t.title ?? t.id, url: t.url, tags: t.moods, kind: 'default' as const,
+      ...(t.composer || t.performer ? { detail: [t.composer, t.performer].filter(Boolean).join(' · ') } : {}), ...(t.seconds ? { seconds: t.seconds } : {}) })),
+    ...st.library.player.map(t => ({ id: t.id, title: t.title ?? decodeURIComponent(t.url.split('/').pop() ?? t.url), url: t.url, tags: t.moods, kind: 'mine' as const })),
+    ...st.library.author.map(t => ({ id: t.id, title: t.title ?? t.id, url: t.url, tags: t.moods, kind: 'author' as const })),
+  ];
+  const sel = st.selection as { track?: { id: string }; url?: string };
+  return {
+    tracks, collections: st.collections ?? [], active: st.active ?? 'all', useDefaults: st.useDefaults !== false, defaultsState: st.defaultsState ?? { state: 'off' }, moods, pool: st.pool ?? 0,
+    ...(st.enabled && sel.track ? { playingId: sel.track.id } : {}), ...(bgm.failed && bgm.failed === sel.url ? { failed: true } : {}),
+    setActive: id => bgm.setActive?.(id), setUseDefaults: on => bgm.setUseDefaults?.(on),
+    add: (t, into) => bgm.addTracks([{ id: 'mine_' + Date.now().toString(36), url: t.url, moods: t.tags, ...(t.title ? { title: t.title } : {}) }], into),
+    update: (id, patch) => bgm.updateTrack?.(id, { ...(patch.title !== undefined ? { title: patch.title } : {}), ...(patch.tags ? { moods: patch.tags } : {}) }),
+    remove: id => bgm.removeTrack(id),
+    createCollection: (name, list) => bgm.createCollection?.(name, list) ?? '', renameCollection: (id, name) => bgm.renameCollection?.(id, name),
+    deleteCollection: id => bgm.deleteCollection?.(id), setInCollection: (id, list, remove) => bgm.setInCollection?.(id, list, remove),
+    preview: id => bgm.preview?.(id), next: () => bgm.next?.(),
+  };
+}
 
 /** Mount once per page; follows chat binding changes. Returns a disposer. */
 export function installStatusBar(scope: any, host: StatusBarHost): () => void {
@@ -119,6 +149,20 @@ export function installStatusBar(scope: any, host: StatusBarHost): () => void {
   doc.addEventListener('kami-runtime-ready', onSkin);
   doc.addEventListener('solve:statusbar-prefs', onSkin);
 
+  // Phones: the floating bar sits just above the input area (its buttons row included), however tall that is.
+  let watched: Element | null = null;
+  const fit = () => {
+    const form = doc.getElementById('send_form');
+    if (form !== watched) { resize?.disconnect(); watched = form; if (form) resize?.observe(form); }
+    if (!form) { el.style.removeProperty('--solve-launcher-bottom'); return; }
+    const gap = Math.round(scope.innerHeight - form.getBoundingClientRect().top + 8);
+    if (gap > 0 && gap < scope.innerHeight / 2) el.style.setProperty('--solve-launcher-bottom', gap + 'px'); else el.style.removeProperty('--solve-launcher-bottom');
+  };
+  const resize: ResizeObserver | undefined = typeof scope.ResizeObserver === 'function' ? new scope.ResizeObserver(() => fit()) : undefined;
+  const fitTimer = scope.setInterval?.(fit, 2000);
+  scope.addEventListener?.('resize', fit);
+  fit();
+
   const root: Root = createRoot(app);
   root.render(<PortalContext.Provider value={portal}><KitProvider value={solveKit}><Live scope={scope} host={host} /></KitProvider></PortalContext.Provider>);
   const removeMenu = installWandMenu(scope);
@@ -127,6 +171,7 @@ export function installStatusBar(scope: any, host: StatusBarHost): () => void {
   return () => {
     doc.removeEventListener('kami:skin-changed', onSkin); doc.removeEventListener('kami-runtime-ready', onSkin); doc.removeEventListener('solve:statusbar-prefs', onSkin);
     removeMenu(); removeButtons(); detachKami?.(); root.unmount(); el.remove();
+    resize?.disconnect(); scope.clearInterval?.(fitTimer); scope.removeEventListener?.('resize', fit);
   };
 }
 
@@ -406,7 +451,7 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
     },
     prefs, onPrefs: patch => setPrefs(p => ({ ...p, ...patch })),
     ...(scope.KamiRuntimeNext?.hub ? { kami: true } : {}),
-    ...(bgm ? { tracks: { list: bgmStatus!.library.player, add: t => bgm.addTracks([{ ...t, id: 'mine_' + Date.now().toString(36) }]), remove: id => bgm.removeTrack(id) } } : {}),
+    ...(bgm && bgmStatus ? { music: musicHost(bgm, bgmStatus, model) } : {}),
     ...(locked ? { locked } : {}),
     ...(extras.openDebug ? { openDebug: extras.openDebug } : {}),
     ...(extras.openBuilder ? { openBuilder: extras.openBuilder } : {}),

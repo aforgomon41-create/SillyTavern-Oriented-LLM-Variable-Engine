@@ -43,8 +43,8 @@ export interface SettingsHost {
   setSettings(patch: SettingsPatch): Promise<InteractResult>;
   /** Preferences kept in this browser. */
   prefs: LocalPrefs; onPrefs(patch: Partial<LocalPrefs>): void;
-  /** The player's own music (this browser); the author's library comes from the structure. */
-  tracks?: { list: BgmTrack[]; add(track: Omit<BgmTrack, 'id'>): void; remove(id: string): void };
+  /** Music library of this browser: default library, the player's tracks, collections. */
+  music?: MusicHost;
   /** Why chat settings are paused right now (e.g. the model is writing). */
   locked?: string;
   /** The Kami preset is on the page (offers 「跟随卡密预设皮肤」). */
@@ -92,7 +92,7 @@ const SECTIONS: { id: Section; label: string; note: string }[] = [
 export function SettingsBody({ host, bgm, onBack }: { host: SettingsHost; bgm?: BgmView; onBack: () => void }) {
   const K = useKit(), m = useModel();
   const [box, wide] = useWide(900);
-  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.tracks).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure).filter(s => s.id !== 'buttons' || host.buttons).filter(s => s.id !== 'presets' || host.presets)
+  const sections = SECTIONS.filter(s => s.id !== 'delta' || deltaRows(m).length).filter(s => s.id !== 'music' || bgm || host.music).filter(s => s.id !== 'update' || host.update).filter(s => s.id !== 'structure' || host.structure).filter(s => s.id !== 'buttons' || host.buttons).filter(s => s.id !== 'presets' || host.presets)
     .filter(s => s.id !== 'images' || (host.images && imageFields(m).length));
   const [current, setCurrent] = React.useState<Section>(() => sections.some(x => x.id === host.section) ? host.section as Section : 'modules');
   const [status, setStatus] = React.useState<{ text: string; tone?: 'error' } | undefined>();
@@ -450,55 +450,185 @@ function ClearLocal({ clear }: { clear: () => Promise<number> }) {
 
 // ── 音乐 ──
 
+/** One track of the library as the settings page shows it. */
+export interface MusicTrack { id: string; title: string; url: string; tags: string[]; kind: 'default' | 'mine' | 'author'; detail?: string; seconds?: number }
+export interface MusicHost {
+  tracks: MusicTrack[];
+  collections: { id: string; name: string; tracks: string[] }[];
+  /** What mood music is chosen from: 'default' (默认曲库) / 'all' / a collection id. */
+  active: string;
+  useDefaults: boolean;
+  defaultsState: { state: 'off' | 'loading' | 'ready' | 'failed'; error?: string; credit?: string };
+  /** Scene moods of this structure (tags that drive the automatic choice). */
+  moods: string[];
+  /** Tracks the current source picks from. */
+  pool: number;
+  playingId?: string;
+  failed?: boolean;
+  setActive(id: string): void;
+  setUseDefaults(on: boolean): void;
+  add(track: { title?: string; url: string; tags: string[] }, into: string[]): void;
+  update(id: string, patch: { title?: string; tags?: string[] }): void;
+  remove(id: string): void;
+  createCollection(name: string, tracks?: string[]): string;
+  renameCollection(id: string, name: string): void;
+  deleteCollection(id: string): void;
+  setInCollection(id: string, tracks: string[], remove?: boolean): void;
+  preview(id: string): void;
+  next(): void;
+}
+const splitTags = (text: string) => [...new Set(text.split(/[\s,，、#]+/u).map(t => t.trim()).filter(Boolean))];
+const minutes = (s?: number) => s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '';
+
 function Music({ host, bgm }: { host: SettingsHost; bgm?: BgmView }) {
-  const K = useKit(), m = useModel();
-  const author = (m.def.bgm?.library ?? []) as BgmTrack[];
-  const mine = host.tracks?.list ?? [];
-  const moods = [...new Set([...author, ...mine].flatMap(t => t.moods))];
-  const [title, setTitle] = React.useState(''), [url, setUrl] = React.useState(''), [picked, setPicked] = React.useState<string[]>([]);
-  const okUrl = /^(?:https?:|blob:|data:audio\/|\/)/u.test(url.trim());
+  const K = useKit();
+  const mu = host.music;
+  const [query, setQuery] = React.useState('');
+  const [picked, setPicked] = React.useState<string[]>([]);
+  const [chosen, setChosen] = React.useState<string[]>([]);
+  const [editing, setEditing] = React.useState<string | undefined>();
+  const [naming, setNaming] = React.useState<{ mode: 'new' | 'rename'; name: string } | undefined>();
+  const [adding, setAdding] = React.useState(false);
+  const [moreTags, setMoreTags] = React.useState(false);
   const Text = K.TextField;
-  const field = (props: Omit<React.InputHTMLAttributes<HTMLInputElement>, "size">) => Text ? <Text size="sm" {...props} /> : <input {...props} />;
-  const add = () => { if (!okUrl || !host.tracks) return; host.tracks.add({ url: url.trim(), ...(title.trim() ? { title: title.trim() } : {}), moods: picked }); setTitle(''); setUrl(''); setPicked([]); };
-  const row = (t: BgmTrack, own: boolean) => (
-    <li key={(own ? 'mine:' : '') + t.id} {...solve('track')}>
-      <span {...part('title')}>{t.title ?? decodeURIComponent(t.url.split('/').pop() ?? t.url)}</span>
-      <span {...part('moods')}>{t.moods.length ? t.moods.map(x => <K.Badge key={x}>{x}</K.Badge>) : <small>只按地点</small>}</span>
-      {own ? <K.Button size="sm" variant="ghost" onClick={() => host.tracks?.remove(t.id)} aria-label={'删除 ' + (t.title ?? t.url)}>删除</K.Button> : <span />}
-    </li>
-  );
+  const field = (props: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'>) => Text ? <Text size="sm" {...props} /> : <input {...props} />;
+  const playback = bgm ? (
+    <div {...solve('pref-list')}>
+      <div {...solve('pref', { kind: 'switch' })}><span {...part('label')}>播放背景音乐<small>{bgm.enabled && bgm.title ? '正在播放：' + bgm.title : '已停止'}{bgm.source ? ' · ' + bgm.source : ''}</small></span>
+        <K.Switch checked={bgm.enabled} onCheckedChange={bgm.onToggle} aria-label="播放背景音乐" /></div>
+      <div {...solve('pref')}><span {...part('label')}>音量</span>
+        <K.Slider value={Math.round(bgm.volume * 100)} min={0} max={100} onValueChange={v => bgm.onVolume(v / 100)} format={v => v + '%'} aria-label="音量" /></div>
+      {mu && bgm.enabled ? <div {...solve('pref', { kind: 'action' })}><span {...part('label')}>换一首<small>同一情绪的下一首</small></span><K.Button size="sm" variant="ghost" onClick={() => mu.next()}>换一首</K.Button></div> : null}
+    </div>
+  ) : null;
+  if (!mu) return <>{playback}</>;
+  const coll = mu.collections.find(c => c.id === mu.active);
+  const allTags = [...new Set([...mu.moods, ...mu.tracks.flatMap(t => t.tags)])];
+  const words = splitTags(query.replace(/#/gu, ' ')).map(w => w.toLowerCase());
+  const shown = mu.tracks.filter(t => (!picked.length || picked.every(p => t.tags.includes(p)))
+    && words.every(w => t.title.toLowerCase().includes(w) || (t.detail ?? '').toLowerCase().includes(w) || t.tags.some(x => x.toLowerCase().includes(w))));
+  const inColl = (id: string) => !!coll?.tracks.includes(id);
+  const sourceLabel = (id: string) => id === 'default' ? '默认曲库' : id === 'all' ? '全部曲目' : mu.collections.find(c => c.id === id)?.name ?? id;
+  const count = (id: string) => id === 'default' ? mu.tracks.filter(t => t.kind === 'default').length : id === 'all' ? mu.tracks.filter(t => t.kind !== 'author').length : mu.collections.find(c => c.id === id)?.tracks.length ?? 0;
+  const sources = [...(mu.useDefaults ? ['default'] : []), 'all', ...mu.collections.map(c => c.id)];
+  const toggle = (id: string) => setChosen(c => c.includes(id) ? c.filter(x => x !== id) : [...c, id]);
   return (
     <>
-      {bgm ? (
-        <div {...solve('pref-list')}>
-          <div {...solve('pref', { kind: 'switch' })}><span {...part('label')}>播放背景音乐<small>{bgm.enabled && bgm.title ? '正在播放：' + bgm.title : '已停止'}{bgm.source ? ' · ' + bgm.source : ''}</small></span>
-            <K.Switch checked={bgm.enabled} onCheckedChange={bgm.onToggle} aria-label="播放背景音乐" /></div>
-          <div {...solve('pref')}><span {...part('label')}>音量</span>
-            <K.Slider value={Math.round(bgm.volume * 100)} min={0} max={100} onValueChange={v => bgm.onVolume(v / 100)} format={v => v + '%'} aria-label="音量" /></div>
-        </div>
-      ) : null}
-      <p {...part('intro')}>选曲顺序：当前地点指定的曲目 → 所在区域的曲目 → 按场景情绪从曲库里挑。你添加的曲目和作者的曲库一起参与按情绪选曲，只保存在这台设备上。</p>
+      {playback}
       <section {...solve('limit-group')}>
-        <h4>我的曲目<small>{mine.length}</small></h4>
-        {mine.length ? <ul {...solve('tracks')}>{mine.map(t => row(t, true))}</ul> : <p {...part('empty')}>还没有添加曲目。</p>}
-        {host.tracks ? (
-          <form {...solve('track-add')} onSubmit={e => { e.preventDefault(); add(); }}>
-            {field({ placeholder: '名称（可选）', value: title, onChange: e => setTitle(e.target.value), 'aria-label': '曲目名称' })}
-            {field({ placeholder: '音频链接 https://…', value: url, onChange: e => setUrl(e.target.value), 'aria-label': '音频链接', inputMode: 'url' })}
-            <div {...part('moods')} role="group" aria-label="情绪">
-              {moods.map(x => <button key={x} type="button" aria-pressed={picked.includes(x)} onClick={() => setPicked(p => p.includes(x) ? p.filter(y => y !== x) : [...p, x])}>{x}</button>)}
-            </div>
-            <K.Button type="submit" size="sm" variant="primary" disabled={!okUrl}>添加</K.Button>
-          </form>
-        ) : null}
+        <h4>播放来源<small>按场景情绪从这里选曲 · {mu.pool} 首</small></h4>
+        <div {...solve('pref-list')}>
+          <div {...solve('pref', { kind: 'sets' })}>
+            <span {...part('label')}>来源{coll ? <small>合集 · {coll.tracks.length} 首</small> : null}</span>
+            <span {...part('buttons')}>
+              <select {...solve('select')} aria-label="播放来源" value={sources.includes(mu.active) ? mu.active : 'all'} onChange={e => mu.setActive(e.target.value)}>
+                {sources.map(id => <option key={id} value={id}>{sourceLabel(id)}（{count(id)}）</option>)}
+              </select>
+              <K.Button size="sm" variant="ghost" onClick={() => setNaming({ mode: 'new', name: '' })}>新建合集</K.Button>
+              {coll ? <K.Button size="sm" variant="ghost" onClick={() => setNaming({ mode: 'rename', name: coll.name })}>重命名</K.Button> : null}
+              {coll ? <K.Button size="sm" variant="ghost" onClick={() => { if ((globalThis as any).confirm?.(`删除合集「${coll.name}」？曲目本身不删。`) ?? true) mu.deleteCollection(coll.id); }}>删除</K.Button> : null}
+            </span>
+          </div>
+          {naming ? (
+            <form {...solve('pref', { kind: 'name' })} onSubmit={e => { e.preventDefault(); if (!naming.name.trim()) return;
+              if (naming.mode === 'rename' && coll) mu.renameCollection(coll.id, naming.name);
+              else { const id = mu.createCollection(naming.name, chosen); mu.setActive(id); setChosen([]); }
+              setNaming(undefined); }}>
+              <input aria-label="合集名称" value={naming.name} placeholder={naming.mode === 'new' ? (chosen.length ? `新合集（含选中的 ${chosen.length} 首）` : '新合集名称，如「战斗曲」') : '合集名称'} autoFocus onChange={e => setNaming({ ...naming, name: e.target.value })} />
+              <K.Button size="sm" type="submit" disabled={!naming.name.trim()}>{naming.mode === 'new' ? '建立' : '改名'}</K.Button>
+            </form>
+          ) : null}
+          <div {...solve('pref', { kind: 'switch' })}>
+            <span {...part('label')}>使用默认曲库<small>{mu.defaultsState.state === 'loading' ? '正在读取曲目清单…' : mu.defaultsState.state === 'failed' ? `读取失败：${mu.defaultsState.error}` : mu.defaultsState.credit ?? '公有领域古典录音，不用代理也能播放'}</small></span>
+            <K.Switch checked={mu.useDefaults} aria-label="使用默认曲库" onCheckedChange={v => mu.setUseDefaults(v)} />
+          </div>
+          {mu.pool === 0 ? <p {...part('hint')} data-tone="warn">「{sourceLabel(mu.active)}」里还没有曲目，现在不会按情绪放音乐。</p> : null}
+        </div>
       </section>
-      {author.length ? (
-        <section {...solve('limit-group')}>
-          <h4>作者曲库<small>{author.length}</small></h4>
-          <ul {...solve('tracks')}>{author.map(t => row(t, false))}</ul>
-        </section>
-      ) : null}
+      <section {...solve('limit-group')}>
+        <h4>曲目<small>{mu.tracks.length}</small></h4>
+        <div {...solve('music-find')}>
+          {field({ placeholder: '搜索名称或 #标签', value: query, onChange: e => setQuery(e.target.value), 'aria-label': '搜索曲目', type: 'search' })}
+          <div {...part('tags')} role="group" aria-label="按标签筛选">
+            {allTags.filter(t => moreTags || mu.moods.includes(t) || picked.includes(t)).map(t => <button key={t} type="button" aria-pressed={picked.includes(t)} data-mood={mu.moods.includes(t) ? '' : undefined} onClick={() => setPicked(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t])}>{t}</button>)}
+            {allTags.length > mu.moods.length ? <button type="button" data-kind="more" aria-expanded={moreTags} onClick={() => setMoreTags(v => !v)}>{moreTags ? '收起' : `更多标签 ${allTags.filter(t => !mu.moods.includes(t)).length}`}</button> : null}
+          </div>
+        </div>
+        {chosen.length ? (
+          <div {...solve('music-bulk')}>
+            <span>选中 {chosen.length} 首</span>
+            <select {...solve('select')} aria-label="加入合集" value="" onChange={e => { const v = e.target.value; if (v === '$new') setNaming({ mode: 'new', name: '' }); else if (v) { mu.setInCollection(v, chosen); setChosen([]); } }}>
+              <option value="">加入合集…</option>
+              {mu.collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="$new">新合集…</option>
+            </select>
+            {coll && chosen.some(inColl) ? <K.Button size="sm" variant="ghost" onClick={() => { mu.setInCollection(coll.id, chosen, true); setChosen([]); }}>移出「{coll.name}」</K.Button> : null}
+            <K.Button size="sm" variant="ghost" onClick={() => setChosen([])}>取消选择</K.Button>
+          </div>
+        ) : null}
+        <ul {...solve('music-list')}>
+          {shown.map(t => (
+            <li key={t.kind + ':' + t.id} {...solve('music-track', { playing: mu.playingId === t.id ? '' : undefined, in: inColl(t.id) ? '' : undefined })}>
+              {t.kind === 'author' ? <span /> : <input type="checkbox" aria-label={'选中 ' + t.title} checked={chosen.includes(t.id)} onChange={() => toggle(t.id)} />}
+              <span {...part('main')}>
+                <b>{t.title}</b>
+                <small>{[t.kind === 'default' ? '默认' : t.kind === 'author' ? '卡片作者' : '我的', t.detail, minutes(t.seconds), coll && inColl(t.id) ? `在「${coll.name}」` : ''].filter(Boolean).join(' · ')}</small>
+                <span {...part('tags')}>{t.tags.length ? t.tags.map(x => <K.Badge key={x}>{x}</K.Badge>) : <small>没有标签：只在地点指定时播放</small>}</span>
+                {editing === t.id ? <TrackEdit track={t} onSave={patch => { mu.update(t.id, patch); setEditing(undefined); }} onCancel={() => setEditing(undefined)} /> : null}
+              </span>
+              <span {...part('actions')}>
+                <K.Button size="sm" variant="ghost" aria-label={'试听 ' + t.title} onClick={() => mu.preview(t.id)}>{mu.playingId === t.id ? '♪' : '▶'}</K.Button>
+                {t.kind === 'mine' ? <K.Button size="sm" variant="ghost" onClick={() => setEditing(e => e === t.id ? undefined : t.id)}>编辑</K.Button> : null}
+                {t.kind === 'mine' ? <K.Button size="sm" variant="ghost" aria-label={'删除 ' + t.title} onClick={() => { if ((globalThis as any).confirm?.(`删除「${t.title}」？也会从各个合集里移出。`) ?? true) mu.remove(t.id); }}>删除</K.Button> : null}
+              </span>
+            </li>
+          ))}
+          {!shown.length ? <li {...part('empty')}>{mu.tracks.length ? '没有符合条件的曲目。' : '还没有曲目。'}</li> : null}
+        </ul>
+        {adding ? <TrackAdd mu={mu} onDone={() => setAdding(false)} /> : <K.Button size="sm" variant="primary" onClick={() => setAdding(true)}>添加曲目</K.Button>}
+      </section>
+      <p {...part('intro')}>选曲顺序：当前地点指定的曲目 → 所在区域的曲目 → 按场景情绪从「播放来源」里挑，一首放完换同情绪的下一首。标签里和场景情绪同名的（{mu.moods.join('、')}）用来自动选曲，其余标签方便搜索。曲库和合集只保存在这台设备上。</p>
     </>
+  );
+}
+function TrackEdit({ track, onSave, onCancel }: { track: MusicTrack; onSave: (patch: { title: string; tags: string[] }) => void; onCancel: () => void }) {
+  const K = useKit();
+  const [title, setTitle] = React.useState(track.title), [tags, setTags] = React.useState(track.tags.join(' '));
+  return (
+    <form {...solve('music-edit')} onSubmit={e => { e.preventDefault(); onSave({ title: title.trim(), tags: splitTags(tags) }); }}>
+      <input aria-label="曲目名称" value={title} onChange={e => setTitle(e.target.value)} />
+      <input aria-label="标签" value={tags} placeholder="标签，用空格分隔" onChange={e => setTags(e.target.value)} />
+      <span><K.Button size="sm" type="submit" variant="primary">保存</K.Button><K.Button size="sm" variant="ghost" onClick={onCancel}>取消</K.Button></span>
+    </form>
+  );
+}
+function TrackAdd({ mu, onDone }: { mu: MusicHost; onDone: () => void }) {
+  const K = useKit();
+  const [title, setTitle] = React.useState(''), [url, setUrl] = React.useState(''), [moods, setMoods] = React.useState<string[]>([]), [extra, setExtra] = React.useState('');
+  const [into, setInto] = React.useState<string[]>(() => mu.collections.some(c => c.id === mu.active) ? [mu.active] : []);
+  const [fresh, setFresh] = React.useState('');
+  const okUrl = /^(?:https?:|blob:|data:audio\/|\/)/u.test(url.trim());
+  const submit = () => {
+    if (!okUrl) return;
+    const target = [...into]; if (fresh.trim()) target.push(mu.createCollection(fresh.trim()));
+    mu.add({ url: url.trim(), ...(title.trim() ? { title: title.trim() } : {}), tags: [...new Set([...moods, ...splitTags(extra)])] }, target);
+    onDone();
+  };
+  return (
+    <form {...solve('track-add')} onSubmit={e => { e.preventDefault(); submit(); }}>
+      <input placeholder="名称（可选）" value={title} onChange={e => setTitle(e.target.value)} aria-label="曲目名称" />
+      <input placeholder="音频链接 https://…" value={url} onChange={e => setUrl(e.target.value)} aria-label="音频链接" inputMode="url" />
+      <div {...part('moods')} role="group" aria-label="场景情绪">
+        {mu.moods.map(x => <button key={x} type="button" aria-pressed={moods.includes(x)} onClick={() => setMoods(p => p.includes(x) ? p.filter(y => y !== x) : [...p, x])}>{x}</button>)}
+      </div>
+      <input placeholder="其他标签，用空格分隔，如：钢琴 夜晚" value={extra} onChange={e => setExtra(e.target.value)} aria-label="其他标签" />
+      <div {...part('moods')} role="group" aria-label="同时加入合集">
+        <small>加入合集：</small>
+        {mu.collections.map(c => <button key={c.id} type="button" aria-pressed={into.includes(c.id)} onClick={() => setInto(p => p.includes(c.id) ? p.filter(y => y !== c.id) : [...p, c.id])}>{c.name}</button>)}
+        <input placeholder="新合集名称（可选）" value={fresh} onChange={e => setFresh(e.target.value)} aria-label="新合集名称" />
+      </div>
+      <span {...part('buttons')}><K.Button type="submit" size="sm" variant="primary" disabled={!okUrl}>添加</K.Button><K.Button size="sm" variant="ghost" onClick={onDone}>取消</K.Button></span>
+    </form>
   );
 }
 

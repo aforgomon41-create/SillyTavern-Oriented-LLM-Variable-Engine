@@ -352,7 +352,7 @@ export function describeProjection(rules: ProjectionRule[] | undefined): Json | 
 
 export interface BgmSelection { track?: BgmTrack; url?: string; source: 'place' | 'region' | 'mood' | 'none'; mood?: string; place?: string }
 /** Pick music: current place → ancestor regions → library tracks matching the scene mood. */
-export function selectBgm(def: Definition, state: LogicalState, extra: BgmTrack[] = []): BgmSelection {
+export function selectBgm(def: Definition, state: LogicalState, extra: BgmTrack[] = [], options: { seed?: number; moodPool?: BgmTrack[] } = {}): BgmSelection {
   const spec = def.bgm;
   if (!spec) return { source: 'none' };
   const library = [...(spec.library ?? []), ...extra];
@@ -375,11 +375,11 @@ export function selectBgm(def: Definition, state: LogicalState, extra: BgmTrack[
   }
   const mood = spec.mood ? valueAt(state.data, spec.mood) : undefined;
   if (typeof mood === 'string') {
-    const tracks = library.filter(t => t.moods.includes(mood));
+    const tracks = (options.moodPool ? [...(spec.library ?? []), ...options.moodPool] : library).filter(t => t.moods.includes(mood));
     if (tracks.length) {
-      // Stable choice per mood, so re-renders do not reshuffle the music.
+      // Stable choice per mood (and seed), so re-renders do not reshuffle the music.
       let h = 0; for (const c of mood) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-      const track = tracks[h % tracks.length]!;
+      const track = tracks[(h + (options.seed ?? 0)) % tracks.length]!;
       return { track, url: track.url, source: 'mood', mood };
     }
   }
