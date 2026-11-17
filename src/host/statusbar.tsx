@@ -479,7 +479,7 @@ export function Bound({ scope, controller, def, state, bgm, images, extras = {} 
       : sel.source === 'mood' ? `按场景情绪「${sel.mood}」选曲` : '没有可用的曲目';
     const title = sel.track?.title ?? (sel.url ? decodeURIComponent(String(sel.url).split('/').pop() ?? '') : '');
     return { title, source: bgmStatus.blocked ? source + '（点一下页面即可开始播放）' : source, playing: bgmStatus.playing, enabled: bgmStatus.enabled, volume: bgmStatus.volume,
-      onToggle: v => bgm.setEnabled(v), onVolume: v => bgm.setVolume(v) };
+      onToggle: v => bgm.setEnabled(v), onVolume: v => bgm.setVolume(v), ...(bgm.next ? { onNext: () => bgm.next!() } : {}) };
   })() : undefined;
   // Launcher place, last tab and folded/open state, per device class.
   const key = 'solve.statusbar.launcher.v1.' + (scope.innerWidth > 1000 ? 'desktop' : 'mobile');

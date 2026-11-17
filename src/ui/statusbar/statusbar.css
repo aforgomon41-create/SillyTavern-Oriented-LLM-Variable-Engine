@@ -969,6 +969,14 @@
 [data-solve="settings-trigger"]:hover { opacity: 1; background: color-mix(in srgb, currentColor 8%, transparent); }
 [data-solve="settings-trigger"][data-open] { opacity: 1; color: var(--k-accent); background: color-mix(in srgb, var(--k-accent) 12%, transparent); }
 [data-solve="settings-trigger"]:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--k-focus-ring); }
+/* ♪ beside ⚙: a real button of the same size (a bare glyph was a 9 px target on phones) */
+[data-solve="bgm-trigger"] {
+  display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: var(--k-r-md);
+  background: none; color: inherit; font: inherit; font-size: 18px; line-height: 1; cursor: pointer; opacity: .8; touch-action: manipulation;
+}
+[data-solve="bgm-trigger"]:hover, [data-solve="bgm-trigger"][data-state="open"] { opacity: 1; background: color-mix(in srgb, currentColor 8%, transparent); }
+[data-solve="bgm-trigger"][data-playing] { opacity: 1; color: var(--k-accent); }
+[data-solve="bgm-trigger"]:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--k-focus-ring); }
 [data-solve="settings"] > [data-solve-part="head"] {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-2) var(--k-space-3); margin-bottom: var(--k-space-3);
 }
@@ -1293,3 +1301,16 @@ button[data-solve="gate-ball"][data-tone="error"] > [data-solve-part="dot"] { ba
 [data-solve="track-add"] > [data-solve-part="buttons"] { grid-column: 1 / -1; display: inline-flex; gap: var(--k-space-2); }
 [data-solve="track-add"] > input[aria-label="其他标签"] { grid-column: 1 / -1; }
 [data-solve="music-find"] > [data-solve-part="tags"] > button[data-kind="more"] { border-style: dashed; color: var(--k-accent); }
+/* Popovers, tooltips and menus open in the portal layer: keep them above the panel under every skin
+   (Radix copies the content's z-index onto the wrapper inline, and some skins leave it at auto). */
+[data-k-portal] > [data-radix-popper-content-wrapper] { z-index: 60 !important; }
+/* ♪ popover: now playing, play switch, volume, next */
+[data-solve="bgm"] { display: flex; flex-direction: column; gap: var(--k-space-2); min-width: min(280px, calc(100vw - 60px)); }
+[data-solve="bgm"] > [data-solve-part="now"] { display: flex; flex-direction: column; gap: 2px; padding-bottom: var(--k-space-2); border-bottom: var(--k-border-w, 1px) solid var(--k-divider); }
+[data-solve="bgm"] > [data-solve-part="now"] > [data-solve-part="label"] { font-size: var(--k-fs-xs); color: var(--k-on-muted); }
+[data-solve="bgm"] > [data-solve-part="now"] > strong { font-weight: var(--k-fw-strong); line-height: 1.4; }
+[data-solve="bgm"] > [data-solve-part="now"] > small { font-size: var(--k-fs-xs); color: var(--k-on-muted); }
+[data-solve="bgm"] > [data-solve-part="row"] { display: flex; align-items: center; justify-content: space-between; gap: var(--k-space-3); min-height: 36px; }
+[data-solve="bgm"] > [data-solve-part="row"] > span:first-child { flex: none; font-size: var(--k-fs-sm); }
+[data-solve="bgm"] > [data-solve-part="row"] > :last-child:not(:first-child) { flex: none; }
+[data-solve="bgm"] > [data-solve-part="row"] > :last-child:not(:first-child):has([role="slider"]) { flex: 0 1 200px; min-width: 0; }

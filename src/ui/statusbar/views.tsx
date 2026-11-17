@@ -17,7 +17,7 @@ import { Art, Mono, Spoiler, part, solve, useWide } from './widgets.js';
 import { ActionBar, CreateForm, InteractLayer, PendingNarration, editFor, useInteract, type Interact } from './interact.js';
 import { SettingsBody, type SettingsHost } from './settings.js';
 
-export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void }
+export interface BgmView { title?: string; source: string; playing: boolean; enabled: boolean; volume: number; onToggle(v: boolean): void; onVolume(v: number): void; onNext?(): void }
 export interface StatusBarProps {
   model: StatusModel; bgm?: BgmView;
   /** Last open tab; the host persists it through onTabChange. */
@@ -699,11 +699,12 @@ function SettingsButton({ open, onToggle }: { open: boolean; onToggle: () => voi
 function BgmButton({ bgm }: { bgm: BgmView }) {
   const K = useKit();
   return (
-    <K.InfoPopover label="背景音乐" trigger={<span {...solve('bgm-trigger', { playing: bgm.playing ? '' : undefined })} aria-label="背景音乐">♪</span>}>
+    <K.InfoPopover label="背景音乐" trigger={<button type="button" {...solve('bgm-trigger', { playing: bgm.playing ? '' : undefined })} aria-label="背景音乐" title="背景音乐"><span aria-hidden="true">♪</span></button>}>
       <div {...solve('bgm')}>
         <div {...part('now')}><span {...part('label')}>正在播放</span><strong>{bgm.enabled && bgm.title ? bgm.title : '—'}</strong><small>{bgm.source}</small></div>
         <div {...part('row')}><span>播放</span><K.Switch checked={bgm.enabled} onCheckedChange={bgm.onToggle} aria-label="播放背景音乐" /></div>
         <div {...part('row')}><span>音量</span><K.Slider value={Math.round(bgm.volume * 100)} min={0} max={100} onValueChange={v => bgm.onVolume(v / 100)} format={v => v + '%'} aria-label="音量" /></div>
+        {bgm.onNext && bgm.enabled ? <div {...part('row')}><span>同一情绪的下一首</span><K.Button size="sm" variant="ghost" onClick={bgm.onNext}>换一首</K.Button></div> : null}
       </div>
     </K.InfoPopover>
   );

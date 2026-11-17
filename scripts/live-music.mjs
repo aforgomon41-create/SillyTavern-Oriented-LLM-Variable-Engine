@@ -98,6 +98,22 @@ try {
   st = await status();
   check('一首放完自动换同情绪的下一首', moved && st.selection.track?.moods.includes('战斗'), `${before} → ${st.selection.track?.id}`);
 
+  phase = 'note';
+  // 面板标题里 ⚙ 旁边的 ♪：点得到，弹出的小窗在面板上面（不被盖住），里面能换一首
+  await page.evaluate(() => document.querySelectorAll('#toast-container .toast').forEach(t => t.remove()));
+  await $('[data-solve="launcher"] [data-solve-part="open"], [data-solve="launcher"] button').first().click(); await $('[data-k="panel"]').waitFor(); await page.waitForTimeout(500);
+  const note = $('[data-solve="bgm-trigger"]'), nb = await note.boundingBox();
+  check('♪ 按钮够大（至少 32×32）', nb && nb.width >= 32 && nb.height >= 32, nb ? `${Math.round(nb.width)}×${Math.round(nb.height)}` : '没找到');
+  if (mobile) await note.tap(); else await note.click();
+  await page.waitForTimeout(500);
+  const pop = await page.evaluate(() => { const r = document.querySelector('solve-statusbar').shadowRoot, p = r.querySelector('[data-k="popover"]'); if (!p) return null; const b = p.getBoundingClientRect(); const pts = [[b.x + b.width / 2, b.y + 15], [b.x + 20, b.y + b.height - 15], [b.right - 20, b.y + b.height / 2]]; return { size: [Math.round(b.width), Math.round(b.height)], onTop: pts.every(([x, y]) => p.contains(r.elementFromPoint(x, y))), text: p.textContent.slice(0, 40) }; });
+  check('点 ♪ 弹出音乐小窗，显示在面板上面', pop && pop.onTop && pop.size[1] > 80, JSON.stringify(pop));
+  const was = (await status()).selection.track?.id;
+  await $('[data-k="popover"]').getByRole('button', { name: '换一首' }).click(); await page.waitForTimeout(400);
+  check('小窗里「换一首」', (await status()).selection.track?.id !== was);
+  await page.screenshot({ path: `${shots}/${tag}-note.png` });
+  await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+
   phase = 'ui';
   await openMusic();
   const options = await $('select[aria-label="播放来源"] option').allTextContents();
