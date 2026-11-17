@@ -157,6 +157,32 @@ try {
   await pages.filter({ hasText: '属性' }).first().click(); await settle(); await shot('page-属性');
   const attrs = (await $('[data-solve="pages"] [data-k-part="page"], [data-solve="pages"] [data-solve-part="page"]').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
   check('属性页：显示当前属性体系和特殊属性', /力量/u.test(attrs) && /契约之力/u.test(attrs), attrs.slice(0, 80));
+  // FATE：四类各四项，手机一行三格、电脑四类并排；COC：困难 / 极难
+  const attrBefore = await page.evaluate(() => SOLVE.controller.getModules().filter(m => m.name.startsWith('attr_') && m.enabled).map(m => m.name)[0]);
+  const layout = () => page.evaluate(() => {
+    const r = document.querySelector('solve-statusbar').shadowRoot, g = r.querySelector('[data-k="panel"] [data-solve="stat-groups"]');
+    if (!g) return null;
+    const groups = [...g.querySelectorAll('[data-solve-part="group"]')].map(x => ({ title: x.querySelector('[data-solve-part="title"]')?.textContent, top: Math.round(x.getBoundingClientRect().top), tiles: [...x.querySelectorAll(':is([data-solve="stat"], [data-solve="ladder"])')].map(t => { const b = t.getBoundingClientRect(); return { top: Math.round(b.top), w: Math.round(b.width), text: t.textContent }; }) }));
+    const first = groups[0]?.tiles ?? [];
+    return { groups: groups.map(x => x.title), sameRow: new Set(groups.map(x => x.top)).size === 1, perRow: first.filter(t => t.top === first[0]?.top).length, tiles: groups.reduce((n, x) => n + x.tiles.length, 0), minW: Math.min(...groups.flatMap(x => x.tiles.map(t => t.w))), sample: groups.flatMap(x => x.tiles.map(t => t.text)).slice(0, 3) };
+  });
+  await page.evaluate(() => SOLVE.controller.setModule('attr_fate', true)); await settle(400);
+  await page.evaluate(() => SOLVE.controller.submit([{ $set: { '@erin.attributes_fate': { physique: 'C+', athletics: 'D+', melee: 'B+', shoot: 'E', notice: 'D', investigate: 'D+', lore: 'E+', will: 'C', empathy: 'E+', rapport: 'E', deceive: 'F+', provoke: 'D', stealth: 'D', burglary: 'E', crafts: null, medicine: 'E' } } }], { actionId: 'fate-' + Date.now() })); await settle(600);
+  await pages.filter({ hasText: '属性' }).first().click(); await settle();
+  const fateLayout = await layout();
+  check('FATE：身体 / 心智 / 社交 / 技艺四类，共 16 项', fateLayout?.groups.join('/') === '身体/心智/社交/技艺' && fateLayout.tiles === 16, JSON.stringify(fateLayout?.groups) + ' ' + fateLayout?.tiles);
+  if (mobile) check('FATE 手机：一行三格', fateLayout?.perRow === 3 && fateLayout.minW >= 90, `一行 ${fateLayout?.perRow} 格，最窄 ${fateLayout?.minW}px`);
+  else check('FATE 电脑：一行至少四格（够宽时四类并排）', fateLayout?.perRow >= 4 || fateLayout?.sameRow, `一行 ${fateLayout?.perRow} 格 · 并排 ${fateLayout?.sameRow}`);
+  await shot('page-属性-fate');
+  await page.evaluate(() => SOLVE.controller.setModule('attr_coc', true)); await settle(400);
+  await page.evaluate(() => SOLVE.controller.submit([{ $set: { '@erin.attributes_coc': { str: 75, con: 70, siz: 80, dex: 45, app: 50, int: 40, pow: 55, edu: 35, luck: null } } }], { actionId: 'coc-' + Date.now() })); await settle(600);
+  await pages.filter({ hasText: '属性' }).first().click(); await settle();
+  const cocLayout = await layout();
+  const str = cocLayout?.sample[0] ?? '';
+  check('COC：身体 / 心智两类、9 项，力量显示困难（÷2）和极难（÷5）', cocLayout?.groups.join('/') === '身体/心智' && cocLayout.tiles === 9 && /困难\s*37/u.test(str) && /极难\s*15/u.test(str), str);
+  if (mobile) check('COC 手机：一行三格', cocLayout?.perRow === 3, `一行 ${cocLayout?.perRow} 格`);
+  await shot('page-属性-coc');
+  if (attrBefore) await page.evaluate(n => SOLVE.controller.setModule(n, true), attrBefore); await settle(600);
 
   phase = 'interact';
   await pages.filter({ hasText: '背包' }).first().click(); await settle();

@@ -59,6 +59,7 @@ export function Stat({ label, value, computed }: { label: string; value: number 
         </>
       ) : null}
       {computed.filter(c => c !== transcend && c !== modifier).map(c => <span key={c.label} {...part('computed')}>{c.label} {c.value}</span>)}
+      {computed.some(c => c.formula === 'cocHard') && !empty ? <span {...part('computed')}>极难 {Math.floor(value! / 5)}</span> : null}
     </div>
   );
 }

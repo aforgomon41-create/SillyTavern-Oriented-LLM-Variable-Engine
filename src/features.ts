@@ -8,6 +8,8 @@ const FORMULAS: Record<string, (value: number) => number> = {
   /** WOD / Infinite-horror transcendence: one point per five beyond the first five (5→0, 6→1, 11→2). */
   wodTranscend: value => value >= 1 ? Math.floor((value - 1) / 5) : 0,
   dndModifier: value => Math.floor((value - 10) / 2),
+  /** Call of Cthulhu: hard success target (half); the extreme one (a fifth) is shown by the status bar. */
+  cocHard: value => Math.floor(value / 2),
 };
 export function formulaName(formula: ComputedFormula): string {
   if (typeof formula === 'function') return 'runtime-bound-by-definition-version';

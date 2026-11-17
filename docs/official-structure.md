@@ -83,7 +83,7 @@
 | 键 | 名称 | 类型 | 子模块 |
 | --- | --- | --- | --- |
 | `rank` | 位阶 | 文字 | 由操作 LLM 依世界观推断 |
-| `attributes_dnd` / `attributes_wod` / `attributes_fate` / `attributes_fu` | 属性 | 见 4.4，四种体系互斥，同一时间只有开启的那一个 | 属性 |
+| `attributes_dnd` / `attributes_wod` / `attributes_fate` / `attributes_fu` / `attributes_coc` | 属性 | 见 4.4，五种体系互斥，同一时间只有开启的那一个 | 属性 |
 | `special` | 特殊属性 | 字典 `名称 → 文字、数字或 { value, max }` | 属性 |
 | `abilities` | 能力 | 引用字典 `能力 ID → { level?, progress? }` | 能力。能力本体在根节点 `abilities`（见 5.4），这里只写本人的等级与熟练度（0～100，锻炼和实战让它增长，满 100 等级加一并归零）；多人共有同一能力时引用同一个 ID |
 | `gauges` / `gaugesText` | 量表 | 字典 `名称 → { value, max }`（数值）或 `名称 → 一句描述`（描述） | 状态；两种写法由互斥组「量表与熟练度」决定 |
@@ -94,14 +94,15 @@
 
 ### 4.4 属性体系（互斥组 `attributes`）
 
-四种体系是一个**互斥组**（6.2）：玩家随时切换，同一时间只有一种开启；其余休眠，数据保留，LLM 看不到。所有属性都允许 `null`（空缺）。
+五种体系是一个**互斥组**（6.2）：玩家随时切换，同一时间只有一种开启；其余休眠，数据保留，LLM 看不到。所有属性都允许 `null`（空缺）。
 
 | 体系 | 键 | 值 | 状态栏 |
 | --- | --- | --- | --- |
 | `attributes_dnd` | `str dex con int wis cha` | 整数 0～30 或空缺；调整值 ⌊(值−10)/2⌋ 由引擎计算 | 数字 + 调整值小标 |
 | `attributes_wod` | 生理 `str dex sta`，心智 `int wits res`，互动 `pre man com` | 整数 ≥0，无上限，或空缺；**超凡** = 值≥1 时 ⌊(值−1)/5⌋，由引擎计算，模型可见、不可写 | 数字 + 超凡徽章 + 5 格进度（距下一点超凡） |
-| `attributes_fate` | `physique athletics melee shoot notice empathy rapport deceive provoke contacts investigate lore crafts burglary stealth drive resources will` | 阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX 或空缺 | 阶梯 |
+| `attributes_fate` | 身体 `physique athletics melee shoot`，心智 `notice investigate lore will`，社交 `empathy rapport deceive provoke`，技艺 `stealth burglary crafts medicine` | 阶梯 F/F+/E/E+/D/D+/C/C+/B/B+/A/A+/S/S+/EX 或空缺。去掉了 FATE 原有的人脉（关系由社交模块记）、财富（钱是货币物品）、驾驶（座驾是物品，骑乘驾车归运动），加上医术 | 阶梯，按四类分组 |
 | `attributes_fu` | `might dex insight will` | 弱/普通/优秀/卓越 或空缺（对应原规则 d6/d8/d10/d12，只在提示框显示） | 四格阶梯 |
+| `attributes_coc` | 身体 `str con siz dex app`，心智 `int pow edu luck` | 整数 ≥0 或空缺（克苏鲁的呼唤第七版，常人 15～90）；困难 ⌊值/2⌋ 由引擎计算（模型可见），极难 ⌊值/5⌋ 由状态栏显示。理智、生命、魔法用量表 | 数字 + 困难 / 极难小标 |
 
 WOD 兼容「无限恐怖」类规则：中后期一项属性可达几十点，因此只显示数字，不用圆点。超凡示例：5→0，6→1，10→1，11→2。
 
@@ -365,7 +366,7 @@ await SOLVE.register(SOLVE.compileStructure(SOLVE.officialStructure), { characte
 | `required` `optional` `nullable` `default` | 必填、可省略、可为空缺、默认值。未写时自动给默认值（文字 `''`、数值 0 或下限、枚举第一项、容器为空） |
 | `module` | 字段归属的模块（模块在 `modules` 中声明，可有 `parent`、`exclusive`）。可写数组：所有列出的模块都开启时字段才生效（如量表同时属于「状态」和「数值」） |
 | `list` | `{max, warn}` 清单上限与整理预警线 |
-| `computed` | `[{label, formula}]`，内置公式 `wodTranscend`、`dndModifier` |
+| `computed` | `[{label, formula}]`，内置公式 `wodTranscend`、`dndModifier`、`cocHard` |
 | `stamp` | 数组元素为 `{round, text}`，引擎自动填写轮次；模型可以直接写字符串 |
 | `sections` | 对象子字段的展示分组 `[{ label, keys }]`（只影响前端，不进入指纹）。官方结构：WOD 分 身体 / 心智 / 社交，DND 分 身体 / 心智 |
 | `hint` | 给模型的说明：写进 `{{solve_schema}}`（数据结构），跟在字段后面；没写时用 `desc`。字段所属模块关闭时连同字段一起不输出。跨字段的规则写在模块的 `guide` 或结构的 `guide` 里。不进入定义指纹 |

@@ -256,6 +256,7 @@ function StatGroups({ path }: { path: Path }) {
       ) : grid(keys)}
       {formulas.has('wodTranscend') ? <p {...part('note')}><b>✦ 超凡</b>：属性每满 5 点获得 1 点超凡（由引擎计算）；圆点是距离下一点超凡的进度。</p> : null}
       {formulas.has('dndModifier') ? <p {...part('note')}><b>调整值</b>：（属性 − 10）÷ 2 向下取整，用于检定加减。</p> : null}
+      {formulas.has('cocHard') ? <p {...part('note')}><b>困难 / 极难</b>：属性的一半 / 五分之一（向下取整），检定骰出不高于它算困难 / 极难成功。</p> : null}
     </div>
   );
 }

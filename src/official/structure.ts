@@ -19,6 +19,8 @@ const wod = (label: string): FieldNode => attribute(label, { min: 0, computed: [
 const dnd = (label: string): FieldNode => attribute(label, { min: 0, max: 30, computed: [{ label: '调整', formula: 'dndModifier' }] });
 const fate = (label: string): FieldNode => ladder(label, FATE);
 const fu = (label: string): FieldNode => ladder(label, FU);
+/** COC characteristic (常人 15–90): the hard target (½) is computed by the engine; the status bar adds extreme (⅕). */
+const coc = (label: string): FieldNode => attribute(label, { min: 0, computed: [{ label: '困难', formula: 'cocHard' }] });
 /**
  * Media link (image / music): shown by the status bar, kept out of both model views (it is not the model's to write).
  * Pictures come in pairs — `thumb` (avatars; may carry a `#xywh=percent:x,y,w,h` crop) and `image` (立绘 / full view);
@@ -139,11 +141,19 @@ const character: FieldNode = {
       str: wod('力量'), dex: wod('敏捷'), sta: wod('耐力'),
       int: wod('智力'), wits: wod('感知'), res: wod('决心'),
       pre: wod('风度'), man: wod('操控'), com: wod('沉着') } },
-    attributes_fate: { type: 'object', label: 'FATE 属性', module: 'attr_fate', fields: {
+    // FATE without 人脉 / 财富 / 驾驶 (relations, money items and vehicles are kept elsewhere) and with 医术: 4 × 4.
+    attributes_fate: { type: 'object', label: 'FATE 属性', module: 'attr_fate',
+      sections: [{ label: '身体', keys: ['physique', 'athletics', 'melee', 'shoot'] }, { label: '心智', keys: ['notice', 'investigate', 'lore', 'will'] },
+        { label: '社交', keys: ['empathy', 'rapport', 'deceive', 'provoke'] }, { label: '技艺', keys: ['stealth', 'burglary', 'crafts', 'medicine'] }], fields: {
       physique: fate('体格'), athletics: fate('运动'), melee: fate('近战'), shoot: fate('射击'),
-      notice: fate('察觉'), empathy: fate('共情'), rapport: fate('交际'), deceive: fate('欺诈'), provoke: fate('挑衅'), contacts: fate('人脉'),
-      investigate: fate('调查'), lore: fate('学识'), crafts: fate('工艺'), burglary: fate('盗窃'), stealth: fate('潜行'), drive: fate('驾驶'),
-      resources: fate('财富'), will: fate('意志') } },
+      notice: fate('察觉'), investigate: fate('调查'), lore: fate('学识'), will: fate('意志'),
+      empathy: fate('共情'), rapport: fate('交际'), deceive: fate('欺诈'), provoke: fate('挑衅'),
+      stealth: fate('潜行'), burglary: fate('盗窃'), crafts: fate('工艺'), medicine: fate('医术') } },
+    // Call of Cthulhu 7th edition characteristics; 理智 / 生命 / 魔法 are gauges.
+    attributes_coc: { type: 'object', label: 'COC 属性', module: 'attr_coc',
+      sections: [{ label: '身体', keys: ['str', 'con', 'siz', 'dex', 'app'] }, { label: '心智', keys: ['int', 'pow', 'edu', 'luck'] }], fields: {
+      str: coc('力量'), con: coc('体质'), siz: coc('体型'), dex: coc('敏捷'), app: coc('外貌'),
+      int: coc('智力'), pow: coc('意志'), edu: coc('教育'), luck: coc('幸运') } },
     attributes_fu: { type: 'object', label: 'FU 属性', module: 'attr_fu', fields: {
       might: fu('力量'), dex: fu('敏捷'), insight: fu('洞察'), will: fu('意志') } },
     special: { type: 'record', label: '特殊属性', module: 'rp_attributes', hint: '世界观特有的属性（如 魔力、灵根），键是属性名；和 attributes_* 同级，不要放进属性体系里', of: { type: 'oneOf', variants: [{ type: 'string' }, { type: 'number' }, gauge()] } },
@@ -188,7 +198,7 @@ const character: FieldNode = {
   },
 };
 
-const ATTRS = ['attributes_dnd', 'attributes_wod', 'attributes_fate', 'attributes_fu'];
+const ATTRS = ['attributes_dnd', 'attributes_wod', 'attributes_fate', 'attributes_fu', 'attributes_coc'];
 const DRIVE = ['longGoal', 'shortGoal', 'thoughts', 'plan'];
 /** Quest log: the two goal lines read as one entry. */
 const GOALS = [{ label: '目标', paths: ['longGoal', 'shortGoal'] }];
@@ -321,6 +331,8 @@ export const officialStructure: StructureDescription = {
     attr_wod: { label: 'WOD', parent: 'rp_attributes', exclusive: 'attributes', enabled: false, guide: 'WOD：每超过 5 点获得 1 点超凡（由引擎计算，不要写入）。' },
     attr_fate: { label: 'FATE', parent: 'rp_attributes', exclusive: 'attributes', enabled: false },
     attr_fu: { label: 'FU', parent: 'rp_attributes', exclusive: 'attributes', enabled: false },
+    attr_coc: { label: 'COC', parent: 'rp_attributes', exclusive: 'attributes', enabled: false,
+      guide: 'COC：属性按克苏鲁的呼唤第七版，常人 15～90；困难值（÷2）由引擎计算、极难值是属性÷5，都不要写入。理智、生命、魔法写在量表里（如 理智 {value, max}，起始理智等于意志）。' },
     rp_abilities: { label: '能力', parent: 'rp', guide: '能力：新能力先在 abilities 建实体，再加到角色的 abilities 下。玩家说要「开发」能力时，依剧情决定成果：为该能力补充更高等级的效果，或新建一个衍生能力。' },
     rp_status: { label: '状态', parent: 'rp', guide: '状态：新建角色时写上他主要的量表（如 生命）。' },
     scale_num: { label: '数值', parent: 'rp', exclusive: 'scales' },
