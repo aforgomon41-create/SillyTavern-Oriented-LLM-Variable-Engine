@@ -165,7 +165,8 @@ try {
 
   // 9. 背景音乐：情绪选曲、点击后播放
   const wav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-  await page.evaluate(url => SOLVE.bgm.addTracks([{ id: 'calm', url, moods: ['日常'] }]), wav);
+  // 只看玩家自己的曲目怎么按情绪选（默认曲库在 live-music 里验）
+  await page.evaluate(url => { SOLVE.bgm.setUseDefaults(false); SOLVE.bgm.addTracks([{ id: 'calm', url, moods: ['日常'] }]); }, wav);
   await page.mouse.click(5, 300);
   await page.waitForTimeout(2500);
   const music = await page.evaluate(() => SOLVE.bgm.status());

@@ -57,7 +57,7 @@ export class BgmPlayer {
   }
 
   private load(): Preferences {
-    const base: Preferences = { enabled: true, volume: 0.5, library: [], collections: [], active: 'default', defaults: true };
+    const base: Preferences = { enabled: true, volume: 0.5, library: [], collections: [], active: 'all', defaults: true };
     try {
       const raw = JSON.parse(this.scope.localStorage?.getItem(STORAGE_KEY) ?? 'null');
       if (raw && typeof raw === 'object') {
@@ -65,8 +65,8 @@ export class BgmPlayer {
         return {
           enabled: raw.enabled !== false, volume: clampVolume(raw.volume), library,
           collections: safeCollections(raw.collections), defaults: raw.defaults !== false,
-          // Players from before collections: their own tracks keep playing alongside the default library.
-          active: typeof raw.active === 'string' ? raw.active : library.length ? 'all' : 'default',
+          // Everything by default: the default library and the player's own tracks play together.
+          active: typeof raw.active === 'string' ? raw.active : 'all',
         };
       }
     } catch { /* fall back to defaults */ }
@@ -161,7 +161,7 @@ export class BgmPlayer {
   renameCollection(id: string, name: string): void { this.prefs.collections = this.prefs.collections.map(c => c.id === id ? { ...c, name: name.trim() || c.name } : c); this.save(); this.notify(); }
   deleteCollection(id: string): void {
     this.prefs.collections = this.prefs.collections.filter(c => c.id !== id);
-    if (this.prefs.active === id) this.prefs.active = this.prefs.defaults ? 'default' : 'all';
+    if (this.prefs.active === id) this.prefs.active = 'all';
     this.save(); this.sync();
   }
   /** Adds (or with remove, takes out) tracks of a collection. */

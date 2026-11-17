@@ -79,6 +79,7 @@ try {
   await setMood('日常');
   await page.waitForFunction(() => SOLVE.bgm.status().playing, null, { timeout: 30000 }).catch(() => undefined);
   st = await status();
+  check('播放来源默认是「全部曲目」（默认曲库 + 自己添加的）', st.active === 'all', st.active);
   check('按场景情绪自动播放默认曲库的曲子', st.selection.source === 'mood' && st.selection.track?.id.startsWith('solve:') && st.selection.track.moods.includes('日常') && st.playing, `${st.selection.track?.title} · playing=${st.playing}`);
   const head = await page.evaluate(async url => { const r = await fetch(url, { headers: { Range: 'bytes=0-1023' } }); return { status: r.status, type: r.headers.get('content-type'), len: (await r.arrayBuffer()).byteLength }; }, st.selection.url);
   check('音频文件可从外链下载（jsDelivr）', [200, 206].includes(head.status) && /audio|mpeg|octet/u.test(head.type ?? ''), `${head.status} ${head.type} · ${st.selection.url.slice(0, 90)}`);
@@ -161,7 +162,7 @@ try {
   await page.screenshot({ path: `${shots}/${tag}-music.png` });
   await bar.getByRole('button', { name: '删除', exact: true }).first().click(); await page.waitForTimeout(300);
   st = await status();
-  check('删除合集：曲目还在，播放来源回到默认曲库', !st.collections.length && st.library.player.some(t => t.id === mine.id) && st.active === 'default');
+  check('删除合集：曲目还在，播放来源回到全部曲目', !st.collections.length && st.library.player.some(t => t.id === mine.id) && st.active === 'all');
   await page.reload({ waitUntil: 'domcontentloaded' }); await ready();
   await page.evaluate(async a => { const ctx = SillyTavern.getContext(); await ctx.getCharacters(); await ctx.selectCharacterById(ctx.characters.findIndex(c => c.avatar === a)); }, avatar);
   await page.waitForFunction(() => SOLVE.controller?.getStatus()?.ready, null, { timeout: 90000 });
